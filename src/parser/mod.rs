@@ -52,33 +52,48 @@ pub enum Ast {
     Tree(Vec<Ast>),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum ParseAstError {
+    MissingClosingParen { open_idx: usize, end_idx: usize },
+    UnexpectedClosingParen { idx: usize },
+}
+
 impl Ast {
-    pub fn from_str(s: &str) -> Vec<Ast> {
+    /// Convert a string into an AST.
+    pub fn from_str(s: &str) -> Result<Vec<Ast>, ParseAstError> {
         let tokens = lexer::tokenize(s);
         Ast::from_tokens(tokens)
     }
 
-    pub fn from_tokens(tokens: impl Iterator<Item = Token<TokenType>>) -> Vec<Ast> {
+    /// Convert an iterator of tokens into an AST.
+    pub fn from_tokens(
+        tokens: impl Iterator<Item = Token<TokenType>>,
+    ) -> Result<Vec<Ast>, ParseAstError> {
         let mut tokens = tokens;
-        match Ast::from_tokens_impl(&mut tokens, false) {
+        match Ast::from_tokens_impl(&mut tokens, None)? {
             Ast::Root(_) => unreachable!(),
-            Ast::Tree(exprs) => exprs,
+            Ast::Tree(exprs) => Ok(exprs),
         }
     }
 
     fn from_tokens_impl(
         tokens: &mut impl Iterator<Item = Token<TokenType>>,
-        find_matching_paren: bool,
-    ) -> Ast {
+        opening_paren: Option<usize>,
+    ) -> Result<Ast, ParseAstError> {
         let mut children = Vec::new();
+        let mut end_idx = 0;
         while let Some(token) = tokens.next() {
+            end_idx = token.range.end;
             match token.item {
-                TokenType::LeftParen => children.push(Self::from_tokens_impl(tokens, true)),
+                TokenType::LeftParen => {
+                    children.push(Self::from_tokens_impl(tokens, Some(token.range.start))?)
+                }
                 TokenType::RightParen => {
-                    if find_matching_paren {
-                        return Ast::Tree(children);
-                    } else {
-                        todo!("Parse error, found unexpected closing ) paren.")
+                    return match opening_paren {
+                        Some(_) => Ok(Ast::Tree(children)),
+                        None => Err(ParseAstError::UnexpectedClosingParen {
+                            idx: token.range.start,
+                        }),
                     }
                 }
                 TokenType::Identifier(_)
@@ -87,10 +102,10 @@ impl Ast {
                 | TokenType::Float(_) => children.push(Ast::Root(token)),
             };
         }
-        if find_matching_paren {
-            todo!("Parse error, found no closing ) paren.")
+        match opening_paren {
+            Some(open_idx) => Err(ParseAstError::MissingClosingParen { open_idx, end_idx }),
+            None => Ok(Ast::Tree(children)),
         }
-        Ast::Tree(children)
     }
 }
 
@@ -104,7 +119,7 @@ mod tests {
         use Ast::*;
         use TokenType::*;
         assert_eq!(
-            Ast::from_str("1 1.0 \"hello\""),
+            Ast::from_str("1 1.0 \"hello\"").unwrap(),
             vec![
                 Root(Token {
                     item: Int(1,),
@@ -127,7 +142,7 @@ mod tests {
         use Ast::*;
         use TokenType::*;
         assert_eq!(
-            Ast::from_str("(1 2 3)"),
+            Ast::from_str("(1 2 3)").unwrap(),
             vec![Tree(vec![
                 Root(Token {
                     item: Int(1,),
@@ -147,7 +162,7 @@ mod tests {
 
     #[test]
     fn empty_list() {
-        assert_eq!(Ast::from_str("()"), vec![Ast::Tree(vec![])])
+        assert_eq!(Ast::from_str("()").unwrap(), vec![Ast::Tree(vec![])])
     }
 
     #[test]
@@ -155,7 +170,7 @@ mod tests {
         use Ast::*;
         use TokenType::*;
         assert_eq!(
-            Ast::from_str("(1 2 (3 4) (5))"),
+            Ast::from_str("(1 2 (3 4) (5))").unwrap(),
             vec![Tree(vec![
                 Root(Token {
                     item: Int(1),
@@ -181,5 +196,24 @@ mod tests {
                 }),]),
             ])]
         )
+    }
+
+    #[test]
+    fn no_matching_paren_is_err() {
+        assert_eq!(
+            Ast::from_str(" (1 2").unwrap_err(),
+            ParseAstError::MissingClosingParen {
+                open_idx: 1,
+                end_idx: 5
+            },
+        )
+    }
+
+    #[test]
+    fn unexpected_closing_paren_is_err() {
+        assert_eq!(
+            Ast::from_str("(1 2)) (2").unwrap_err(),
+            ParseAstError::UnexpectedClosingParen { idx: 5 },
+        );
     }
 }
