@@ -1,13 +1,16 @@
 # Spore
 
-A Steel maent for Rust interop.
+A Lisp meant for Rust interop.
 
 ## FAQ
 
-- Is this usable?
 
-> No, this is a toy.
+**Q: Is this usable?**
 
-- Why all the parens?
+> No, this is a toy project.
 
-> Parens are used in Lisp languages. Although not elegant, they are simple to use and allow me to focus on the VM implementation instead of designing the syntax.
+**Q: Why all the parentheses?**
+
+> Spore is a Lisp which means it uses parentheses. While they may not
+> be elegant, they are simple to use and allow me to work on the VM
+> insted of designing the syntax.
