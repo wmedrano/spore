@@ -4,10 +4,10 @@ A Steel maent for Rust interop.
 
 ## FAQ
 
-- Can I use this yet?
+- Is this usable?
 
-> No
+> No, this is a toy.
 
 - Why all the parens?
 
-> Parens are used by Lisps. Although some may not find the syntax pleasant to read, it is simple and easy to implement.
+> Parens are used in Lisp languages. Although not elegant, they are simple to use and allow me to focus on the VM implementation instead of designing the syntax.
