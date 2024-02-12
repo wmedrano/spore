@@ -1,6 +1,14 @@
 # Spore
 
-A Lisp meant for Rust interop.
+An interpretted programming language used for Rust.
+
+## Getting Started
+
+### Repl
+
+```shell
+cargo run --example spore
+```
 
 ## FAQ
 

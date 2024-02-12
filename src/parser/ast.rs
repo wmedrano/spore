@@ -4,13 +4,13 @@ use super::token::{Token, TokenType};
 #[derive(Debug, PartialEq)]
 pub enum Ast {
     /// Signifies this is a root node.
-    Root(Token<AstRoot>),
+    Leaf(Token<AstLeaf>),
     /// Signifies that this is a tree with the given children.
     Tree(Vec<Ast>),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AstRoot {
+pub enum AstLeaf {
     Identifier(String),
     String(String),
     Float(f64),
@@ -30,7 +30,7 @@ pub enum ParseAstError {
 
 impl Ast {
     /// Convert a string into an AST.
-    pub fn from_str(s: &str) -> Result<Vec<Ast>, ParseAstError> {
+    pub fn from_sexp_str(s: &str) -> Result<Vec<Ast>, ParseAstError> {
         let tokens = crate::parser::lexer::tokenize(s);
         Ast::from_tokens(tokens)
     }
@@ -40,10 +40,7 @@ impl Ast {
         tokens: impl Iterator<Item = Token<TokenType>>,
     ) -> Result<Vec<Ast>, ParseAstError> {
         let mut tokens = tokens;
-        match Ast::from_tokens_impl(&mut tokens, None)? {
-            Ast::Root(_) => unreachable!(),
-            Ast::Tree(exprs) => Ok(exprs),
-        }
+        Ast::from_tokens_impl(&mut tokens, None)
     }
 
     /// Convert an iterator over `Token`s into an `Ast`.
@@ -55,18 +52,21 @@ impl Ast {
     fn from_tokens_impl(
         tokens: &mut impl Iterator<Item = Token<TokenType>>,
         opening_paren: Option<usize>,
-    ) -> Result<Ast, ParseAstError> {
-        let mut children = Vec::new();
+    ) -> Result<Vec<Ast>, ParseAstError> {
+        let mut exprs = Vec::new();
         let mut end_idx = 0;
         while let Some(token) = tokens.next() {
             end_idx = token.range.end;
+            // LeftParen  - Start parsing a sub expression and add it as a subtree.
+            // RightParen - End parsing of a sub expression and returns the results.
+            // Literals   - Add the atom as a leaf node.
             match &token.item {
                 TokenType::LeftParen => {
                     let sub_ast = Self::from_tokens_impl(tokens, Some(token.range.start))?;
-                    children.push(sub_ast);
+                    exprs.push(Ast::Tree(sub_ast));
                 }
                 TokenType::RightParen => match opening_paren {
-                    Some(_) => return Ok(Ast::Tree(children)),
+                    Some(_) => return Ok(exprs),
                     None => {
                         return Err(ParseAstError::UnexpectedClosingParen {
                             idx: token.range.start,
@@ -83,20 +83,18 @@ impl Ast {
                             range: token.range,
                         }));
                     }
-                    children.push(Ast::Root(token.with_item(AstRoot::Identifier(s.clone()))));
+                    exprs.push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone()))));
                 }
                 TokenType::String(s) => {
-                    children.push(Ast::Root(token.with_item(AstRoot::String(s.clone()))));
+                    exprs.push(Ast::Leaf(token.with_item(AstLeaf::String(s.clone()))));
                 }
-                TokenType::Int(v) => children.push(Ast::Root(token.with_item(AstRoot::Int(*v)))),
-                TokenType::Float(v) => {
-                    children.push(Ast::Root(token.with_item(AstRoot::Float(*v))))
-                }
+                TokenType::Int(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
+                TokenType::Float(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
             };
         }
         match opening_paren {
             Some(open_idx) => Err(ParseAstError::MissingClosingParen { open_idx, end_idx }),
-            None => Ok(Ast::Tree(children)),
+            None => Ok(exprs),
         }
     }
 }
@@ -109,19 +107,19 @@ mod tests {
     #[test]
     fn parse_multiple() {
         use Ast::*;
-        use AstRoot::*;
+        use AstLeaf::*;
         assert_eq!(
-            Ast::from_str("1 1.0 \"hello\"").unwrap(),
+            Ast::from_sexp_str("1 1.0 \"hello\"").unwrap(),
             vec![
-                Root(Token {
+                Leaf(Token {
                     item: Int(1,),
                     range: 0..1,
                 }),
-                Root(Token {
+                Leaf(Token {
                     item: Float(1.0),
                     range: 2..5,
                 }),
-                Root(Token {
+                Leaf(Token {
                     item: String("hello".to_string()),
                     range: 6..13,
                 }),
@@ -132,19 +130,19 @@ mod tests {
     #[test]
     fn parse_list() {
         use Ast::*;
-        use AstRoot::*;
+        use AstLeaf::*;
         assert_eq!(
-            Ast::from_str("(1 2 3)").unwrap(),
+            Ast::from_sexp_str("(1 2 3)").unwrap(),
             vec![Tree(vec![
-                Root(Token {
+                Leaf(Token {
                     item: Int(1,),
                     range: 1..2,
                 }),
-                Root(Token {
+                Leaf(Token {
                     item: Int(2,),
                     range: 3..4,
                 }),
-                Root(Token {
+                Leaf(Token {
                     item: Int(3,),
                     range: 5..6,
                 }),
@@ -154,35 +152,35 @@ mod tests {
 
     #[test]
     fn empty_list() {
-        assert_eq!(Ast::from_str("()").unwrap(), vec![Ast::Tree(vec![])])
+        assert_eq!(Ast::from_sexp_str("()").unwrap(), vec![Ast::Tree(vec![])])
     }
 
     #[test]
     fn nested_lists() {
         use Ast::*;
-        use AstRoot::*;
+        use AstLeaf::*;
         assert_eq!(
-            Ast::from_str("(1 2 (3 4) (5))").unwrap(),
+            Ast::from_sexp_str("(1 2 (3 4) (5))").unwrap(),
             vec![Tree(vec![
-                Root(Token {
+                Leaf(Token {
                     item: Int(1),
                     range: 1..2
                 }),
-                Root(Token {
+                Leaf(Token {
                     item: Int(2),
                     range: 3..4,
                 }),
                 Tree(vec![
-                    Root(Token {
+                    Leaf(Token {
                         item: Int(3),
                         range: 6..7,
                     }),
-                    Root(Token {
+                    Leaf(Token {
                         item: Int(4),
                         range: 8..9,
                     }),
                 ]),
-                Tree(vec![Root(Token {
+                Tree(vec![Leaf(Token {
                     item: Int(5),
                     range: 12..13,
                 }),]),
@@ -193,7 +191,7 @@ mod tests {
     #[test]
     fn no_matching_paren_is_err() {
         assert_eq!(
-            Ast::from_str(" (1 2").unwrap_err(),
+            Ast::from_sexp_str(" (1 2").unwrap_err(),
             ParseAstError::MissingClosingParen {
                 open_idx: 1,
                 end_idx: 5
@@ -204,7 +202,7 @@ mod tests {
     #[test]
     fn unexpected_closing_paren_is_err() {
         assert_eq!(
-            Ast::from_str("(1 2)) (2").unwrap_err(),
+            Ast::from_sexp_str("(1 2)) (2").unwrap_err(),
             ParseAstError::UnexpectedClosingParen { idx: 5 },
         );
     }
@@ -212,7 +210,7 @@ mod tests {
     #[test]
     fn no_closing_quote_is_err() {
         assert_eq!(
-            Ast::from_str("\"hello").unwrap_err(),
+            Ast::from_sexp_str("\"hello").unwrap_err(),
             ParseAstError::InvalidIdentifier(Token {
                 item: "\"hello".to_string(),
                 range: 0..6,

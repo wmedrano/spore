@@ -5,7 +5,7 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
     let mut chars = text.char_indices().peekable();
     std::iter::from_fn(move || {
         // 1. Skip all the whitespace.
-        while let Some(_) = chars.next_if(|(_, ch)| ch.is_whitespace()) {}
+        while chars.next_if(|(_, ch)| ch.is_whitespace()).is_some() {}
         // 2. Get the start position or return immediately if it is paren.
         let (start, initial_char) = chars.next()?;
         let is_string = match classify_char(initial_char) {

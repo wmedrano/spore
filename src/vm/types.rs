@@ -13,7 +13,23 @@ pub enum Val {
 
 impl AsRef<Val> for Val {
     fn as_ref(&self) -> &Val {
-        &self
+        self
+    }
+}
+
+impl Val {
+    pub fn display_string(&self) -> String {
+        match self {
+            Val::Void => "<void>".to_string(),
+            Val::String(x) => format!("{:?}", x),
+            Val::Symbol(x) => format!("'{}", x.0),
+            Val::Number(x) => match x {
+                Number::Int(x) => format!("{x}"),
+                Number::Float(x) => format!("{x}"),
+            },
+            Val::Function(x) => format!("{:?}", x),
+            Val::List(xs) => format!("{:?}", xs),
+        }
     }
 }
 
@@ -55,13 +71,23 @@ impl<'a> From<&'a str> for Symbol {
     }
 }
 
+impl Symbol {
+    /// Get the symbol as a string.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+type GenericFunction = dyn 'static + Send + Sync + Fn(&[Val]) -> Val;
+
 /// A function.
 #[repr(transparent)]
 pub struct Function {
-    f: Box<dyn Send + Sync + Fn(&[Val]) -> Val>,
+    f: Box<GenericFunction>,
 }
 
 impl Function {
+    /// Create a new function.
     pub fn new(f: impl 'static + Send + Sync + Fn(&[Val]) -> Val) -> Arc<Function> {
         Arc::new(Function { f: Box::new(f) })
     }
@@ -76,7 +102,7 @@ impl Function {
 
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
-        (self.f.as_ref() as *const _) == (other.f.as_ref() as *const _)
+        std::ptr::eq(self.f.as_ref(), other.f.as_ref())
     }
 }
 

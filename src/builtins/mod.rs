@@ -38,7 +38,7 @@ fn add_fn(args: &[Val]) -> Val {
 fn sub_fn(args: &[Val]) -> Val {
     match args {
         [] => todo!(),
-        [x] => negate(&x),
+        [x] => negate(x),
         [x, ys @ ..] => {
             let sub_part = add_fn(ys);
             add_two(x, &negate(&sub_part))

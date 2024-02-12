@@ -1,4 +1,4 @@
-use crate::parser::ast::{Ast, AstRoot};
+use crate::parser::ast::{Ast, AstLeaf};
 
 use super::{
     types::{Number, Symbol, Val},
@@ -11,7 +11,7 @@ pub struct Expr<T: AsRef<Val>>(T);
 impl Expr<Val> {
     /// Evaluate a string.
     pub fn eval_str(s: &str) -> Vec<Val> {
-        Ast::from_str(s)
+        Ast::from_sexp_str(s)
             .unwrap()
             .iter()
             .map(Expr::from_ast)
@@ -22,11 +22,11 @@ impl Expr<Val> {
     /// Converts an AST into an expression.
     pub fn from_ast(ast: &Ast) -> Expr<Val> {
         let expr = match ast {
-            Ast::Root(n) => match &n.item {
-                AstRoot::Identifier(ident) => Symbol::from(ident.as_str()).into(),
-                AstRoot::String(s) => s.clone().into(),
-                AstRoot::Float(f) => Number::Float(*f).into(),
-                AstRoot::Int(i) => Number::Int(*i).into(),
+            Ast::Leaf(n) => match &n.item {
+                AstLeaf::Identifier(ident) => Symbol::from(ident.as_str()).into(),
+                AstLeaf::String(s) => s.clone().into(),
+                AstLeaf::Float(f) => Number::Float(*f).into(),
+                AstLeaf::Int(i) => Number::Int(*i).into(),
             },
             Ast::Tree(children) => {
                 let list: Vec<Val> = children.iter().map(Self::from_ast).map(|bc| bc.0).collect();
@@ -47,7 +47,10 @@ impl<T: AsRef<Val>> Expr<T> {
                 [func, args @ ..] => {
                     let f = match func {
                         Val::Symbol(f_symbol) => {
-                            vm.get_function(f_symbol).expect("Symbol not found")
+                            match vm.get_value(f_symbol).expect("Symbol not found") {
+                                Val::Function(f) => f,
+                                _ => todo!(),
+                            }
                         }
                         Val::Function(f) => f.clone(),
                         _ => todo!("provide error message"),

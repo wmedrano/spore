@@ -11,12 +11,12 @@ use self::{
 mod expr;
 pub mod types;
 
-type FunctionRegistry = Mutex<HashMap<Symbol, Arc<Function>>>;
+type ValueRegistry = Mutex<HashMap<Symbol, Val>>;
 
 /// The spore virtual machine.
 // Note: You typically use the global instance of the VM by calling / `Vm::singleton`.
 pub struct Vm {
-    functions: FunctionRegistry,
+    functions: ValueRegistry,
 }
 
 impl Vm {
@@ -32,7 +32,7 @@ impl Vm {
     }
 
     /// Get a registered function.
-    pub fn get_function(&self, f: &Symbol) -> Option<Arc<Function>> {
+    pub fn get_value(&self, f: &Symbol) -> Option<Val> {
         let registry = self.functions.lock().unwrap();
         registry.get(f).cloned()
     }
@@ -41,15 +41,20 @@ impl Vm {
     pub fn register_fns(&self, fns: impl Iterator<Item = (Symbol, Arc<Function>)>) {
         let mut registry = self.functions.lock().unwrap();
         for (name, f) in fns {
-            let old_definition = registry.insert(name, f);
-            assert_eq!(old_definition, None, "Found duplicate definition.");
+            let old_definition = registry.insert(name.clone(), Val::Function(f));
+            assert_eq!(
+                old_definition,
+                None,
+                "Found duplicate definition for {name}.",
+                name = name.as_str(),
+            );
         }
     }
 
     /// Create a new `Vm` with all the builtins.
     fn with_builtins() -> Vm {
         let vm = Vm {
-            functions: FunctionRegistry::new(HashMap::new()),
+            functions: ValueRegistry::new(HashMap::new()),
         };
         crate::builtins::register_all(&vm);
         vm
