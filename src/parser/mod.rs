@@ -36,8 +36,12 @@ impl<T> Token<T> {
     /// Transform the item using function `f`.
     pub fn map<V>(&self, f: impl Fn(&T) -> V) -> Token<V> {
         let item = f(&self.item);
+        self.with_item(item)
+    }
+
+    pub fn with_item<V>(&self, v: V) -> Token<V> {
         Token {
-            item,
+            item: v,
             range: self.range.clone(),
         }
     }
@@ -47,9 +51,17 @@ impl<T> Token<T> {
 #[derive(Debug, PartialEq)]
 pub enum Ast {
     /// Signifies this is a root node.
-    Root(Token<TokenType>),
+    Root(Token<AstRoot>),
     /// Signifies that this is a tree with the given children.
     Tree(Vec<Ast>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum AstRoot {
+    Identifier(String),
+    String(String),
+    Float(f64),
+    Int(isize),
 }
 
 /// Holds a parse error.
@@ -118,10 +130,14 @@ impl Ast {
                             range: token.range,
                         }));
                     }
-                    children.push(Ast::Root(token));
+                    children.push(Ast::Root(token.with_item(AstRoot::Identifier(s.clone()))));
                 }
-                TokenType::String(_) | TokenType::Int(_) | TokenType::Float(_) => {
-                    children.push(Ast::Root(token))
+                TokenType::String(s) => {
+                    children.push(Ast::Root(token.with_item(AstRoot::String(s.clone()))));
+                }
+                TokenType::Int(v) => children.push(Ast::Root(token.with_item(AstRoot::Int(*v)))),
+                TokenType::Float(v) => {
+                    children.push(Ast::Root(token.with_item(AstRoot::Float(*v))))
                 }
             };
         }
@@ -140,7 +156,7 @@ mod tests {
     #[test]
     fn parse_multiple() {
         use Ast::*;
-        use TokenType::*;
+        use AstRoot::*;
         assert_eq!(
             Ast::from_str("1 1.0 \"hello\"").unwrap(),
             vec![
@@ -163,7 +179,7 @@ mod tests {
     #[test]
     fn parse_list() {
         use Ast::*;
-        use TokenType::*;
+        use AstRoot::*;
         assert_eq!(
             Ast::from_str("(1 2 3)").unwrap(),
             vec![Tree(vec![
@@ -191,7 +207,7 @@ mod tests {
     #[test]
     fn nested_lists() {
         use Ast::*;
-        use TokenType::*;
+        use AstRoot::*;
         assert_eq!(
             Ast::from_str("(1 2 (3 4) (5))").unwrap(),
             vec![Tree(vec![
