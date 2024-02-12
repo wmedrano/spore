@@ -1,2 +1,8 @@
+/// Built in functions and values.
+pub mod builtins;
+
+/// Parse strings into tokens and ASTs.
 pub mod parser;
-pub mod types;
+
+/// The virtual machine. The heart of the Spore interpreter.
+pub mod vm;

@@ -1,4 +1,7 @@
-use super::{scanner::scan, Token, TokenType};
+use super::{
+    scanner::scan,
+    token::{Token, TokenType},
+};
 
 /// Converts a string into an iterator of tokens.
 pub fn tokenize(s: &str) -> impl '_ + Iterator<Item = Token<TokenType>> {

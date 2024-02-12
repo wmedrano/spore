@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use crate::parser::{Ast, AstRoot};
-
 /// Contains a single value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
@@ -11,6 +9,12 @@ pub enum Val {
     Number(Number),
     Function(Arc<Function>),
     List(Box<Vec<Val>>),
+}
+
+impl AsRef<Val> for Val {
+    fn as_ref(&self) -> &Val {
+        &self
+    }
 }
 
 macro_rules! impl_enum_from {
@@ -29,24 +33,6 @@ impl_enum_from!(Val, Number => Number);
 impl_enum_from!(Val, Function => Function);
 impl_enum_from!(Val, Vec<Val> => List);
 
-impl Val {
-    // Create a new value from an AST.
-    pub fn from_ast(ast: &Ast) -> Val {
-        match ast {
-            Ast::Root(n) => match &n.item {
-                AstRoot::Identifier(ident) => Symbol(ident.clone().into()).into(),
-                AstRoot::String(s) => s.clone().into(),
-                AstRoot::Float(f) => Number::Float(*f).into(),
-                AstRoot::Int(i) => Number::Int(*i).into(),
-            },
-            Ast::Tree(children) => {
-                let list: Vec<_> = children.iter().map(Val::from_ast).collect();
-                list.into()
-            }
-        }
-    }
-}
-
 /// A number value.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Number {
@@ -60,18 +46,24 @@ impl_enum_from!(Number, isize => Int);
 impl_enum_from!(Number, f64 => Float);
 
 /// A symbol.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub struct Symbol(Arc<String>);
+
+impl<'a> From<&'a str> for Symbol {
+    fn from(s: &'a str) -> Symbol {
+        Symbol(Arc::new(s.to_string()))
+    }
+}
 
 /// A function.
 #[repr(transparent)]
 pub struct Function {
-    f: Box<dyn Fn(&[Val]) -> Val>,
+    f: Box<dyn Send + Sync + Fn(&[Val]) -> Val>,
 }
 
-impl<F: 'static + Fn(&[Val]) -> Val> From<F> for Function {
-    fn from(f: F) -> Function {
-        Function { f: Box::new(f) }
+impl Function {
+    pub fn new(f: impl 'static + Send + Sync + Fn(&[Val]) -> Val) -> Arc<Function> {
+        Arc::new(Function { f: Box::new(f) })
     }
 }
 
@@ -83,8 +75,8 @@ impl Function {
 }
 
 impl PartialEq for Function {
-    fn eq(&self, _: &Self) -> bool {
-        false
+    fn eq(&self, other: &Self) -> bool {
+        (self.f.as_ref() as *const _) == (other.f.as_ref() as *const _)
     }
 }
 
@@ -101,11 +93,6 @@ impl std::fmt::Debug for Function {
 mod tests {
     use super::*;
     use pretty_assertions::{assert_eq, assert_ne};
-
-    fn val_from_str(s: &str) -> Val {
-        let ast = Ast::from_str(s).unwrap();
-        Val::from_ast(&Ast::Tree(ast))
-    }
 
     #[test]
     fn val_size_is_2_words() {
@@ -126,18 +113,19 @@ mod tests {
     }
 
     #[test]
-    fn val_from_ast() {
-        assert_eq!(
-            val_from_str("(1 2.0 \"hello\") ()"),
-            Val::List(Box::new(vec![
-                vec![
-                    Number::Int(1).into(),
-                    Number::Float(2.0).into(),
-                    "hello".to_string().into(),
-                ]
-                .into(),
-                Val::List(Box::new(vec![]))
-            ]))
-        );
+    fn functions_pointing_to_same_impl_are_eq() {
+        let noop = |_: &[Val]| Val::Void;
+        let a = Function::new(noop);
+        let b = Function::new(noop);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn functions_pointing_to_different_impl_are_not_eq() {
+        // Note: The return values are different so that the Rust optimizer doesn't unify their
+        // implementations.
+        let a = Function::new(|_: &[Val]| Val::Void);
+        let b = Function::new(|_: &[Val]| Val::String(Arc::new("".to_string())));
+        assert_ne!(a, b);
     }
 }

@@ -12,5 +12,5 @@ A Lisp meant for Rust interop.
 **Q: Why all the parentheses?**
 
 > Spore is a Lisp which means it uses parentheses. While they may not
-> be elegant, they are simple to use and allow me to work on the VM
-> insted of designing the syntax.
+> be elegant, they are simple to use. The simple syntax also allows me
+> to focus more on the VM.

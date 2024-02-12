@@ -1,4 +1,4 @@
-use super::Token;
+use super::token::Token;
 
 /// Scan text and return a stream of tokens.
 pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
