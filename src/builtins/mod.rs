@@ -1,5 +1,7 @@
+use anyhow::{bail, Result};
+
 use crate::vm::{
-    types::{Function, Number, Symbol, Val},
+    types::{Number, Procedure, Val},
     Vm,
 };
 
@@ -7,19 +9,30 @@ use crate::vm::{
 pub fn register_all(vm: &Vm) {
     vm.register_fns(
         [
-            (Symbol::from("+"), Function::new(add_fn)),
-            (Symbol::from("-"), Function::new(sub_fn)),
-            (Symbol::from("*"), Function::new(multiply_fn)),
-            (Symbol::from("/"), Function::new(divide_fn)),
-            (Symbol::from("list"), Function::new(list_fn)),
+            Procedure::new(Some("+"), add_fn),
+            Procedure::new(Some("-"), sub_fn),
+            Procedure::new(Some("*"), multiply_fn),
+            Procedure::new(Some("/"), divide_fn),
+            Procedure::new(Some("list"), list_fn),
         ]
         .into_iter(),
     )
 }
 
+fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
+    for arg in args {
+        match arg {
+            Val::Number(_) => (),
+            _ => bail!("{op} expected number but got {arg}",),
+        }
+    }
+    Ok(())
+}
+
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.
-fn add_fn(args: &[Val]) -> Val {
-    match args {
+fn add_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("+", args)?;
+    let res = match args {
         [] => Number::Int(0).into(),
         [x] => x.clone(),
         [x, y] => add_two(x, y),
@@ -30,38 +43,43 @@ fn add_fn(args: &[Val]) -> Val {
             }
             res
         }
-    }
+    };
+    Ok(res)
 }
 
 /// Subtract from the first argument all the rest of the arguments. If there is only a single
 /// argument, then it is negated.
-fn sub_fn(args: &[Val]) -> Val {
-    match args {
-        [] => todo!(),
+fn sub_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("-", args)?;
+    let res = match args {
+        [] => bail!("- requires at least 1 arg"),
         [x] => negate(x),
         [x, ys @ ..] => {
-            let sub_part = add_fn(ys);
+            let sub_part = add_fn(ys)?;
             add_two(x, &negate(&sub_part))
         }
-    }
+    };
+    Ok(res)
 }
 
 /// Divide the first argument by the rest of the arguments. If only a single argument is provided,
 /// then the reciprocal of it is returned.
-fn divide_fn(args: &[Val]) -> Val {
+fn divide_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("/", args)?;
     match args {
-        [] => todo!(),
-        [x] => reciprocal(x),
+        [] => bail!("/ requires at least 1 arg"),
+        [x] => Ok(reciprocal(x)),
         [x, ys @ ..] => {
-            let denom = multiply_fn(ys);
-            multiply_two(x, &reciprocal(&denom))
+            let denom = multiply_fn(ys)?;
+            Ok(multiply_two(x, &reciprocal(&denom)))
         }
     }
 }
 
 /// Multiply all arguments in `args`. If there are no values, then `1` is returned.
-fn multiply_fn(args: &[Val]) -> Val {
-    match args {
+fn multiply_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("*", args)?;
+    let res = match args {
         [] => Number::Int(1).into(),
         [x] => x.clone(),
         [x, y] => multiply_two(x, y),
@@ -72,13 +90,14 @@ fn multiply_fn(args: &[Val]) -> Val {
             }
             res
         }
-    }
+    };
+    Ok(res)
 }
 
 /// Return `args` as a list.
-fn list_fn(args: &[Val]) -> Val {
+fn list_fn(args: &[Val]) -> Result<Val> {
     let items = Vec::from_iter(args.iter().cloned());
-    items.into()
+    Ok(items.into())
 }
 
 fn negate(x: &Val) -> Val {
@@ -87,17 +106,14 @@ fn negate(x: &Val) -> Val {
             Number::Int(x) => Number::Int(-x).into(),
             Number::Float(x) => Number::Float(-x).into(),
         },
-        _ => todo!(),
+        _ => unreachable!(),
     }
 }
 
 fn reciprocal(x: &Val) -> Val {
     match x {
-        Val::Number(x) => match x {
-            Number::Float(x) => Number::Float(x.recip()).into(),
-            _ => todo!(),
-        },
-        _ => todo!(),
+        Val::Number(Number::Float(x)) => Number::Float(x.recip()).into(),
+        _ => unreachable!(),
     }
 }
 
@@ -110,7 +126,7 @@ fn add_two(x: &Val, y: &Val) -> Val {
                 Number::Float(*x as f64 + y).into()
             }
         },
-        (x, y) => todo!("{:?} {:?}", x, y),
+        _ => unreachable!(),
     }
 }
 
@@ -123,6 +139,6 @@ fn multiply_two(x: &Val, y: &Val) -> Val {
                 Number::Float(*x as f64 * y).into()
             }
         },
-        (x, y) => todo!("{:?} {:?}", x, y),
+        _ => unreachable!(),
     }
 }

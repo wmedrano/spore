@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::sync::Arc;
 
 /// Contains a single value.
@@ -7,7 +8,7 @@ pub enum Val {
     String(Arc<String>),
     Symbol(Symbol),
     Number(Number),
-    Function(Arc<Function>),
+    Proc(Arc<Procedure>),
     List(Box<Vec<Val>>),
 }
 
@@ -17,18 +18,28 @@ impl AsRef<Val> for Val {
     }
 }
 
-impl Val {
-    pub fn display_string(&self) -> String {
+impl std::fmt::Display for Val {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Val::Void => "<void>".to_string(),
-            Val::String(x) => format!("{:?}", x),
-            Val::Symbol(x) => format!("'{}", x.0),
+            Val::Void => write!(f, "<void>"),
+            Val::String(x) => write!(f, "{:?}", x),
+            Val::Symbol(x) => write!(f, "'{}", x.0),
             Val::Number(x) => match x {
-                Number::Int(x) => format!("{x}"),
-                Number::Float(x) => format!("{x}"),
+                Number::Int(x) => write!(f, "{x}"),
+                Number::Float(x) => write!(f, "{x}"),
             },
-            Val::Function(x) => format!("{:?}", x),
-            Val::List(xs) => format!("{:?}", xs),
+            Val::Proc(x) => write!(f, "{:?}", x),
+            Val::List(xs) => {
+                write!(f, "(")?;
+                let mut items = xs.iter();
+                if let Some(item) = items.next() {
+                    write!(f, "{item}")?;
+                }
+                for item in items {
+                    write!(f, " {item}")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -46,7 +57,7 @@ macro_rules! impl_enum_from {
 impl_enum_from!(Val, String => String);
 impl_enum_from!(Val, Symbol => Symbol);
 impl_enum_from!(Val, Number => Number);
-impl_enum_from!(Val, Function => Function);
+impl_enum_from!(Val, Procedure => Proc);
 impl_enum_from!(Val, Vec<Val> => List);
 
 /// A number value.
@@ -78,40 +89,59 @@ impl Symbol {
     }
 }
 
-type GenericFunction = dyn 'static + Send + Sync + Fn(&[Val]) -> Val;
+type GenericFunction = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
 
 /// A function.
-#[repr(transparent)]
-pub struct Function {
+pub struct Procedure {
+    name: Option<Symbol>,
     f: Box<GenericFunction>,
 }
 
-impl Function {
+impl Procedure {
     /// Create a new function.
-    pub fn new(f: impl 'static + Send + Sync + Fn(&[Val]) -> Val) -> Arc<Function> {
-        Arc::new(Function { f: Box::new(f) })
+    pub fn new<S: Into<Symbol>, F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
+        name: Option<S>,
+        f: F,
+    ) -> Arc<Procedure> {
+        let f = Box::new(f);
+        let name = name.map(|n| n.into());
+        Arc::new(Procedure { name, f })
+    }
+
+    pub fn name(&self) -> Option<&Symbol> {
+        self.name.as_ref()
     }
 }
 
-impl Function {
+impl Procedure {
     /// Evaluate the function with the given arguments.
-    pub fn eval(&self, args: &[Val]) -> Val {
+    pub fn eval(&self, args: &[Val]) -> Result<Val> {
         self.f.as_ref()(args)
     }
 }
 
-impl PartialEq for Function {
+impl PartialEq for Procedure {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self.f.as_ref(), other.f.as_ref())
     }
 }
 
-impl std::fmt::Debug for Function {
+impl std::fmt::Debug for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ptr: *const _ = self.f.as_ref();
         f.debug_struct("Function")
+            .field("name", &self.name)
             .field("fn_ptr", &ptr)
             .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for Procedure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.name.as_ref() {
+            Some(name) => write!(f, "<proc {name}>", name = name.as_str()),
+            None => write!(f, "<proc _>"),
+        }
     }
 }
 
@@ -140,9 +170,9 @@ mod tests {
 
     #[test]
     fn functions_pointing_to_same_impl_are_eq() {
-        let noop = |_: &[Val]| Val::Void;
-        let a = Function::new(noop);
-        let b = Function::new(noop);
+        let noop = |_: &[Val]| Ok(Val::Void);
+        let a = Procedure::new(Some("noop"), noop);
+        let b = Procedure::new(Some("noop"), noop);
         assert_eq!(a, b);
     }
 
@@ -150,8 +180,10 @@ mod tests {
     fn functions_pointing_to_different_impl_are_not_eq() {
         // Note: The return values are different so that the Rust optimizer doesn't unify their
         // implementations.
-        let a = Function::new(|_: &[Val]| Val::Void);
-        let b = Function::new(|_: &[Val]| Val::String(Arc::new("".to_string())));
+        let a = Procedure::new(Some("void"), |_: &[Val]| Ok(Val::Void));
+        let b = Procedure::new(Some("make-string"), |_: &[Val]| {
+            Ok(Val::String(Arc::new("".to_string())))
+        });
         assert_ne!(a, b);
     }
 }

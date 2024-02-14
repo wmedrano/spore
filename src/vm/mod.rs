@@ -3,12 +3,9 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use self::{
-    expr::Expr,
-    types::{Function, Symbol, Val},
-};
+use self::types::{Procedure, Symbol, Val};
 
-mod expr;
+pub mod expr;
 pub mod types;
 
 type ValueRegistry = Mutex<HashMap<Symbol, Val>>;
@@ -26,11 +23,6 @@ impl Vm {
         INITIALIZER.get_or_init(Self::with_builtins)
     }
 
-    /// Evaluate a string and return the values of the resulting expressions.
-    pub fn eval_str(s: &str) -> Vec<Val> {
-        Expr::eval_str(s)
-    }
-
     /// Get a registered function.
     pub fn get_value(&self, f: &Symbol) -> Option<Val> {
         let registry = self.functions.lock().unwrap();
@@ -38,10 +30,11 @@ impl Vm {
     }
 
     /// Register functions into the VM.
-    pub fn register_fns(&self, fns: impl Iterator<Item = (Symbol, Arc<Function>)>) {
+    pub fn register_fns(&self, fns: impl Iterator<Item = Arc<Procedure>>) {
         let mut registry = self.functions.lock().unwrap();
-        for (name, f) in fns {
-            let old_definition = registry.insert(name.clone(), Val::Function(f));
+        for f in fns {
+            let name = f.name().unwrap().clone();
+            let old_definition = registry.insert(name.clone(), Val::Proc(f));
             assert_eq!(
                 old_definition,
                 None,

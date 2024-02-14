@@ -40,7 +40,7 @@ impl Ast {
         tokens: impl Iterator<Item = Token<TokenType>>,
     ) -> Result<Vec<Ast>, ParseAstError> {
         let mut tokens = tokens;
-        Ast::from_tokens_impl(&mut tokens, None)
+        Ast::from_tokens_impl(&mut tokens, None, 0)
     }
 
     /// Convert an iterator over `Token`s into an `Ast`.
@@ -52,9 +52,10 @@ impl Ast {
     fn from_tokens_impl(
         tokens: &mut impl Iterator<Item = Token<TokenType>>,
         opening_paren: Option<usize>,
+        last_idx: usize,
     ) -> Result<Vec<Ast>, ParseAstError> {
         let mut exprs = Vec::new();
-        let mut end_idx = 0;
+        let mut end_idx = last_idx;
         while let Some(token) = tokens.next() {
             end_idx = token.range.end;
             // LeftParen  - Start parsing a sub expression and add it as a subtree.
@@ -62,7 +63,8 @@ impl Ast {
             // Literals   - Add the atom as a leaf node.
             match &token.item {
                 TokenType::LeftParen => {
-                    let sub_ast = Self::from_tokens_impl(tokens, Some(token.range.start))?;
+                    let sub_ast =
+                        Self::from_tokens_impl(tokens, Some(token.range.start), token.range.start)?;
                     exprs.push(Ast::Tree(sub_ast));
                 }
                 TokenType::RightParen => match opening_paren {
