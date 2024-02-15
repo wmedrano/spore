@@ -17,6 +17,7 @@ pub enum TokenType {
     String(String),
     Int(isize),
     Float(f64),
+    Bool(bool),
 }
 
 impl<'a> Token<&'a str> {

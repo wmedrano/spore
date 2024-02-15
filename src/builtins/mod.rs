@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::vm::{
     types::{Number, Procedure, Val},
-    Vm,
+    vm::Vm,
 };
 
 /// Register all builtin functions.
@@ -13,6 +13,8 @@ pub fn register_all(vm: &Vm) {
             Procedure::new(Some("-"), sub_fn),
             Procedure::new(Some("*"), multiply_fn),
             Procedure::new(Some("/"), divide_fn),
+            Procedure::new(Some("<"), less_fn),
+            Procedure::new(Some(">"), greater_fn),
             Procedure::new(Some("list"), list_fn),
         ]
         .into_iter(),
@@ -74,6 +76,34 @@ fn divide_fn(args: &[Val]) -> Result<Val> {
             Ok(multiply_two(x, &reciprocal(&denom)))
         }
     }
+}
+
+fn less_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("<", args)?;
+    let res = match args {
+        [Val::Number(x), Val::Number(y)] => match (x, y) {
+            (Number::Int(x), Number::Int(y)) => x < y,
+            (Number::Int(x), Number::Float(y)) => (*x as f64) < *y,
+            (Number::Float(x), Number::Int(y)) => *x < *y as f64,
+            (Number::Float(x), Number::Float(y)) => x < y,
+        },
+        _ => bail!("< requires 2 args but found {}", args.len()),
+    };
+    Ok(res.into())
+}
+
+fn greater_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers(">", args)?;
+    let res = match args {
+        [Val::Number(x), Val::Number(y)] => match (x, y) {
+            (Number::Int(x), Number::Int(y)) => x > y,
+            (Number::Int(x), Number::Float(y)) => (*x as f64) > *y,
+            (Number::Float(x), Number::Int(y)) => *x > *y as f64,
+            (Number::Float(x), Number::Float(y)) => x > y,
+        },
+        _ => bail!("> requires 2 args but found {}", args.len()),
+    };
+    Ok(res.into())
 }
 
 /// Multiply all arguments in `args`. If there are no values, then `1` is returned.

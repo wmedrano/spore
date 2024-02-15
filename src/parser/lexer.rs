@@ -23,6 +23,9 @@ fn classify_tokens<'a, T: 'a + AsRef<str>>(
                 if let Ok(f) = s.parse() {
                     return TokenType::Float(f);
                 }
+                if let Ok(b) = s.parse() {
+                    return TokenType::Bool(b);
+                }
                 TokenType::Identifier(s.to_string())
             }
         })

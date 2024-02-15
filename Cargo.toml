@@ -12,3 +12,6 @@ rustyline = "13"
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+
+[profile.release]
+debug = true

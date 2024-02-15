@@ -15,6 +15,7 @@ pub enum AstLeaf {
     String(String),
     Float(f64),
     Int(isize),
+    Bool(bool),
 }
 
 /// Holds a parse error.
@@ -27,6 +28,14 @@ pub enum ParseAstError {
     /// The identifier is not valid.
     InvalidIdentifier(Token<String>),
 }
+
+impl std::fmt::Display for ParseAstError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for ParseAstError {}
 
 impl Ast {
     /// Convert a string into an AST.
@@ -92,6 +101,7 @@ impl Ast {
                 }
                 TokenType::Int(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
                 TokenType::Float(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
+                TokenType::Bool(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
             };
         }
         match opening_paren {

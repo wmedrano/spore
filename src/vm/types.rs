@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::{borrow::Borrow, sync::Arc};
 
 /// Contains a single value.
 #[derive(Clone, Debug, PartialEq)]
@@ -7,6 +7,7 @@ pub enum Val {
     Void,
     String(Arc<String>),
     Symbol(Symbol),
+    Bool(bool),
     Number(Number),
     Proc(Arc<Procedure>),
     List(Box<Vec<Val>>),
@@ -24,11 +25,12 @@ impl std::fmt::Display for Val {
             Val::Void => write!(f, "<void>"),
             Val::String(x) => write!(f, "{:?}", x),
             Val::Symbol(x) => write!(f, "'{}", x.0),
+            Val::Bool(x) => write!(f, "{x}"),
             Val::Number(x) => match x {
                 Number::Int(x) => write!(f, "{x}"),
                 Number::Float(x) => write!(f, "{x}"),
             },
-            Val::Proc(x) => write!(f, "{:?}", x),
+            Val::Proc(x) => write!(f, "{:}", x),
             Val::List(xs) => {
                 write!(f, "(")?;
                 let mut items = xs.iter();
@@ -57,6 +59,7 @@ macro_rules! impl_enum_from {
 impl_enum_from!(Val, String => String);
 impl_enum_from!(Val, Symbol => Symbol);
 impl_enum_from!(Val, Number => Number);
+impl_enum_from!(Val, bool => Bool);
 impl_enum_from!(Val, Procedure => Proc);
 impl_enum_from!(Val, Vec<Val> => List);
 
@@ -86,6 +89,18 @@ impl Symbol {
     /// Get the symbol as a string.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl AsRef<str> for Symbol {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for Symbol {
+    fn borrow(&self) -> &str {
+        self.as_ref()
     }
 }
 
@@ -128,10 +143,9 @@ impl PartialEq for Procedure {
 
 impl std::fmt::Debug for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ptr: *const _ = self.f.as_ref();
+        let name = self.name.as_ref().map(|s| s.as_str()).unwrap_or("_");
         f.debug_struct("Function")
-            .field("name", &self.name)
-            .field("fn_ptr", &ptr)
+            .field("name", &name)
             .finish_non_exhaustive()
     }
 }
