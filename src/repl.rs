@@ -5,7 +5,7 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::Ast;
 use crate::vm::bytecode::ByteCode;
-use crate::vm::types::Val;
+use crate::vm::types::{Symbol, Val};
 use crate::vm::Vm;
 
 /// Run the REPL.
@@ -14,12 +14,13 @@ pub fn run_repl() -> Result<()> {
     println!("{}", "Welcome to Spore!".cyan());
     println!("{}", "  https://github.com/wmedrano/spore".cyan());
     println!();
+    let mut expr_count = 0;
     loop {
         let readline = rl.readline(">> ");
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str())?;
-                eval_str(line.as_str());
+                eval_str(line.as_str(), &mut expr_count);
             }
             Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
                 println!();
@@ -34,17 +35,17 @@ pub fn run_repl() -> Result<()> {
     Ok(())
 }
 
-fn eval_str(s: &str) {
+fn eval_str(s: &str, expr_count: &mut usize) {
     if let Some(s) = s.strip_prefix(",ast") {
         analyze_ast(s);
     } else if let Some(s) = s.strip_prefix(",bytecode") {
         analyze_bytecode(s);
     } else {
-        eval_sexpr(s);
+        eval_sexpr(s, expr_count);
     }
 }
 
-fn eval_sexpr(s: &str) {
+fn eval_sexpr(s: &str, expr_count: &mut usize) {
     let asts = match Ast::from_sexp_str(s) {
         Ok(ast) => ast,
         Err(err) => {
@@ -55,7 +56,12 @@ fn eval_sexpr(s: &str) {
     let vm = Vm::singleton();
     for ast in asts {
         match eval_ast(vm, &ast) {
-            Ok(v) => println!("{}", v.to_string().cyan()),
+            Ok(v) => {
+                *expr_count += 1;
+                let sym = Symbol::from(format!("${expr_count}"));
+                let _ = Vm::singleton().register_value(sym.clone(), v.clone());
+                println!("{} = {}", format!("{}", sym.as_ref()).cyan(), v.to_string());
+            }
             Err(err) => println!("{}", err.to_string().red()),
         }
     }

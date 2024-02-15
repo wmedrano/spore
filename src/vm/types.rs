@@ -85,6 +85,12 @@ impl<'a> From<&'a str> for Symbol {
     }
 }
 
+impl From<String> for Symbol {
+    fn from(s: String) -> Symbol {
+        Symbol(Arc::new(s))
+    }
+}
+
 impl AsRef<str> for Symbol {
     fn as_ref(&self) -> &str {
         self.0.as_str()
