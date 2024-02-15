@@ -24,7 +24,7 @@ impl std::fmt::Display for Val {
         match self {
             Val::Void => write!(f, "<void>"),
             Val::String(x) => write!(f, "{:?}", x),
-            Val::Symbol(x) => write!(f, "'{}", x.0),
+            Val::Symbol(x) => write!(f, "{}", x),
             Val::Bool(x) => write!(f, "{x}"),
             Val::Number(x) => match x {
                 Number::Int(x) => write!(f, "{x}"),
@@ -85,22 +85,21 @@ impl<'a> From<&'a str> for Symbol {
     }
 }
 
-impl Symbol {
-    /// Get the symbol as a string.
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
 impl AsRef<str> for Symbol {
     fn as_ref(&self) -> &str {
-        self.as_str()
+        self.0.as_str()
     }
 }
 
 impl Borrow<str> for Symbol {
     fn borrow(&self) -> &str {
         self.as_ref()
+    }
+}
+
+impl std::fmt::Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "'{}", self.as_ref())
     }
 }
 
@@ -143,7 +142,7 @@ impl PartialEq for Procedure {
 
 impl std::fmt::Debug for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = self.name.as_ref().map(|s| s.as_str()).unwrap_or("_");
+        let name = self.name.as_ref().map(|s| s.as_ref()).unwrap_or("_");
         f.debug_struct("Function")
             .field("name", &name)
             .finish_non_exhaustive()
@@ -153,7 +152,7 @@ impl std::fmt::Debug for Procedure {
 impl std::fmt::Display for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.name.as_ref() {
-            Some(name) => write!(f, "<proc {name}>", name = name.as_str()),
+            Some(name) => write!(f, "<proc {name}>", name = name.as_ref()),
             None => write!(f, "<proc _>"),
         }
     }

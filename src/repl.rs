@@ -6,7 +6,7 @@ use rustyline::DefaultEditor;
 use crate::parser::ast::Ast;
 use crate::vm::bytecode::ByteCode;
 use crate::vm::types::Val;
-use crate::vm::vm::Vm;
+use crate::vm::Vm;
 
 /// Run the REPL.
 pub fn run_repl() -> Result<()> {
@@ -34,22 +34,14 @@ pub fn run_repl() -> Result<()> {
     Ok(())
 }
 
-macro_rules! prefix_to_command {
-    ( $s:expr, $($prefix:expr => $fn:expr),*) => {
-        if false {}
-        $(
-            else if $s.starts_with($prefix) {
-                $fn(&$s[$prefix.len()..]);
-            }
-        )*
-    };
-}
-
 fn eval_str(s: &str) {
-    prefix_to_command!(s,
-                       ",ast" => analyze_ast,
-                       ",bytecode " => analyze_bytecode,
-                       "" => eval_sexpr);
+    if let Some(s) = s.strip_prefix(",ast") {
+        analyze_ast(s);
+    } else if let Some(s) = s.strip_prefix(",bytecode") {
+        analyze_bytecode(s);
+    } else {
+        eval_sexpr(s);
+    }
 }
 
 fn eval_sexpr(s: &str) {

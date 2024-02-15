@@ -1,14 +1,16 @@
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
     types::{Number, Procedure, Val},
-    vm::Vm,
+    Vm,
 };
 
 /// Register all builtin functions.
 pub fn register_all(vm: &Vm) {
     vm.register_fns(
         [
+            Procedure::new(Some("%define-sym"), define_sym_fn),
+            Procedure::new(Some("%get-sym"), get_sym_fn),
             Procedure::new(Some("+"), add_fn),
             Procedure::new(Some("-"), sub_fn),
             Procedure::new(Some("*"), multiply_fn),
@@ -29,6 +31,34 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn define_sym_fn(args: &[Val]) -> Result<Val> {
+    match args {
+        [] => bail!("expected 2 args (a symbol and a definition), but found none"),
+        [s] => bail!("expected 2 args but only found {}", s),
+        [s, v] => {
+            let s = match s {
+                Val::Symbol(s) => s.clone(),
+                v => bail!("expected symbol as first arg but found {}", v),
+            };
+            Vm::singleton().register_value(s, v.clone())?;
+        }
+        _ => bail!("expected 2 args but found {}", args.len()),
+    }
+    Ok(Val::Void)
+}
+
+fn get_sym_fn(args: &[Val]) -> Result<Val> {
+    match args {
+        [sym] => match sym {
+            Val::Symbol(s) => Vm::singleton()
+                .get_value(s)
+                .ok_or_else(|| anyhow!("symbol {} not found", s)),
+            _ => Err(anyhow!("expected symbol but found {}", sym)),
+        },
+        _ => Err(anyhow!("expected 1 arg but found {}", args.len())),
+    }
 }
 
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.
@@ -69,7 +99,7 @@ fn sub_fn(args: &[Val]) -> Result<Val> {
 fn divide_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers("/", args)?;
     match args {
-        [] => bail!("/ requires at least 1 arg"),
+        [] => Err(anyhow!("/ requires at least 1 arg")),
         [x] => Ok(reciprocal(x)),
         [x, ys @ ..] => {
             let denom = multiply_fn(ys)?;
