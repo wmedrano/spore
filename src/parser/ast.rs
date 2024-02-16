@@ -63,7 +63,7 @@ impl Ast {
         opening_paren: Option<usize>,
         last_idx: usize,
     ) -> Result<Vec<Ast>, ParseAstError> {
-        let mut exprs = Vec::new();
+        let mut exps = Vec::new();
         let mut end_idx = last_idx;
         while let Some(token) = tokens.next() {
             end_idx = token.range.end;
@@ -74,10 +74,10 @@ impl Ast {
                 TokenType::LeftParen => {
                     let sub_ast =
                         Self::from_tokens_impl(tokens, Some(token.range.start), token.range.start)?;
-                    exprs.push(Ast::Tree(sub_ast));
+                    exps.push(Ast::Tree(sub_ast));
                 }
                 TokenType::RightParen => match opening_paren {
-                    Some(_) => return Ok(exprs),
+                    Some(_) => return Ok(exps),
                     None => {
                         return Err(ParseAstError::UnexpectedClosingParen {
                             idx: token.range.start,
@@ -94,19 +94,19 @@ impl Ast {
                             range: token.range,
                         }));
                     }
-                    exprs.push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone()))));
+                    exps.push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone()))));
                 }
                 TokenType::String(s) => {
-                    exprs.push(Ast::Leaf(token.with_item(AstLeaf::String(s.clone()))));
+                    exps.push(Ast::Leaf(token.with_item(AstLeaf::String(s.clone()))));
                 }
-                TokenType::Int(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
-                TokenType::Float(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
-                TokenType::Bool(v) => exprs.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
+                TokenType::Int(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
+                TokenType::Float(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
+                TokenType::Bool(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
             };
         }
         match opening_paren {
             Some(open_idx) => Err(ParseAstError::MissingClosingParen { open_idx, end_idx }),
-            None => Ok(exprs),
+            None => Ok(exps),
         }
     }
 }

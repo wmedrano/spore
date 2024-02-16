@@ -7,20 +7,17 @@ use crate::vm::{
 
 /// Register all builtin functions.
 pub fn register_all(vm: &Vm) {
-    vm.register_fns(
-        [
-            Procedure::new(Some("%define-sym"), define_sym_fn),
-            Procedure::new(Some("%get-sym"), get_sym_fn),
-            Procedure::new(Some("+"), add_fn),
-            Procedure::new(Some("-"), sub_fn),
-            Procedure::new(Some("*"), multiply_fn),
-            Procedure::new(Some("/"), divide_fn),
-            Procedure::new(Some("<"), less_fn),
-            Procedure::new(Some(">"), greater_fn),
-            Procedure::new(Some("list"), list_fn),
-        ]
-        .into_iter(),
-    )
+    vm.register_fns([
+        Procedure::new(Some("%define-sym"), define_sym_fn),
+        Procedure::new(Some("%get-sym"), get_sym_fn),
+        Procedure::new(Some("+"), add_fn),
+        Procedure::new(Some("-"), sub_fn),
+        Procedure::new(Some("*"), multiply_fn),
+        Procedure::new(Some("/"), divide_fn),
+        Procedure::new(Some("<"), less_fn),
+        Procedure::new(Some(">"), greater_fn),
+        Procedure::new(Some("list"), list_fn),
+    ])
 }
 
 fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
@@ -36,7 +33,7 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
 fn define_sym_fn(args: &[Val]) -> Result<Val> {
     match args {
         [] => bail!("expected 2 args (a symbol and a definition), but found none"),
-        [s] => bail!("expected 2 args but only found {}", s),
+        [s] => bail!("expected 2 args but only found symbol {}", s),
         [s, v] => {
             let s = match s {
                 Val::Symbol(s) => s.clone(),
@@ -44,7 +41,10 @@ fn define_sym_fn(args: &[Val]) -> Result<Val> {
             };
             Vm::singleton().register_value(s, v.clone())?;
         }
-        _ => bail!("expected 2 args but found {}", args.len()),
+        _ => bail!(
+            "expected 2 args (symbol and value) but found only {} args",
+            args.len()
+        ),
     }
     Ok(Val::Void)
 }

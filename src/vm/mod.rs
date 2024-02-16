@@ -13,6 +13,7 @@ use self::{
 };
 
 pub mod bytecode;
+pub mod sexp;
 pub mod types;
 
 type ValueRegistry = Mutex<HashMap<Symbol, Val>>;
@@ -37,7 +38,7 @@ impl Vm {
     }
 
     /// Register functions into the VM.
-    pub fn register_fns(&self, fns: impl Iterator<Item = Arc<Procedure>>) {
+    pub fn register_fns(&self, fns: impl IntoIterator<Item = Arc<Procedure>>) {
         let mut registry = self.values.lock().unwrap();
         for f in fns {
             let name = f.name().unwrap().clone();
