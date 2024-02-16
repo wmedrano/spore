@@ -1,8 +1,9 @@
-use std::sync::Arc;
-
 use anyhow::{bail, Result};
 
-use crate::parser::ast::{Ast, AstLeaf};
+use crate::parser::{
+    ast::{Ast, AstLeaf},
+    token::Token,
+};
 
 use super::{
     types::{Number, Symbol, Val},
@@ -50,61 +51,65 @@ impl ByteCode {
         Ok(())
     }
 
+    // Build the bytecode for `leaf` and push the contents onto `res`.
     fn build_leaf_bytecode(leaf: &AstLeaf, res: &mut Vec<ByteCode>) -> Result<()> {
-        let v = match leaf {
-            AstLeaf::Identifier(x) => match Vm::singleton().get_value(x) {
-                _ if x.as_str().starts_with('\'') => {
-                    Val::Symbol(Symbol::from(x.as_str()[1..].trim()))
-                }
-                Some(x) => x,
-                None => {
-                    res.extend([
-                        ByteCode::PushVal(Vm::singleton().get_value("%get-sym").unwrap()),
-                        ByteCode::PushVal(Symbol::from(x.as_str()).into()),
-                        ByteCode::Eval(2),
-                    ]);
-                    return Ok(());
-                }
-            },
-            AstLeaf::String(x) => Val::String(Arc::new(x.clone())),
-            AstLeaf::Float(x) => Val::Number(Number::Float(*x)),
-            AstLeaf::Int(x) => Val::Number(Number::Int(*x)),
-            AstLeaf::Bool(x) => Val::Bool(*x),
+        match leaf {
+            AstLeaf::Identifier(x) => Self::build_identifier_bytecode(x, res)?,
+            AstLeaf::String(x) => res.push(ByteCode::PushVal(x.clone().into())),
+            AstLeaf::Float(x) => res.push(ByteCode::PushVal(Number::Float(*x).into())),
+            AstLeaf::Int(x) => res.push(ByteCode::PushVal(Number::Int(*x).into())),
+            AstLeaf::Bool(x) => res.push(ByteCode::PushVal(Val::Bool(*x))),
         };
-        res.push(ByteCode::PushVal(v));
         Ok(())
     }
 
+    /// Build the bytecode for the identifier and push the contents onto `res.`
+    fn build_identifier_bytecode(ident: &str, res: &mut Vec<ByteCode>) -> Result<()> {
+        // Handle quoted identifiers which are left as raw symbols.
+        if let Some(sym) = ident.strip_prefix('\'') {
+            res.push(ByteCode::PushVal(Symbol::from(sym.trim()).into()));
+            return Ok(());
+        }
+        // Optimization: Attempt to find the value of the identifier. If the identifier's value
+        // could not be resolved, fall back to determining it at runtime.
+        match Vm::singleton().get_value(ident) {
+            Some(v) => res.push(ByteCode::PushVal(v)),
+            None => {
+                res.extend([
+                    ByteCode::PushVal(Vm::singleton().get_value("%get-sym").unwrap()),
+                    ByteCode::PushVal(Symbol::from(ident).into()),
+                    ByteCode::Eval(2),
+                ]);
+            }
+        }
+        Ok(())
+    }
+
+    /// Build the bytecode for an if statement and push the contents onto `res`.
     fn build_if_bytecode(expr: &[Ast], res: &mut Vec<ByteCode>) -> Result<()> {
-        match expr {
-            [_, pred, t] => {
-                Self::with_ast_impl(pred, res)?;
-                let jump_if_idx = res.len();
-                res.push(ByteCode::JumpIf(0));
-                res.push(ByteCode::PushVal(Val::Void));
-                let jump_idx = res.len();
-                res.push(ByteCode::Jump(0));
-                Self::with_ast_impl(t, res)?;
-                let end = res.len();
-                res[jump_if_idx] = ByteCode::JumpIf(jump_idx - jump_if_idx);
-                res[jump_idx] = ByteCode::Jump(end - jump_idx - 1);
-            }
-            [_, pred, t, f] => {
-                Self::with_ast_impl(pred, res)?;
-                let jump_if_idx = res.len();
-                res.push(ByteCode::JumpIf(0));
-                Self::with_ast_impl(f, res)?;
-                let jump_idx = res.len();
-                res.push(ByteCode::Jump(0));
-                Self::with_ast_impl(t, res)?;
-                let end = res.len();
-                res[jump_if_idx] = ByteCode::JumpIf(jump_idx - jump_if_idx);
-                res[jump_idx] = ByteCode::Jump(end - jump_idx - 1);
-            }
+        assert!(
+            matches!(&expr[0], Ast::Leaf(Token {item: AstLeaf::Identifier(ident),..}) if ident == "if")
+        );
+        let (pred, t, maybe_f) = match expr {
+            [_, pred, t, f] => (pred, t, Some(f)),
+            [_, pred, t] => (pred, t, None),
             _ => bail!(
                 "malformed if statement, if requires the form (if pred-expr true-expr false-expr)"
             ),
         };
+        Self::with_ast_impl(pred, res)?;
+        let jump_if_idx = res.len();
+        res.push(ByteCode::JumpIf(0));
+        match maybe_f {
+            Some(f) => Self::with_ast_impl(f, res)?,
+            None => res.push(ByteCode::PushVal(Val::Void)),
+        };
+        let jump_idx = res.len();
+        res.push(ByteCode::Jump(0));
+        Self::with_ast_impl(t, res)?;
+        let end = res.len();
+        res[jump_if_idx] = ByteCode::JumpIf(jump_idx - jump_if_idx);
+        res[jump_idx] = ByteCode::Jump(end - jump_idx - 1);
         Ok(())
     }
 }

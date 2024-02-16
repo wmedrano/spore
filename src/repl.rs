@@ -60,7 +60,7 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
                 let _ = Vm::singleton().register_value(sym.clone(), v.clone());
-                println!("{} = {}", format!("{}", sym.as_ref()).cyan(), v.to_string());
+                println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(err) => println!("{}", err.to_string().red()),
         }
