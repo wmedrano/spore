@@ -13,7 +13,6 @@ use self::{
 };
 
 pub mod bytecode;
-pub mod sexp;
 pub mod types;
 
 type ValueRegistry = Mutex<HashMap<Symbol, Val>>;

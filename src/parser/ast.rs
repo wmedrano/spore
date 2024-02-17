@@ -11,7 +11,9 @@ pub enum Ast {
 
 #[derive(Debug, PartialEq)]
 pub enum AstLeaf {
+    If,
     Identifier(String),
+    Symbol(String),
     String(String),
     Float(f64),
     Int(isize),
@@ -36,6 +38,28 @@ impl std::fmt::Display for ParseAstError {
 }
 
 impl std::error::Error for ParseAstError {}
+
+impl ParseAstError {
+    pub fn display_with_context(&self, src: &str) -> String {
+        let make_spacing = |n| String::from_iter(std::iter::repeat(' ').take(n));
+        match self {
+            ParseAstError::MissingClosingParen { open_idx, end_idx } => {
+                let context = &src[*open_idx..*end_idx];
+                format!("{context}\n^\nMissing closing paren.")
+            }
+            ParseAstError::UnexpectedClosingParen { idx } => {
+                let start = (*idx).saturating_sub(5);
+                let context = &src[start..(*idx + 5).clamp(0, src.len())];
+                let space = make_spacing(src[start..*idx].chars().count());
+                format!("{context}\n{space}^\nUnexpected closing paren.")
+            }
+            ParseAstError::InvalidIdentifier(ident) => {
+                let context = ident.item.as_str();
+                format!("{context}\n^ Invalid identifier.")
+            }
+        }
+    }
+}
 
 impl Ast {
     /// Convert a string into an AST.
@@ -94,7 +118,17 @@ impl Ast {
                             range: token.range,
                         }));
                     }
-                    exps.push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone()))));
+                    if let Some(sym) = s.strip_prefix('\'') {
+                        exps.push(Ast::Leaf(
+                            token.with_item(AstLeaf::Symbol(sym.trim().to_string())),
+                        ));
+                    } else {
+                        match s.as_str() {
+                            "if" => exps.push(Ast::Leaf(token.with_item(AstLeaf::If))),
+                            _ => exps
+                                .push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone())))),
+                        }
+                    }
                 }
                 TokenType::String(s) => {
                     exps.push(Ast::Leaf(token.with_item(AstLeaf::String(s.clone()))));
@@ -227,6 +261,25 @@ mod tests {
                 item: "\"hello".to_string(),
                 range: 0..6,
             }),
+        );
+    }
+
+    #[test]
+    fn can_parse_symbol() {
+        use Ast::*;
+        use AstLeaf::*;
+        assert_eq!(
+            Ast::from_sexp_str("'hello 'world").unwrap(),
+            vec![
+                Leaf(Token {
+                    item: Symbol("hello".to_string()),
+                    range: 0..6,
+                }),
+                Leaf(Token {
+                    item: Symbol("world".to_string()),
+                    range: 7..13,
+                })
+            ]
         );
     }
 }

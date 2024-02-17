@@ -13,6 +13,12 @@ pub enum Val {
     List(Box<Vec<Val>>),
 }
 
+impl Val {
+    pub fn is_truthy(&self) -> bool {
+        matches!(self, Val::Bool(false))
+    }
+}
+
 impl AsRef<Val> for Val {
     fn as_ref(&self) -> &Val {
         self
@@ -115,12 +121,12 @@ impl std::fmt::Display for Symbol {
     }
 }
 
-type GenericFunction = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
+type GenericProcedure = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
 
 /// A function.
 pub struct Procedure {
     name: Option<Symbol>,
-    f: Box<GenericFunction>,
+    f: Box<GenericProcedure>,
 }
 
 impl Procedure {

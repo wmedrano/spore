@@ -54,8 +54,8 @@ fn get_sym_fn(args: &[Val]) -> Result<Val> {
         [sym] => match sym {
             Val::Symbol(s) => Vm::singleton()
                 .get_value(s)
-                .ok_or_else(|| anyhow!("symbol {} not found", s)),
-            _ => Err(anyhow!("expected symbol but found {}", sym)),
+                .ok_or_else(|| anyhow!("symbol {} is not defined", s)),
+            _ => Err(anyhow!("expected symbol object but found {}", sym)),
         },
         _ => Err(anyhow!("expected 1 arg but found {}", args.len())),
     }

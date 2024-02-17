@@ -5,7 +5,6 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::Ast;
 use crate::vm::bytecode::ByteCode;
-use crate::vm::sexp::Sexp;
 use crate::vm::types::{Symbol, Val};
 use crate::vm::Vm;
 
@@ -37,13 +36,11 @@ pub fn run_repl() -> Result<()> {
 }
 
 fn eval_str(s: &str, expr_count: &mut usize) {
-    if s.starts_with(",") {
+    if s.starts_with(',') {
         if let Some(s) = s.strip_prefix(",ast ") {
             analyze_ast(s);
         } else if let Some(s) = s.strip_prefix(",bytecode ") {
             analyze_bytecode(s);
-        } else if let Some(s) = s.strip_prefix(",sexp ") {
-            analyze_sexp(s);
         } else {
             println!(
                 "{}: Command {} not recognized, valid commands are {}",
@@ -61,7 +58,7 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
     let asts = match Ast::from_sexp_str(s) {
         Ok(ast) => ast,
         Err(err) => {
-            println!("{}", err.to_string().red());
+            println!("{}", err.display_with_context(s).to_string().red());
             return;
         }
     };
@@ -91,7 +88,7 @@ fn analyze_bytecode(s: &str) {
     let asts = match Ast::from_sexp_str(s) {
         Ok(ast) => ast,
         Err(err) => {
-            println!("{}", err.to_string().red());
+            println!("{}", err.display_with_context(s).to_string().red());
             return;
         }
     };
@@ -110,32 +107,11 @@ fn analyze_bytecode(s: &str) {
     }
 }
 
-fn analyze_sexp(s: &str) {
-    let asts = match Ast::from_sexp_str(s) {
-        Ok(ast) => ast,
-        Err(err) => {
-            println!("{}", err.to_string().red());
-            return;
-        }
-    };
-    for ast in asts {
-        let sexp = match Sexp::with_ast(&ast) {
-            Ok(b) => b,
-            Err(err) => {
-                println!("{}", err.to_string().red());
-                continue;
-            }
-        };
-        println!("{}", sexp.as_val());
-        println!();
-    }
-}
-
 fn analyze_ast(s: &str) {
     let asts = match Ast::from_sexp_str(s) {
         Ok(ast) => ast,
         Err(err) => {
-            println!("{}", err.to_string().red());
+            println!("{}", err.display_with_context(s).to_string().red());
             return;
         }
     };
