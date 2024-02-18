@@ -7,16 +7,16 @@ use crate::vm::{
 
 /// Register all builtin functions.
 pub fn register_all(vm: &Vm) {
-    vm.register_fns([
-        Procedure::new(Some("%define-sym"), define_sym_fn),
-        Procedure::new(Some("%get-sym"), get_sym_fn),
-        Procedure::new(Some("+"), add_fn),
-        Procedure::new(Some("-"), sub_fn),
-        Procedure::new(Some("*"), multiply_fn),
-        Procedure::new(Some("/"), divide_fn),
-        Procedure::new(Some("<"), less_fn),
-        Procedure::new(Some(">"), greater_fn),
-        Procedure::new(Some("list"), list_fn),
+    vm.register_global_fn([
+        Procedure::with_native(Some("%define-sym"), define_sym_fn),
+        Procedure::with_native(Some("%get-sym"), get_sym_fn),
+        Procedure::with_native(Some("+"), add_fn),
+        Procedure::with_native(Some("-"), sub_fn),
+        Procedure::with_native(Some("*"), multiply_fn),
+        Procedure::with_native(Some("/"), divide_fn),
+        Procedure::with_native(Some("<"), less_fn),
+        Procedure::with_native(Some(">"), greater_fn),
+        Procedure::with_native(Some("list"), list_fn),
     ])
 }
 
@@ -39,7 +39,7 @@ fn define_sym_fn(args: &[Val]) -> Result<Val> {
                 Val::Symbol(s) => s.clone(),
                 v => bail!("expected symbol as first arg but found {}", v),
             };
-            Vm::singleton().register_value(s, v.clone())?;
+            Vm::singleton().register_global_value(s, v.clone())?;
         }
         _ => bail!(
             "expected 2 args (symbol and value) but found only {} args",

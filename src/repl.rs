@@ -1,11 +1,11 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
 use crate::parser::ast::Ast;
-use crate::vm::bytecode::ByteCode;
-use crate::vm::types::{Symbol, Val};
+use crate::vm::compiler::ByteCodeProc;
+use crate::vm::types::{GenericProcedure, Symbol, Val};
 use crate::vm::Vm;
 
 /// Run the REPL.
@@ -62,13 +62,13 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
             return;
         }
     };
-    let vm = Vm::singleton();
     for ast in asts {
-        match eval_ast(vm, &ast) {
+        match eval_ast(&ast) {
+            Ok(Val::Void) => (),
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                let _ = Vm::singleton().register_value(sym.clone(), v.clone());
+                let _ = Vm::singleton().register_global_value(sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(err) => println!("{}", err.to_string().red()),
@@ -76,12 +76,11 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
     }
 }
 
-fn eval_ast(vm: &Vm, ast: &Ast) -> Result<Val> {
-    let bytecode = ByteCode::with_ast(ast)?;
-    let res = vm.eval_bytecode(&bytecode, Vec::with_capacity(4096))?;
-    res.into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("bytecode interpreter failed to return any values"))
+fn eval_ast(ast: &Ast) -> Result<Val> {
+    let bytecode = ByteCodeProc::with_ast(ast)?;
+    let mut stack = Vec::with_capacity(4096);
+    let res = bytecode.eval(&mut stack, 0)?;
+    Ok(res)
 }
 
 fn analyze_bytecode(s: &str) {
@@ -93,14 +92,14 @@ fn analyze_bytecode(s: &str) {
         }
     };
     for ast in asts {
-        let bytecode = match ByteCode::with_ast(&ast) {
+        let bytecode = match ByteCodeProc::with_ast(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
                 continue;
             }
         };
-        for (idx, bc) in bytecode.into_iter().enumerate() {
+        for (idx, bc) in bytecode.instructions().iter().enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
         println!();

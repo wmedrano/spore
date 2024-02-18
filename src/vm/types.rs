@@ -121,21 +121,43 @@ impl std::fmt::Display for Symbol {
     }
 }
 
-type GenericProcedure = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
+pub trait GenericProcedure: 'static + Send + Sync {
+    fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val>;
+}
+
+impl<F> GenericProcedure for F
+where
+    F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>,
+{
+    fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val> {
+        let end = stack.len();
+        let start = end - arg_count;
+        let val = (self)(&stack[start..end])?;
+        stack.truncate(start);
+        Ok(val)
+    }
+}
 
 /// A function.
 pub struct Procedure {
     name: Option<Symbol>,
-    f: Box<GenericProcedure>,
+    f: Box<dyn GenericProcedure>,
 }
 
 impl Procedure {
     /// Create a new function.
-    pub fn new<S: Into<Symbol>, F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
+    pub fn with_native<S: Into<Symbol>, F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
         name: Option<S>,
-        f: F,
+        proc: F,
     ) -> Arc<Procedure> {
-        let f = Box::new(f);
+        let f = Box::new(proc);
+        let name = name.map(|n| n.into());
+        Arc::new(Procedure { name, f })
+    }
+
+    /// Create a new function.
+    pub fn new<S: Into<Symbol>, P: GenericProcedure>(name: Option<S>, proc: P) -> Arc<Procedure> {
+        let f: Box<dyn GenericProcedure> = Box::new(proc);
         let name = name.map(|n| n.into());
         Arc::new(Procedure { name, f })
     }
@@ -147,8 +169,8 @@ impl Procedure {
 
 impl Procedure {
     /// Evaluate the function with the given arguments.
-    pub fn eval(&self, args: &[Val]) -> Result<Val> {
-        self.f.as_ref()(args)
+    pub fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val> {
+        self.f.as_ref().eval(stack, arg_count)
     }
 }
 
@@ -202,8 +224,8 @@ mod tests {
     #[test]
     fn functions_pointing_to_same_impl_are_eq() {
         let noop = |_: &[Val]| Ok(Val::Void);
-        let a = Procedure::new(Some("noop"), noop);
-        let b = Procedure::new(Some("noop"), noop);
+        let a = Procedure::with_native(Some("noop"), noop);
+        let b = Procedure::with_native(Some("noop"), noop);
         assert_eq!(a, b);
     }
 
@@ -211,8 +233,8 @@ mod tests {
     fn functions_pointing_to_different_impl_are_not_eq() {
         // Note: The return values are different so that the Rust optimizer doesn't unify their
         // implementations.
-        let a = Procedure::new(Some("void"), |_: &[Val]| Ok(Val::Void));
-        let b = Procedure::new(Some("make-string"), |_: &[Val]| {
+        let a = Procedure::with_native(Some("void"), |_: &[Val]| Ok(Val::Void));
+        let b = Procedure::with_native(Some("make-string"), |_: &[Val]| {
             Ok(Val::String(Arc::new("".to_string())))
         });
         assert_ne!(a, b);

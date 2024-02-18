@@ -12,6 +12,8 @@ pub enum Ast {
 #[derive(Debug, PartialEq)]
 pub enum AstLeaf {
     If,
+    Lambda,
+    Define,
     Identifier(String),
     Symbol(String),
     String(String),
@@ -125,6 +127,8 @@ impl Ast {
                     } else {
                         match s.as_str() {
                             "if" => exps.push(Ast::Leaf(token.with_item(AstLeaf::If))),
+                            "lambda" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Lambda))),
+                            "define" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Define))),
                             _ => exps
                                 .push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone())))),
                         }
