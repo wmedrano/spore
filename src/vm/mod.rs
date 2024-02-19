@@ -8,13 +8,14 @@ use anyhow::{bail, Result};
 use crate::parser::ast::Ast;
 
 use self::{
-    bytecode::OpCode,
-    compiler::ByteCodeProc,
+    compiler::Compiler,
+    environment::{Environment, LocalEnvironment},
     types::{GenericProcedure, Procedure, Symbol, Val},
 };
 
 pub mod bytecode;
 pub mod compiler;
+pub mod environment;
 pub mod types;
 
 type ValueRegistry = Arc<Mutex<HashMap<Symbol, Val>>>;
@@ -23,8 +24,7 @@ type ValueRegistry = Arc<Mutex<HashMap<Symbol, Val>>>;
 // Note: You typically use the global instance of the VM by calling / `Vm::singleton`.
 #[derive(Clone)]
 pub struct Vm {
-    values: ValueRegistry,
-    stack: Vec<Val>,
+    globals: ValueRegistry,
 }
 
 impl Vm {
@@ -37,28 +37,26 @@ impl Vm {
 
     /// Get a registered function.
     pub fn get_value(&self, sym: impl AsRef<str>) -> Option<Val> {
-        let registry = self.values.lock().unwrap();
+        let registry = self.globals.lock().unwrap();
         registry.get(sym.as_ref()).cloned()
     }
 
     /// Register functions into the VM.
     pub fn register_global_fn(&self, fns: impl IntoIterator<Item = Arc<Procedure>>) {
-        let mut registry = self.values.lock().unwrap();
+        let mut registry = self.globals.lock().unwrap();
         for f in fns {
-            let name = f.name().unwrap().clone();
-            let old_definition = registry.insert(name.clone(), Val::Proc(f));
+            let name = f.name().to_string();
+            let old_definition = registry.insert(Symbol::from(name.clone()), Val::Proc(f));
             assert_eq!(
-                old_definition,
-                None,
+                old_definition, None,
                 "Found duplicate definition for {name}.",
-                name = name.as_ref(),
             );
         }
     }
 
     /// Register a value globally.
     pub fn register_global_value(&self, sym: Symbol, val: Val) -> Result<()> {
-        let mut registry = self.values.lock().unwrap();
+        let mut registry = self.globals.lock().unwrap();
         if registry.contains_key(&sym) {
             bail!("symbol {sym} is already registered");
         }
@@ -66,82 +64,33 @@ impl Vm {
         Ok(())
     }
 
+    /// Create a new environment that can evaluate bytecode.
+    pub fn env(&self) -> Environment {
+        Environment {
+            globals: self.globals.clone(),
+            stack: Vec::with_capacity(4096),
+            local: LocalEnvironment { stack_base: 0 },
+        }
+    }
+
     /// Evaluate an sexpr and return the results as a vector.
     pub fn eval_sexpr(&mut self, s: &str) -> Result<Vec<Val>> {
         let asts = Ast::from_sexp_str(s)?;
-        let mut res = Vec::new();
+        let mut res = Vec::with_capacity(asts.len());
+        let mut env = self.env();
         for ast in asts {
-            let bc = ByteCodeProc::with_ast(&ast)?;
-            self.stack.clear();
-            res.push(bc.eval(&mut self.stack, 0)?);
+            let bc = Compiler::new().compile_and_finalize("".to_string(), &ast)?;
+            let val = bc.eval(&mut env)?;
+            env.reset_locals();
+            res.push(val);
         }
         Ok(res)
-    }
-
-    /// Evaluate a sequence of bytecode.
-    pub fn eval_bytecode(&self, bc: &[OpCode], stack: &mut Vec<Val>) -> Result<()> {
-        let mut iter = bc.iter();
-        while let Some(bc) = iter.next() {
-            match bc {
-                OpCode::PushVal(v) => self.push_value(v, stack),
-                OpCode::Eval(n) => self.eval_n(*n, stack)?,
-                OpCode::JumpIf(n) => self.jump_if(*n, stack, &mut iter)?,
-                OpCode::Jump(n) => self.jump(*n, &mut iter),
-            }
-        }
-        Ok(())
-    }
-
-    /// We disable inlining to preserve debug symbols for profiling.
-    #[inline(never)]
-    fn jump_if<'a>(
-        &self,
-        n: usize,
-        stack: &mut Vec<Val>,
-        bc_iter: &mut impl Iterator<Item = &'a OpCode>,
-    ) -> Result<()> {
-        match stack.pop() {
-            Some(Val::Bool(false)) => (),
-            Some(_) => {
-                bc_iter.nth(n - 1);
-            }
-            None => bail!("bytecode if found no value to evaluate if statement"),
-        }
-        Ok(())
-    }
-
-    /// We disable inlining to preserve debug symbols for profiling.
-    #[inline(never)]
-    fn jump<'a>(&self, n: usize, bc_iter: &mut impl Iterator<Item = &'a OpCode>) {
-        bc_iter.nth(n - 1);
-    }
-
-    /// We disable inlining to preserve debug symbols for profiling.
-    #[inline(never)]
-    fn push_value(&self, v: &Val, stack: &mut Vec<Val>) {
-        stack.push(v.clone());
-    }
-
-    /// We disable inlining to preserve debug symbols for profiling.
-    #[inline(never)]
-    fn eval_n(&self, n: usize, stack: &mut Vec<Val>) -> Result<()> {
-        let proc_idx = stack.len() - n;
-        let arg_count = n - 1;
-        let proc = match stack.get(proc_idx) {
-            None => bail!("eval_top must have at least one value on the stack"),
-            Some(Val::Proc(p)) => p.clone(),
-            Some(v) => bail!("value {v} is not a valid procedure."),
-        };
-        let val = proc.eval(stack, arg_count)?;
-        *stack.last_mut().unwrap() = val;
-        Ok(())
     }
 
     /// Create a new `Vm` with all the builtins.
     fn with_builtins() -> Vm {
         let vm = Vm {
-            values: ValueRegistry::new(Mutex::new(HashMap::new())),
-            stack: Vec::new(),
+            globals: ValueRegistry::new(Mutex::new(HashMap::new())),
         };
         crate::builtins::register_all(&vm);
         vm
@@ -150,28 +99,10 @@ impl Vm {
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::types::{Number, Symbol};
+    use crate::vm::types::Number;
     use pretty_assertions::assert_eq;
 
     use super::*;
-
-    #[test]
-    fn can_execute_instructions() {
-        let vm = Vm::singleton();
-        let mut result = Vec::new();
-        vm.eval_bytecode(
-            &[
-                OpCode::PushVal(vm.get_value(&Symbol::from("+")).unwrap()),
-                OpCode::PushVal(Val::Number(Number::Int(10))),
-                OpCode::PushVal(Val::Number(Number::Int(5))),
-                OpCode::PushVal(Val::Number(Number::Int(3))),
-                OpCode::Eval(4),
-            ],
-            &mut result,
-        )
-        .unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(18))]);
-    }
 
     #[test]
     fn can_execute_ast() {
@@ -205,5 +136,16 @@ mod tests {
     fn if_with_false_and_single_arm_returns_void() {
         let result = Vm::singleton().eval_sexpr("(if false (* 10 2))").unwrap();
         assert_eq!(result, &[Val::Void])
+    }
+
+    #[test]
+    fn recursive_function_definition_calls_recursively() {
+        Vm::singleton()
+            .eval_sexpr("(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
+            .unwrap();
+        assert_eq!(
+            Vm::singleton().eval_sexpr("(fib 10)").unwrap(),
+            &[Val::Number(Number::Int(55))]
+        );
     }
 }

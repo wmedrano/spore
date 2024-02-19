@@ -8,15 +8,18 @@ use crate::vm::{
 /// Register all builtin functions.
 pub fn register_all(vm: &Vm) {
     vm.register_global_fn([
-        Procedure::with_native(Some("%define-sym"), define_sym_fn),
-        Procedure::with_native(Some("%get-sym"), get_sym_fn),
-        Procedure::with_native(Some("+"), add_fn),
-        Procedure::with_native(Some("-"), sub_fn),
-        Procedure::with_native(Some("*"), multiply_fn),
-        Procedure::with_native(Some("/"), divide_fn),
-        Procedure::with_native(Some("<"), less_fn),
-        Procedure::with_native(Some(">"), greater_fn),
-        Procedure::with_native(Some("list"), list_fn),
+        Procedure::with_native("%define-sym", define_sym_fn),
+        Procedure::with_native("%get-sym", get_sym_fn),
+        Procedure::with_native("+", add_fn),
+        Procedure::with_native("-", sub_fn),
+        Procedure::with_native("*", multiply_fn),
+        Procedure::with_native("/", divide_fn),
+        Procedure::with_native("<", less_fn),
+        Procedure::with_native("<=", less_eq_fn),
+        Procedure::with_native(">", greater_fn),
+        Procedure::with_native(">=", greater_eq_fn),
+        Procedure::with_native("list", list_fn),
+        Procedure::with_native("equal?", equalp_fn),
     ])
 }
 
@@ -122,6 +125,20 @@ fn less_fn(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
+fn less_eq_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers("<=", args)?;
+    let res = match args {
+        [Val::Number(x), Val::Number(y)] => match (x, y) {
+            (Number::Int(x), Number::Int(y)) => x <= y,
+            (Number::Int(x), Number::Float(y)) => (*x as f64) <= *y,
+            (Number::Float(x), Number::Int(y)) => *x <= *y as f64,
+            (Number::Float(x), Number::Float(y)) => x <= y,
+        },
+        _ => bail!("< requires 2 args but found {}", args.len()),
+    };
+    Ok(res.into())
+}
+
 fn greater_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers(">", args)?;
     let res = match args {
@@ -130,6 +147,20 @@ fn greater_fn(args: &[Val]) -> Result<Val> {
             (Number::Int(x), Number::Float(y)) => (*x as f64) > *y,
             (Number::Float(x), Number::Int(y)) => *x > *y as f64,
             (Number::Float(x), Number::Float(y)) => x > y,
+        },
+        _ => bail!("> requires 2 args but found {}", args.len()),
+    };
+    Ok(res.into())
+}
+
+fn greater_eq_fn(args: &[Val]) -> Result<Val> {
+    ensure_numbers(">=", args)?;
+    let res = match args {
+        [Val::Number(x), Val::Number(y)] => match (x, y) {
+            (Number::Int(x), Number::Int(y)) => x >= y,
+            (Number::Int(x), Number::Float(y)) => (*x as f64) >= *y,
+            (Number::Float(x), Number::Int(y)) => *x >= *y as f64,
+            (Number::Float(x), Number::Float(y)) => x >= y,
         },
         _ => bail!("> requires 2 args but found {}", args.len()),
     };
@@ -158,6 +189,13 @@ fn multiply_fn(args: &[Val]) -> Result<Val> {
 fn list_fn(args: &[Val]) -> Result<Val> {
     let items = Vec::from_iter(args.iter().cloned());
     Ok(items.into())
+}
+
+fn equalp_fn(args: &[Val]) -> Result<Val> {
+    match args {
+        [a, b] => Ok(Val::Bool(a == b)),
+        _ => bail!("equal? expects 2 arguments but found {}", args.len()),
+    }
 }
 
 fn negate(x: &Val) -> Val {

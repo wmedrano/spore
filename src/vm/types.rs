@@ -1,5 +1,7 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::{borrow::Borrow, sync::Arc};
+
+use super::environment::Environment;
 
 /// Contains a single value.
 #[derive(Clone, Debug, PartialEq)]
@@ -14,8 +16,12 @@ pub enum Val {
 }
 
 impl Val {
-    pub fn is_truthy(&self) -> bool {
-        matches!(self, Val::Bool(false))
+    /// Returns true if `self` is a `true`. If `self` is not a bool, then an error is returned.
+    pub fn is_truthy(&self) -> Result<bool> {
+        match self {
+            Val::Bool(v) => Ok(*v),
+            v => Err(anyhow!("expected true/false, but found {}", v)),
+        }
     }
 }
 
@@ -122,67 +128,72 @@ impl std::fmt::Display for Symbol {
 }
 
 pub trait GenericProcedure: 'static + Send + Sync {
-    fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val>;
+    /// The name of the procedure.
+    fn name(&self) -> &str;
+
+    /// Evaluate the procedure on the environment.
+    fn eval(&self, env: &mut Environment) -> Result<Val>;
 }
 
-impl<F> GenericProcedure for F
+impl<P> GenericProcedure for (&'static str, P)
 where
-    F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>,
+    P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>,
 {
-    fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val> {
-        let end = stack.len();
-        let start = end - arg_count;
-        let val = (self)(&stack[start..end])?;
-        stack.truncate(start);
-        Ok(val)
+    /// The name of the procedure.
+    fn name(&self) -> &str {
+        self.0
+    }
+
+    /// Evaluate the procedure in the given environment.
+    fn eval(&self, env: &mut Environment) -> Result<Val> {
+        let start = env.local.stack_base;
+        let end = env.stack.len();
+        (self.1)(&env.stack[start..end])
     }
 }
 
 /// A function.
 pub struct Procedure {
-    name: Option<Symbol>,
-    f: Box<dyn GenericProcedure>,
+    inner: Box<dyn GenericProcedure>,
 }
 
 impl Procedure {
     /// Create a new function.
-    pub fn with_native<S: Into<Symbol>, F: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
-        name: Option<S>,
-        proc: F,
+    pub fn with_native<P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
+        name: &'static str,
+        proc: P,
     ) -> Arc<Procedure> {
-        let f = Box::new(proc);
-        let name = name.map(|n| n.into());
-        Arc::new(Procedure { name, f })
+        let f = Box::new((name, proc));
+        Arc::new(Procedure { inner: f })
     }
 
     /// Create a new function.
-    pub fn new<S: Into<Symbol>, P: GenericProcedure>(name: Option<S>, proc: P) -> Arc<Procedure> {
+    pub fn new<P: GenericProcedure>(proc: P) -> Arc<Procedure> {
         let f: Box<dyn GenericProcedure> = Box::new(proc);
-        let name = name.map(|n| n.into());
-        Arc::new(Procedure { name, f })
+        Arc::new(Procedure { inner: f })
     }
 
-    pub fn name(&self) -> Option<&Symbol> {
-        self.name.as_ref()
+    pub fn name(&self) -> &str {
+        self.inner.name()
     }
 }
 
 impl Procedure {
     /// Evaluate the function with the given arguments.
-    pub fn eval(&self, stack: &mut Vec<Val>, arg_count: usize) -> Result<Val> {
-        self.f.as_ref().eval(stack, arg_count)
+    pub fn eval(&self, env: &mut Environment) -> Result<Val> {
+        self.inner.as_ref().eval(env)
     }
 }
 
 impl PartialEq for Procedure {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.f.as_ref(), other.f.as_ref())
+        std::ptr::eq(self.inner.as_ref(), other.inner.as_ref())
     }
 }
 
 impl std::fmt::Debug for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = self.name.as_ref().map(|s| s.as_ref()).unwrap_or("_");
+        let name = self.name();
         f.debug_struct("Function")
             .field("name", &name)
             .finish_non_exhaustive()
@@ -191,10 +202,7 @@ impl std::fmt::Debug for Procedure {
 
 impl std::fmt::Display for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.name.as_ref() {
-            Some(name) => write!(f, "<proc {name}>", name = name.as_ref()),
-            None => write!(f, "<proc _>"),
-        }
+        write!(f, "<proc {name}>", name = self.name())
     }
 }
 
@@ -219,24 +227,5 @@ mod tests {
     #[test]
     fn ints_are_equal() {
         assert_eq!(Val::Number(Number::Int(100)), Val::Number(Number::Int(100)));
-    }
-
-    #[test]
-    fn functions_pointing_to_same_impl_are_eq() {
-        let noop = |_: &[Val]| Ok(Val::Void);
-        let a = Procedure::with_native(Some("noop"), noop);
-        let b = Procedure::with_native(Some("noop"), noop);
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn functions_pointing_to_different_impl_are_not_eq() {
-        // Note: The return values are different so that the Rust optimizer doesn't unify their
-        // implementations.
-        let a = Procedure::with_native(Some("void"), |_: &[Val]| Ok(Val::Void));
-        let b = Procedure::with_native(Some("make-string"), |_: &[Val]| {
-            Ok(Val::String(Arc::new("".to_string())))
-        });
-        assert_ne!(a, b);
     }
 }

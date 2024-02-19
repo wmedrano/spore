@@ -1,4 +1,4 @@
-use super::types::Val;
+use super::types::{Symbol, Val};
 
 #[derive(Clone, Debug)]
 pub enum OpCode {
@@ -10,6 +10,10 @@ pub enum OpCode {
     JumpIf(usize),
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
+    /// Get the value of the given symbol from the environment and push it on the stack.
+    GetSym(Symbol),
+    /// Get the argument by index. The argument is determined by counting from the stack base.
+    GetArg(usize),
 }
 
 impl std::fmt::Display for OpCode {
@@ -19,6 +23,8 @@ impl std::fmt::Display for OpCode {
             OpCode::Eval(n) => write!(f, "evaluate last {n}"),
             OpCode::JumpIf(n) => write!(f, "jump {n} if true"),
             OpCode::Jump(n) => write!(f, "jump {n}"),
+            OpCode::GetSym(s) => write!(f, "get symbol {s}"),
+            OpCode::GetArg(n) => write!(f, "get arg {n}"),
         }
     }
 }

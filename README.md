@@ -40,7 +40,7 @@ cargo run --example spore
 
 ```mermaid
 flowchart LR
-    source --> lexer --> ast --> s-expression --> bytecode --> interpretter;
+    source --> lexer --> ast --> bytecode --> interpretter;
 ```
 
 Spore uses a bytecode interpretter to execute code.
@@ -48,5 +48,4 @@ Spore uses a bytecode interpretter to execute code.
 - source - The source code string.
 - lexer - The lexer parses a string into open/close parensheses, identifiers, numbers and strings.
 - ast - An AST is built. Each set of parentheses forms a sub tree in the AST.
-- s-expression - A lispy representation of the AST.
 - bytecode - A sequence of instructions to execute.

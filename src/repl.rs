@@ -4,7 +4,7 @@ use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
 use crate::parser::ast::Ast;
-use crate::vm::compiler::ByteCodeProc;
+use crate::vm::compiler::Compiler;
 use crate::vm::types::{GenericProcedure, Symbol, Val};
 use crate::vm::Vm;
 
@@ -77,10 +77,9 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
 }
 
 fn eval_ast(ast: &Ast) -> Result<Val> {
-    let bytecode = ByteCodeProc::with_ast(ast)?;
-    let mut stack = Vec::with_capacity(4096);
-    let res = bytecode.eval(&mut stack, 0)?;
-    Ok(res)
+    let bytecode = Compiler::new().compile_and_finalize("".to_string(), ast)?;
+    let mut env = Vm::singleton().env();
+    bytecode.eval(&mut env)
 }
 
 fn analyze_bytecode(s: &str) {
@@ -92,7 +91,7 @@ fn analyze_bytecode(s: &str) {
         }
     };
     for ast in asts {
-        let bytecode = match ByteCodeProc::with_ast(&ast) {
+        let bytecode = match Compiler::new().compile_and_finalize("".to_string(), &ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
