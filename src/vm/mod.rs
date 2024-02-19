@@ -10,10 +10,9 @@ use crate::parser::ast::Ast;
 use self::{
     compiler::Compiler,
     environment::{Environment, LocalEnvironment},
-    types::{GenericProcedure, Procedure, Symbol, Val},
+    types::{proc::Procedure, symbol::Symbol, Val},
 };
 
-pub mod bytecode;
 pub mod compiler;
 pub mod environment;
 pub mod types;
@@ -74,12 +73,12 @@ impl Vm {
     }
 
     /// Evaluate an sexpr and return the results as a vector.
-    pub fn eval_sexpr(&mut self, s: &str) -> Result<Vec<Val>> {
-        let asts = Ast::from_sexp_str(s)?;
+    pub fn eval_sexpr<T: AsRef<str>>(&mut self, expr: T) -> Result<Vec<Val>> {
+        let asts = Ast::from_sexp_str(expr.as_ref())?;
         let mut res = Vec::with_capacity(asts.len());
         let mut env = self.env();
         for ast in asts {
-            let bc = Compiler::new().compile_and_finalize("".to_string(), &ast)?;
+            let bc = Compiler::new().compile_and_finalize(&ast)?;
             let val = bc.eval(&mut env)?;
             env.reset_locals();
             res.push(val);
@@ -140,12 +139,15 @@ mod tests {
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        Vm::singleton()
-            .eval_sexpr("(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
+        let result = Vm::singleton()
+            .eval_sexpr(
+                vec![
+                    "(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
+                    "(fib 10)",
+                ]
+                .join("\n"),
+            )
             .unwrap();
-        assert_eq!(
-            Vm::singleton().eval_sexpr("(fib 10)").unwrap(),
-            &[Val::Number(Number::Int(55))]
-        );
+        assert_eq!(result, &[Val::Void, Val::Number(Number::Int(55))]);
     }
 }

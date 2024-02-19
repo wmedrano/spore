@@ -1,7 +1,7 @@
-use super::types::{Symbol, Val};
+use super::{symbol::Symbol, Val};
 
 #[derive(Clone, Debug)]
-pub enum OpCode {
+pub enum Instruction {
     /// Push a new value to the stack.
     PushVal(Val),
     /// Evaluate the top of the stack.
@@ -16,15 +16,15 @@ pub enum OpCode {
     GetArg(usize),
 }
 
-impl std::fmt::Display for OpCode {
+impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OpCode::PushVal(v) => write!(f, "push value {v}"),
-            OpCode::Eval(n) => write!(f, "evaluate last {n}"),
-            OpCode::JumpIf(n) => write!(f, "jump {n} if true"),
-            OpCode::Jump(n) => write!(f, "jump {n}"),
-            OpCode::GetSym(s) => write!(f, "get symbol {s}"),
-            OpCode::GetArg(n) => write!(f, "get arg {n}"),
+            Instruction::PushVal(v) => write!(f, "push value {v}"),
+            Instruction::Eval(n) => write!(f, "evaluate last {n}"),
+            Instruction::JumpIf(n) => write!(f, "jump {n} if true"),
+            Instruction::Jump(n) => write!(f, "jump {n}"),
+            Instruction::GetSym(s) => write!(f, "get symbol {s}"),
+            Instruction::GetArg(n) => write!(f, "get arg {n}"),
         }
     }
 }
@@ -34,9 +34,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn byte_code_size_is_small() {
+    fn instruction_size_is_small() {
         assert_eq!(
-            std::mem::size_of::<OpCode>(),
+            std::mem::size_of::<Instruction>(),
             2 * std::mem::size_of::<usize>()
         )
     }

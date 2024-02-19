@@ -8,28 +8,21 @@ use crate::parser::{
 };
 
 use super::{
-    bytecode::OpCode,
     environment::Environment,
-    types::{GenericProcedure, Number, Procedure, Symbol, Val},
+    types::{instruction::Instruction, proc::Procedure, symbol::Symbol, Number, Val},
     Vm,
 };
 
 /// A procedure that can be evaluated on an environment.
 pub struct ByteCodeProc {
-    /// The name of the procedure.
-    name: String,
     /// The number of arguments to the procedure.
     arg_count: usize,
     /// The bytecode to run.
-    bytecode: Vec<OpCode>,
+    bytecode: Vec<Instruction>,
 }
 
-impl GenericProcedure for ByteCodeProc {
-    fn name(&self) -> &str {
-        self.name.as_str()
-    }
-
-    fn eval(&self, env: &mut Environment) -> Result<Val> {
+impl ByteCodeProc {
+    pub fn eval(&self, env: &mut Environment) -> Result<Val> {
         let expected_args = self.arg_count;
         let stack_base = env.local.stack_base;
         let actual_args = env.stack.len() - stack_base;
@@ -48,8 +41,8 @@ impl GenericProcedure for ByteCodeProc {
 }
 
 impl ByteCodeProc {
-    /// Iterate through all the instructions of the current procedure.
-    pub fn instructions(&self) -> &[OpCode] {
+    /// Get all the instructions in the procedure.
+    pub fn instructions(&self) -> &[Instruction] {
         self.bytecode.as_slice()
     }
 }
@@ -57,7 +50,7 @@ impl ByteCodeProc {
 /// Compiles Asts into `ByteCodeProc` objects.
 pub struct Compiler {
     symbol_to_idx: HashMap<String, usize>,
-    opcodes: Vec<OpCode>,
+    opcodes: Vec<Instruction>,
 }
 
 impl Compiler {
@@ -81,17 +74,17 @@ impl Compiler {
     }
 
     /// Compile `ast` onto the current context and return the callable `ByteCodeProc`.
-    pub fn compile_and_finalize(self, name: String, ast: &Ast) -> Result<ByteCodeProc> {
+    pub fn compile_and_finalize(self, ast: &Ast) -> Result<ByteCodeProc> {
         let mut c = self;
         c.compile(ast)?;
-        Ok(c.finalize(name))
+        Ok(c.finalize())
     }
 
     /// Finalize the current compilation and return the result as a callable `ByteCodeProc`.
-    fn finalize(self, name: String) -> ByteCodeProc {
+    fn finalize(self) -> ByteCodeProc {
         let mut bytecode = self.opcodes;
         if bytecode.is_empty() {
-            bytecode.push(OpCode::PushVal(Val::Void));
+            bytecode.push(Instruction::PushVal(Val::Void));
         }
         bytecode.shrink_to_fit();
         let arg_count = self
@@ -101,7 +94,6 @@ impl Compiler {
             .max()
             .unwrap_or(0);
         ByteCodeProc {
-            name,
             arg_count,
             bytecode,
         }
@@ -121,7 +113,7 @@ impl Compiler {
                         for c in children {
                             self.compile(c)?;
                         }
-                        self.opcodes.push(OpCode::Eval(children.len()));
+                        self.opcodes.push(Instruction::Eval(children.len()));
                     }
                     v @ AstLeaf::Symbol(_)
                     | v @ AstLeaf::String(_)
@@ -133,7 +125,7 @@ impl Compiler {
                     for v in vals {
                         self.compile(v)?;
                     }
-                    self.opcodes.push(OpCode::Eval(vals.len()));
+                    self.opcodes.push(Instruction::Eval(vals.len()));
                 }
             },
         }
@@ -146,7 +138,7 @@ impl Compiler {
             AstLeaf::Lambda => bail!("empty lambda is not a valid expression"),
             AstLeaf::Define => bail!("empty define is not a valid expression"),
             AstLeaf::Identifier(x) => match self.symbol_to_idx.get(x) {
-                Some(idx) => self.opcodes.push(OpCode::GetArg(*idx)),
+                Some(idx) => self.opcodes.push(Instruction::GetArg(*idx)),
                 None => {
                     let val = Vm::singleton()
                         .globals
@@ -155,18 +147,22 @@ impl Compiler {
                         .get(x.as_str())
                         .cloned();
                     match val {
-                        Some(v) => self.opcodes.push(OpCode::PushVal(v)),
-                        None => self.opcodes.push(OpCode::GetSym(x.as_str().into())),
+                        Some(v) => self.opcodes.push(Instruction::PushVal(v)),
+                        None => self.opcodes.push(Instruction::GetSym(x.as_str().into())),
                     }
                 }
             },
             AstLeaf::Symbol(x) => self
                 .opcodes
-                .push(OpCode::PushVal(Symbol::from(x.clone()).into())),
-            AstLeaf::String(x) => self.opcodes.push(OpCode::PushVal(x.clone().into())),
-            AstLeaf::Float(x) => self.opcodes.push(OpCode::PushVal(Number::Float(*x).into())),
-            AstLeaf::Int(x) => self.opcodes.push(OpCode::PushVal(Number::Int(*x).into())),
-            AstLeaf::Bool(x) => self.opcodes.push(OpCode::PushVal((*x).into())),
+                .push(Instruction::PushVal(Symbol::from(x.clone()).into())),
+            AstLeaf::String(x) => self.opcodes.push(Instruction::PushVal(x.clone().into())),
+            AstLeaf::Float(x) => self
+                .opcodes
+                .push(Instruction::PushVal(Number::Float(*x).into())),
+            AstLeaf::Int(x) => self
+                .opcodes
+                .push(Instruction::PushVal(Number::Int(*x).into())),
+            AstLeaf::Bool(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
         }
         Ok(())
     }
@@ -190,12 +186,12 @@ impl Compiler {
                     lambda_compiler.compile(expr)?;
                 }
                 lambda_compiler.opcodes.shrink_to_fit();
-                let bytecode_proc = Procedure::new(ByteCodeProc {
-                    name: "_".to_string(),
+                let bytecode_proc = Procedure::with_bytecode(ByteCodeProc {
                     arg_count,
                     bytecode: lambda_compiler.opcodes,
                 });
-                self.opcodes.push(OpCode::PushVal(Val::Proc(bytecode_proc)));
+                self.opcodes
+                    .push(Instruction::PushVal(Val::Proc(bytecode_proc)));
             }
         };
         Ok(())
@@ -212,11 +208,11 @@ impl Compiler {
                     ast => bail!("define must be bound to an identifier but found {:?}", ast),
                 };
                 self.opcodes.extend([
-                    OpCode::GetSym("%define-sym".into()),
-                    OpCode::PushVal(sym.into()),
+                    Instruction::GetSym("%define-sym".into()),
+                    Instruction::PushVal(sym.into()),
                 ]);
                 self.compile(expr)?;
-                self.opcodes.push(OpCode::Eval(3));
+                self.opcodes.push(Instruction::Eval(3));
             }
             _ => bail!("define requires 2 args but found {}", args.len()),
         };
@@ -227,15 +223,15 @@ impl Compiler {
         match args {
             [pred, t_val, maybe_f_val @ ..] => {
                 self.compile(pred)?;
-                let t_bytecode = Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize("".to_string(), t_val)?.bytecode;
+                let t_bytecode = Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
                 let f_bytecode = match maybe_f_val {
-                    [] => vec![OpCode::PushVal(Val::Void)],
-                    [f_val] => Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize("".to_string(), f_val)?.bytecode,
+                    [] => vec![Instruction::PushVal(Val::Void)],
+                    [f_val] => Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode,
                     rest => bail!("expected single false expression but found {}", rest.len()),
                 };
-                self.opcodes.push(OpCode::JumpIf(f_bytecode.len() + 1));
+                self.opcodes.push(Instruction::JumpIf(f_bytecode.len() + 1));
                 self.opcodes.extend(f_bytecode);
-                self.opcodes.push(OpCode::Jump(t_bytecode.len()));
+                self.opcodes.push(Instruction::Jump(t_bytecode.len()));
                 self.opcodes.extend(t_bytecode);
             }
             _ => bail!("if statement requires 3 (condition-expr true-expression false-expression) args but found {}", args.len()),

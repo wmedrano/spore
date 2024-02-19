@@ -5,7 +5,8 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::Ast;
 use crate::vm::compiler::Compiler;
-use crate::vm::types::{GenericProcedure, Symbol, Val};
+use crate::vm::types::symbol::Symbol;
+use crate::vm::types::Val;
 use crate::vm::Vm;
 
 /// Run the REPL.
@@ -77,7 +78,7 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
 }
 
 fn eval_ast(ast: &Ast) -> Result<Val> {
-    let bytecode = Compiler::new().compile_and_finalize("".to_string(), ast)?;
+    let bytecode = Compiler::new().compile_and_finalize(ast)?;
     let mut env = Vm::singleton().env();
     bytecode.eval(&mut env)
 }
@@ -91,7 +92,7 @@ fn analyze_bytecode(s: &str) {
         }
     };
     for ast in asts {
-        let bytecode = match Compiler::new().compile_and_finalize("".to_string(), &ast) {
+        let bytecode = match Compiler::new().compile_and_finalize(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());

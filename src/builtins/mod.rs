@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
-    types::{Number, Procedure, Val},
+    types::{proc::Procedure, Number, Val},
     Vm,
 };
 
