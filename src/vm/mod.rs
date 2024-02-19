@@ -142,7 +142,7 @@ mod tests {
         let result = Vm::singleton()
             .eval_sexpr(
                 vec![
-                    "(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
+                    "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
                     "(fib 10)",
                 ]
                 .join("\n"),

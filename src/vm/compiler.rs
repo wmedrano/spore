@@ -108,7 +108,7 @@ impl Compiler {
                 [Ast::Leaf(Token { item, .. }), args @ ..] => match item {
                     AstLeaf::If => self.if_to_bytecode(args)?,
                     AstLeaf::Lambda => self.lambda_to_bytecode(args)?,
-                    AstLeaf::Define => self.define_to_bytecode(args)?,
+                    AstLeaf::Def => self.def_to_bytecode(args)?,
                     AstLeaf::Identifier(_) => {
                         for c in children {
                             self.compile(c)?;
@@ -136,7 +136,7 @@ impl Compiler {
         match l {
             AstLeaf::If => bail!("empty if is not a valid expression"),
             AstLeaf::Lambda => bail!("empty lambda is not a valid expression"),
-            AstLeaf::Define => bail!("empty define is not a valid expression"),
+            AstLeaf::Def => bail!("empty def is not a valid expression"),
             AstLeaf::Identifier(x) => match self.symbol_to_idx.get(x) {
                 Some(idx) => self.opcodes.push(Instruction::GetArg(*idx)),
                 None => {
@@ -197,7 +197,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn define_to_bytecode(&mut self, args: &[Ast]) -> Result<()> {
+    fn def_to_bytecode(&mut self, args: &[Ast]) -> Result<()> {
         match args {
             [sym, expr] => {
                 let sym = match sym {
@@ -205,7 +205,7 @@ impl Compiler {
                         item: AstLeaf::Identifier(ident),
                         ..
                     }) => Symbol::from(ident.as_str()),
-                    ast => bail!("define must be bound to an identifier but found {:?}", ast),
+                    ast => bail!("def must be bound to an identifier but found {:?}", ast),
                 };
                 self.opcodes.extend([
                     Instruction::GetSym("%define-sym".into()),
@@ -214,7 +214,7 @@ impl Compiler {
                 self.compile(expr)?;
                 self.opcodes.push(Instruction::Eval(3));
             }
-            _ => bail!("define requires 2 args but found {}", args.len()),
+            _ => bail!("def requires 2 args but found {}", args.len()),
         };
         Ok(())
     }
