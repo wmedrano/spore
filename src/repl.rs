@@ -92,8 +92,7 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
 
 fn eval_ast(ast: &Ast) -> Result<Val> {
     let bytecode = Compiler::new().compile_and_finalize(ast)?;
-    let mut env = Vm::singleton().env();
-    bytecode.eval(&mut env)
+    Vm::singleton().env().eval_bytecode(bytecode.instructions())
 }
 
 fn analyze_bytecode(s: &str) {

@@ -6,7 +6,7 @@ use std::{
 use anyhow::{bail, Result};
 
 use self::{
-    environment::{Environment, LocalEnvironment},
+    environment::Environment,
     types::{proc::Procedure, symbol::Symbol, Val},
 };
 
@@ -65,7 +65,7 @@ impl Vm {
         Environment {
             globals: self.globals.clone(),
             stack: Vec::with_capacity(4096),
-            local: LocalEnvironment { stack_base: 0 },
+            frames: Vec::with_capacity(64),
         }
     }
 

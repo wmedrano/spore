@@ -13,86 +13,89 @@ pub struct Environment {
     pub globals: Arc<Mutex<HashMap<Symbol, Val>>>,
     /// The processing stack.
     pub stack: Vec<Val>,
-    /// An environment for the current stack frame. This usually corresponds to the current
-    /// procedure call.
-    pub local: LocalEnvironment,
+    /// Contains the current call frame. This includes the instructions that should be run and the
+    /// base of the frame's stack.
+    pub frames: Vec<Frame>,
 }
 
-pub struct LocalEnvironment {
-    /// The base index for the current call. Anything at this index or above is either an argument
-    /// or a local variable to the current call.
-    pub stack_base: usize,
+pub struct Frame {
+    /// All the available instructions for the frame.
+    pub instructions: Arc<[Instruction]>,
+    /// The index of the next instruction to execute.
+    pub instruction_idx: usize,
+    /// The index of the local stack.
+    pub stack_start_idx: usize,
 }
 
 impl Environment {
     /// Evaluate a sequence of bytecode.
-    pub fn eval_bytecode<'a>(
-        &mut self,
-        bc: impl IntoIterator<Item = &'a Instruction>,
-    ) -> Result<()> {
-        let mut iter = bc.into_iter();
-        while let Some(bc) = iter.next() {
-            match bc {
-                Instruction::PushVal(v) => self.execute_push_val(v),
-                Instruction::Eval(n) => self.execute_eval_n(*n)?,
-                Instruction::JumpIf(n) => self.execute_jump_if(*n, &mut iter)?,
-                Instruction::Jump(n) => self.execute_jump(*n, &mut iter),
-                Instruction::GetSym(s) => self.execute_get_sym(s.as_str())?,
-                Instruction::GetArg(n) => self.execute_get_arg(n),
+    pub fn eval_bytecode(&mut self, instructions: Arc<[Instruction]>) -> Result<Val> {
+        self.frames.push(Frame {
+            instructions,
+            instruction_idx: 0,
+            stack_start_idx: 0,
+        });
+        loop {
+            let maybe_next_instruction = self.next_instruction();
+            match maybe_next_instruction {
+                Some(Instruction::PushVal(v)) => self.execute_push_val(v),
+                Some(Instruction::Eval(n)) => self.execute_eval_n(n)?,
+                Some(Instruction::JumpIf(n)) => self.execute_jump_if(n)?,
+                Some(Instruction::Jump(n)) => self.execute_jump(n),
+                Some(Instruction::GetSym(s)) => self.execute_get_sym(s.as_str())?,
+                Some(Instruction::GetArg(n)) => self.execute_get_arg(n),
+                None => {
+                    self.pop_frame()?;
+                    if self.frames.is_empty() {
+                        return Ok(self.stack.pop().unwrap_or(Val::Void));
+                    }
+                }
             }
         }
+    }
+
+    /// Get the next instruction or none if the frame has run out of instructions.
+    fn next_instruction(&mut self) -> Option<Instruction> {
+        let frame = self.frames.last_mut()?;
+        let res = frame.instructions.get(frame.instruction_idx)?.clone();
+        frame.instruction_idx += 1;
+        Some(res)
+    }
+
+    /// Pop the current frame. This truncates the local stack and replaces the top value of the
+    /// stack with the return value. The return value is defined as the value at the top of the
+    /// local stack.
+    fn pop_frame(&mut self) -> Result<()> {
+        let frame = self.frames.pop().unwrap();
+        let return_val = if self.stack.len() > frame.stack_start_idx {
+            self.stack.pop().unwrap()
+        } else {
+            Val::Void
+        };
+        self.stack.truncate(frame.stack_start_idx);
+        self.stack.pop();
+        self.stack.push(return_val);
         Ok(())
     }
 
-    /// Resets the environment. This clears the stack but leaves global definitions in tact.
-    pub fn reset_locals(&mut self) {
-        self.stack.clear();
-        self.local.stack_base = 0;
-    }
-
-    /// Set the local environment and return the old local environment.
-    pub fn set_local_environment(&mut self, e: LocalEnvironment) -> LocalEnvironment {
-        let mut e = e;
-        std::mem::swap(&mut e, &mut self.local);
-        e
-    }
-
-    /// Get the local stack. The local stack contains the arguments and values for the current
-    /// procedure call.
-    pub fn local_stack(&self) -> &[Val] {
-        &self.stack[self.local.stack_base..]
-    }
-
-    /// Pop the top value of the local stack. If there are no values on the local stack, then `None`
-    /// is returned.
-    pub fn pop_local(&mut self) -> Option<Val> {
-        if self.local.stack_base < self.stack.len() {
-            self.stack.pop()
-        } else {
-            None
-        }
-    }
-
     /// Get a value from the current environment.
-    pub fn get_value(&self, sym: impl AsRef<str>) -> Option<Val> {
+    fn get_value(&self, sym: impl AsRef<str>) -> Option<Val> {
         let registry = self.globals.lock().unwrap();
         registry.get(sym.as_ref()).cloned()
     }
 
-    fn execute_get_arg(&mut self, n: &usize) {
-        let v = self.stack.get(self.local.stack_base + n).unwrap().clone();
+    fn execute_get_arg(&mut self, n: usize) {
+        let start_idx = self.frames.last().unwrap().stack_start_idx;
+        let idx = start_idx + n;
+        let v = self.stack.get(idx).unwrap().clone();
         self.stack.push(v);
     }
 
-    fn execute_jump_if<'a>(
-        &mut self,
-        n: usize,
-        bc_iter: &mut impl Iterator<Item = &'a Instruction>,
-    ) -> Result<()> {
+    fn execute_jump_if(&mut self, n: usize) -> Result<()> {
         match self.stack.pop() {
             Some(v) => {
                 if v.is_truthy()? {
-                    self.execute_jump(n, bc_iter);
+                    self.execute_jump(n);
                 }
             }
             None => bail!("bytecode if found no value to evaluate if statement"),
@@ -100,12 +103,13 @@ impl Environment {
         Ok(())
     }
 
-    fn execute_jump<'b>(&self, n: usize, bc_iter: &mut impl Iterator<Item = &'b Instruction>) {
-        bc_iter.nth(n - 1);
+    fn execute_jump(&mut self, n: usize) {
+        let frame = self.frames.last_mut().unwrap();
+        frame.instruction_idx += n;
     }
 
-    fn execute_push_val(&mut self, v: &Val) {
-        self.stack.push(v.clone());
+    fn execute_push_val(&mut self, v: Val) {
+        self.stack.push(v);
     }
 
     fn execute_eval_n(&mut self, n: usize) -> Result<()> {
@@ -115,25 +119,33 @@ impl Environment {
             Some(Val::Proc(p)) => p.clone(),
             Some(v) => bail!("value {v} is not a valid procedure."),
         };
-        let current_locals = self.set_local_environment(LocalEnvironment {
-            stack_base: proc_idx + 1,
-        });
-        let result = match proc.as_ref() {
-            Procedure::Native(_, proc) => proc(self.local_stack())?,
+        match proc.as_ref() {
+            Procedure::Native(_, proc) => {
+                let stack_base = proc_idx + 1;
+                let res = proc(&self.stack[stack_base..])?;
+                self.stack.truncate(stack_base);
+                self.stack[proc_idx] = res;
+                return Ok(());
+            }
             Procedure::ByteCode(proc) => {
-                self.eval_bytecode(proc.instructions())?;
-                self.pop_local().unwrap_or(Val::Void)
+                let expected_args = proc.arg_count;
+                let actual_args = self.stack.len() - proc_idx - 1;
+                if expected_args != actual_args {
+                    bail!("expected {expected_args} but found {actual_args}");
+                }
+                self.frames.push(Frame {
+                    instructions: proc.instructions(),
+                    instruction_idx: 0,
+                    stack_start_idx: proc_idx + 1,
+                });
             }
         };
-        self.stack[proc_idx] = result;
-        self.stack.truncate(self.local.stack_base);
-        self.set_local_environment(current_locals);
         Ok(())
     }
 
     fn execute_get_sym(&mut self, s: &str) -> Result<()> {
         match self.get_value(s) {
-            Some(v) => self.stack.push(v.clone()),
+            Some(v) => self.stack.push(v),
             None => bail!("{s} is not defined"),
         }
         Ok(())
@@ -157,8 +169,8 @@ mod tests {
         for ast in asts {
             let program = Compiler::new().compile_and_finalize(&ast).unwrap();
             let mut env = Vm::singleton().env();
-            env.eval_bytecode(program.instructions())?;
-            res.push(env.stack.pop().unwrap_or(Val::Void));
+            let v = env.eval_bytecode(program.instructions())?;
+            res.push(v);
         }
         Ok(res)
     }
@@ -196,11 +208,13 @@ mod tests {
     #[test]
     fn recursive_function_definition_calls_recursively() {
         let result = eval_sexpr(
-            &vec![
-                "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
-                "(fib 10)",
-            ]
-            .join("\n"),
+            r#"
+(def fib (lambda (n)
+  (if (<= n 2)
+      1
+      (+ (fib (- n 1)) (fib (- n 2))))))
+(fib 10)
+"#,
         )
         .unwrap();
         assert_eq!(result, &[Val::Void, Val::Number(Number::Int(55))]);

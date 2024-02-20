@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{bail, Result};
 
@@ -8,7 +8,6 @@ use crate::parser::{
 };
 
 use super::{
-    environment::Environment,
     types::{instruction::Instruction, proc::Procedure, symbol::Symbol, Number, Val},
     Vm,
 };
@@ -16,34 +15,19 @@ use super::{
 /// A procedure that can be evaluated on an environment.
 pub struct ByteCodeProc {
     /// The number of arguments to the procedure.
-    arg_count: usize,
+    pub arg_count: usize,
     /// The bytecode to run.
-    bytecode: Vec<Instruction>,
-}
-
-impl ByteCodeProc {
-    pub fn eval(&self, env: &mut Environment) -> Result<Val> {
-        let expected_args = self.arg_count;
-        let stack_base = env.local.stack_base;
-        let actual_args = env.stack.len() - stack_base;
-        let initial_stack_len = env.stack.len();
-        if expected_args != actual_args {
-            bail!("procedure expected {expected_args} args but got {actual_args}");
-        }
-        env.eval_bytecode(&self.bytecode)?;
-        let val = if env.stack.len() > initial_stack_len {
-            env.stack.pop().unwrap()
-        } else {
-            Val::Void
-        };
-        Ok(val)
-    }
+    bytecode: Arc<[Instruction]>,
 }
 
 impl ByteCodeProc {
     /// Get all the instructions in the procedure.
-    pub fn instructions(&self) -> &[Instruction] {
-        self.bytecode.as_slice()
+    pub fn instructions(&self) -> Arc<[Instruction]> {
+        self.bytecode.clone()
+    }
+
+    pub fn iter_instructions(&self) -> impl Iterator<Item = &Instruction> {
+        self.bytecode.iter()
     }
 }
 
@@ -87,7 +71,6 @@ impl Compiler {
         if bytecode.is_empty() {
             bytecode.push(Instruction::PushVal(Val::Void));
         }
-        bytecode.shrink_to_fit();
         let arg_count = self
             .symbol_to_idx
             .values()
@@ -96,7 +79,7 @@ impl Compiler {
             .unwrap_or(0);
         ByteCodeProc {
             arg_count,
-            bytecode,
+            bytecode: Arc::from(bytecode.as_slice()),
         }
     }
 
@@ -186,10 +169,9 @@ impl Compiler {
                 for expr in exprs {
                     lambda_compiler.compile(expr)?;
                 }
-                lambda_compiler.opcodes.shrink_to_fit();
                 let bytecode_proc = Procedure::with_bytecode(ByteCodeProc {
                     arg_count,
-                    bytecode: lambda_compiler.opcodes,
+                    bytecode: Arc::from(lambda_compiler.opcodes),
                 });
                 self.opcodes
                     .push(Instruction::PushVal(Val::Proc(bytecode_proc)));
@@ -227,13 +209,13 @@ impl Compiler {
                 let t_bytecode = Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
                 let f_bytecode = match maybe_f_val {
                     [] => vec![Instruction::PushVal(Val::Void)],
-                    [f_val] => Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode,
+                    [f_val] => Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode.to_vec(),
                     rest => bail!("expected single false expression but found {}", rest.len()),
                 };
                 self.opcodes.push(Instruction::JumpIf(f_bytecode.len() + 1));
                 self.opcodes.extend(f_bytecode);
                 self.opcodes.push(Instruction::Jump(t_bytecode.len()));
-                self.opcodes.extend(t_bytecode);
+                self.opcodes.extend(t_bytecode.iter().cloned());
             }
             _ => bail!("if statement requires 3 (condition-expr true-expression false-expression) args but found {}", args.len()),
         };
