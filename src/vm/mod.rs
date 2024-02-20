@@ -5,10 +5,7 @@ use std::{
 
 use anyhow::{bail, Result};
 
-use crate::parser::ast::Ast;
-
 use self::{
-    compiler::Compiler,
     environment::{Environment, LocalEnvironment},
     types::{proc::Procedure, symbol::Symbol, Val},
 };
@@ -72,20 +69,6 @@ impl Vm {
         }
     }
 
-    /// Evaluate an sexpr and return the results as a vector.
-    pub fn eval_sexpr<T: AsRef<str>>(&mut self, expr: T) -> Result<Vec<Val>> {
-        let asts = Ast::from_sexp_str(expr.as_ref())?;
-        let mut res = Vec::with_capacity(asts.len());
-        let mut env = self.env();
-        for ast in asts {
-            let bc = Compiler::new().compile_and_finalize(&ast)?;
-            let val = bc.eval(&mut env)?;
-            env.reset_locals();
-            res.push(val);
-        }
-        Ok(res)
-    }
-
     /// Create a new `Vm` with all the builtins.
     fn with_builtins() -> Vm {
         let vm = Vm {
@@ -93,61 +76,5 @@ impl Vm {
         };
         crate::builtins::register_all(&vm);
         vm
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::vm::types::Number;
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    #[test]
-    fn can_execute_ast() {
-        let result = Vm::singleton().eval_sexpr("(+ 1 2 (- 3 4))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(2))])
-    }
-
-    #[test]
-    fn if_with_true_returns_first_expr_result() {
-        let result = Vm::singleton()
-            .eval_sexpr("(if true (* 10 2) (+ 10 2))")
-            .unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(20))])
-    }
-
-    #[test]
-    fn if_with_false_returns_second_expr_result() {
-        let result = Vm::singleton()
-            .eval_sexpr("(if false (* 10 2) (+ 10 2))")
-            .unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(12))])
-    }
-
-    #[test]
-    fn if_with_true_and_single_arm_returns_true() {
-        let result = Vm::singleton().eval_sexpr("(if true (* 10 2))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(20))])
-    }
-
-    #[test]
-    fn if_with_false_and_single_arm_returns_void() {
-        let result = Vm::singleton().eval_sexpr("(if false (* 10 2))").unwrap();
-        assert_eq!(result, &[Val::Void])
-    }
-
-    #[test]
-    fn recursive_function_definition_calls_recursively() {
-        let result = Vm::singleton()
-            .eval_sexpr(
-                vec![
-                    "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
-                    "(fib 10)",
-                ]
-                .join("\n"),
-            )
-            .unwrap();
-        assert_eq!(result, &[Val::Void, Val::Number(Number::Int(55))]);
     }
 }

@@ -48,6 +48,7 @@ impl ByteCodeProc {
 }
 
 /// Compiles Asts into `ByteCodeProc` objects.
+#[derive(Default)]
 pub struct Compiler {
     symbol_to_idx: HashMap<String, usize>,
     opcodes: Vec<Instruction>,
@@ -56,7 +57,7 @@ pub struct Compiler {
 impl Compiler {
     /// Create a new compiler.
     pub fn new() -> Compiler {
-        Compiler::with_args(std::iter::empty())
+        Compiler::default()
     }
 
     /// Create a new compiler with the given arguments at the base of the stack.

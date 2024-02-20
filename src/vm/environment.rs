@@ -26,8 +26,11 @@ pub struct LocalEnvironment {
 
 impl Environment {
     /// Evaluate a sequence of bytecode.
-    pub fn eval_bytecode(&mut self, bc: &[Instruction]) -> Result<()> {
-        let mut iter = bc.iter();
+    pub fn eval_bytecode<'a>(
+        &mut self,
+        bc: impl IntoIterator<Item = &'a Instruction>,
+    ) -> Result<()> {
+        let mut iter = bc.into_iter();
         while let Some(bc) = iter.next() {
             match bc {
                 Instruction::PushVal(v) => self.execute_push_val(v),
@@ -134,5 +137,72 @@ impl Environment {
             None => bail!("{s} is not defined"),
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        parser::ast::Ast,
+        vm::{compiler::Compiler, types::Number, Vm},
+    };
+    use anyhow::Result;
+    use pretty_assertions::assert_eq;
+
+    use super::*;
+
+    fn eval_sexpr(s: &str) -> Result<Vec<Val>> {
+        let asts = Ast::from_sexp_str(s).unwrap();
+        let mut res = Vec::new();
+        for ast in asts {
+            let program = Compiler::new().compile_and_finalize(&ast).unwrap();
+            let mut env = Vm::singleton().env();
+            env.eval_bytecode(program.instructions())?;
+            res.push(env.stack.pop().unwrap_or(Val::Void));
+        }
+        Ok(res)
+    }
+
+    #[test]
+    fn can_execute_ast() {
+        let result = eval_sexpr("(+ 1 2 (- 3 4))").unwrap();
+        assert_eq!(result, &[Val::Number(Number::Int(2))])
+    }
+
+    #[test]
+    fn if_with_true_returns_first_expr_result() {
+        let result = eval_sexpr("(if true (* 10 2) (+ 10 2))").unwrap();
+        assert_eq!(result, &[Val::Number(Number::Int(20))])
+    }
+
+    #[test]
+    fn if_with_false_returns_second_expr_result() {
+        let result = eval_sexpr("(if false (* 10 2) (+ 10 2))").unwrap();
+        assert_eq!(result, &[Val::Number(Number::Int(12))])
+    }
+
+    #[test]
+    fn if_with_true_and_single_arm_returns_true() {
+        let result = eval_sexpr("(if true (* 10 2))").unwrap();
+        assert_eq!(result, &[Val::Number(Number::Int(20))])
+    }
+
+    #[test]
+    fn if_with_false_and_single_arm_returns_void() {
+        let result = eval_sexpr("(if false (* 10 2))").unwrap();
+        assert_eq!(result, &[Val::Void])
+    }
+
+    #[test]
+    fn recursive_function_definition_calls_recursively() {
+        let result = eval_sexpr(
+            &vec![
+                "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))",
+                "(fib 10)",
+            ]
+            .join("\n"),
+        )
+        .unwrap();
+        assert_eq!(result, &[Val::Void, Val::Number(Number::Int(55))]);
     }
 }

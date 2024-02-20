@@ -22,47 +22,6 @@ pub enum AstLeaf {
     Bool(bool),
 }
 
-/// Holds a parse error.
-#[derive(Debug, PartialEq)]
-pub enum ParseAstError {
-    /// There was a missing closing paren.
-    MissingClosingParen { open_idx: usize, end_idx: usize },
-    /// No closing paren was expected.
-    UnexpectedClosingParen { idx: usize },
-    /// The identifier is not valid.
-    InvalidIdentifier(Token<String>),
-}
-
-impl std::fmt::Display for ParseAstError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
-}
-
-impl std::error::Error for ParseAstError {}
-
-impl ParseAstError {
-    pub fn display_with_context(&self, src: &str) -> String {
-        let make_spacing = |n| String::from_iter(std::iter::repeat(' ').take(n));
-        match self {
-            ParseAstError::MissingClosingParen { open_idx, end_idx } => {
-                let context = &src[*open_idx..*end_idx];
-                format!("{context}\n^\nMissing closing paren.")
-            }
-            ParseAstError::UnexpectedClosingParen { idx } => {
-                let start = (*idx).saturating_sub(5);
-                let context = &src[start..(*idx + 5).clamp(0, src.len())];
-                let space = make_spacing(src[start..*idx].chars().count());
-                format!("{context}\n{space}^\nUnexpected closing paren.")
-            }
-            ParseAstError::InvalidIdentifier(ident) => {
-                let context = ident.item.as_str();
-                format!("{context}\n^ Invalid identifier.")
-            }
-        }
-    }
-}
-
 impl Ast {
     /// Convert a string into an AST.
     pub fn from_sexp_str(s: &str) -> Result<Vec<Ast>, ParseAstError> {
@@ -145,6 +104,47 @@ impl Ast {
         match opening_paren {
             Some(open_idx) => Err(ParseAstError::MissingClosingParen { open_idx, end_idx }),
             None => Ok(exps),
+        }
+    }
+}
+
+/// Holds a parse error.
+#[derive(Debug, PartialEq)]
+pub enum ParseAstError {
+    /// There was a missing closing paren.
+    MissingClosingParen { open_idx: usize, end_idx: usize },
+    /// No closing paren was expected.
+    UnexpectedClosingParen { idx: usize },
+    /// The identifier is not valid.
+    InvalidIdentifier(Token<String>),
+}
+
+impl std::fmt::Display for ParseAstError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+impl std::error::Error for ParseAstError {}
+
+impl ParseAstError {
+    pub fn display_with_context(&self, src: &str) -> String {
+        let make_spacing = |n| String::from_iter(std::iter::repeat(' ').take(n));
+        match self {
+            ParseAstError::MissingClosingParen { open_idx, end_idx } => {
+                let context = &src[*open_idx..*end_idx];
+                format!("{context}\n^\nMissing closing paren.")
+            }
+            ParseAstError::UnexpectedClosingParen { idx } => {
+                let start = (*idx).saturating_sub(5);
+                let context = &src[start..(*idx + 5).clamp(0, src.len())];
+                let space = make_spacing(src[start..*idx].chars().count());
+                format!("{context}\n{space}^\nUnexpected closing paren.")
+            }
+            ParseAstError::InvalidIdentifier(ident) => {
+                let context = ident.item.as_str();
+                format!("{context}\n^ Invalid identifier.")
+            }
         }
     }
 }

@@ -3,7 +3,7 @@ use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use crate::parser::ast::Ast;
+use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
 use crate::vm::types::symbol::Symbol;
 use crate::vm::types::Val;
@@ -16,12 +16,17 @@ pub fn run_repl() -> Result<()> {
     println!("{}", "  https://github.com/wmedrano/spore".cyan());
     println!();
     let mut expr_count = 0;
+    let mut sexpr = String::new();
     loop {
-        let readline = rl.readline(">> ");
+        let readline = rl.readline(if sexpr.is_empty() { ">> " } else { ".. " });
         match readline {
             Ok(line) => {
-                rl.add_history_entry(line.as_str())?;
-                eval_str(line.as_str(), &mut expr_count);
+                sexpr += line.as_str();
+                if line_is_complete(&sexpr) {
+                    rl.add_history_entry(sexpr.as_str())?;
+                    eval_str(sexpr.as_str(), &mut expr_count);
+                    sexpr.clear();
+                }
             }
             Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
                 println!();
@@ -34,6 +39,14 @@ pub fn run_repl() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn line_is_complete(s: &str) -> bool {
+    let s = s.strip_prefix(",\\w+").unwrap_or(s);
+    !matches!(
+        Ast::from_sexp_str(s),
+        Err(ParseAstError::MissingClosingParen { .. })
+    )
 }
 
 fn eval_str(s: &str, expr_count: &mut usize) {
