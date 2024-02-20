@@ -2,16 +2,23 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::vm::compiler::ByteCodeProc;
-
-use super::Val;
+use super::{instruction::Instruction, Val};
 
 type NativeProcFn = Box<dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>;
 
 /// A function.
 pub enum Procedure {
     Native(&'static str, NativeProcFn),
-    ByteCode(ByteCodeProc),
+    ByteCode(Arc<ByteCodeProc>),
+}
+
+/// A procedure that can be evaluated on an environment.
+#[derive(Clone)]
+pub struct ByteCodeProc {
+    /// The number of arguments to the procedure.
+    pub arg_count: usize,
+    /// The bytecode to run.
+    pub bytecode: Vec<Instruction>,
 }
 
 impl Procedure {
@@ -23,7 +30,7 @@ impl Procedure {
         Arc::new(Procedure::Native(name, Box::new(proc)))
     }
 
-    pub fn with_bytecode(bc: ByteCodeProc) -> Arc<Procedure> {
+    pub fn with_bytecode(bc: Arc<ByteCodeProc>) -> Arc<Procedure> {
         Arc::new(Procedure::ByteCode(bc))
     }
 
@@ -53,5 +60,35 @@ impl std::fmt::Debug for Procedure {
 impl std::fmt::Display for Procedure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<proc {name}>", name = self.name())
+    }
+}
+
+/// An iterator over bytecode.
+pub struct ByteCodeIter {
+    proc: Arc<ByteCodeProc>,
+    next_idx: usize,
+}
+
+impl ByteCodeIter {
+    /// Create an interator over a `ByteCodeProc` shared reference.
+    pub fn from_proc(proc: Arc<ByteCodeProc>) -> ByteCodeIter {
+        ByteCodeIter { proc, next_idx: 0 }
+    }
+}
+
+impl ByteCodeIter {
+    /// Jump some number of instructions.
+    pub fn jump(&mut self, n: usize) {
+        self.next_idx += n;
+    }
+}
+
+impl Iterator for ByteCodeIter {
+    type Item = Instruction;
+
+    fn next(&mut self) -> Option<Instruction> {
+        let res = self.proc.bytecode.get(self.next_idx).cloned();
+        self.next_idx += 1;
+        res
     }
 }

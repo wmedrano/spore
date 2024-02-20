@@ -5,7 +5,12 @@ use std::{
 
 use anyhow::{bail, Result};
 
-use super::types::{instruction::Instruction, proc::Procedure, symbol::Symbol, Val};
+use super::types::{
+    instruction::Instruction,
+    proc::{ByteCodeIter, ByteCodeProc, Procedure},
+    symbol::Symbol,
+    Val,
+};
 
 /// An environment to evaluate bytecode on.
 pub struct Environment {
@@ -19,20 +24,17 @@ pub struct Environment {
 }
 
 pub struct Frame {
-    /// All the available instructions for the frame.
-    pub instructions: Arc<[Instruction]>,
-    /// The index of the next instruction to execute.
-    pub instruction_idx: usize,
+    /// The bytecode that is under execution in the frame.
+    pub bytecode: ByteCodeIter,
     /// The index of the local stack.
     pub stack_start_idx: usize,
 }
 
 impl Environment {
     /// Evaluate a sequence of bytecode.
-    pub fn eval_bytecode(&mut self, instructions: Arc<[Instruction]>) -> Result<Val> {
+    pub fn eval_bytecode(&mut self, proc: Arc<ByteCodeProc>) -> Result<Val> {
         self.frames.push(Frame {
-            instructions,
-            instruction_idx: 0,
+            bytecode: ByteCodeIter::from_proc(proc),
             stack_start_idx: 0,
         });
         loop {
@@ -57,9 +59,7 @@ impl Environment {
     /// Get the next instruction or none if the frame has run out of instructions.
     fn next_instruction(&mut self) -> Option<Instruction> {
         let frame = self.frames.last_mut()?;
-        let res = frame.instructions.get(frame.instruction_idx)?.clone();
-        frame.instruction_idx += 1;
-        Some(res)
+        frame.bytecode.next()
     }
 
     /// Pop the current frame. This truncates the local stack and replaces the top value of the
@@ -105,7 +105,7 @@ impl Environment {
 
     fn execute_jump(&mut self, n: usize) {
         let frame = self.frames.last_mut().unwrap();
-        frame.instruction_idx += n;
+        frame.bytecode.jump(n);
     }
 
     fn execute_push_val(&mut self, v: Val) {
@@ -134,8 +134,7 @@ impl Environment {
                     bail!("expected {expected_args} but found {actual_args}");
                 }
                 self.frames.push(Frame {
-                    instructions: proc.instructions(),
-                    instruction_idx: 0,
+                    bytecode: ByteCodeIter::from_proc(proc.clone()),
                     stack_start_idx: proc_idx + 1,
                 });
             }
@@ -169,7 +168,7 @@ mod tests {
         for ast in asts {
             let program = Compiler::new().compile_and_finalize(&ast).unwrap();
             let mut env = Vm::singleton().env();
-            let v = env.eval_bytecode(program.instructions())?;
+            let v = env.eval_bytecode(program.into())?;
             res.push(v);
         }
         Ok(res)

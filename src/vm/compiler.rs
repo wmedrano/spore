@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 
@@ -8,28 +8,14 @@ use crate::parser::{
 };
 
 use super::{
-    types::{instruction::Instruction, proc::Procedure, symbol::Symbol, Number, Val},
+    types::{
+        instruction::Instruction,
+        proc::{ByteCodeProc, Procedure},
+        symbol::Symbol,
+        Number, Val,
+    },
     Vm,
 };
-
-/// A procedure that can be evaluated on an environment.
-pub struct ByteCodeProc {
-    /// The number of arguments to the procedure.
-    pub arg_count: usize,
-    /// The bytecode to run.
-    bytecode: Arc<[Instruction]>,
-}
-
-impl ByteCodeProc {
-    /// Get all the instructions in the procedure.
-    pub fn instructions(&self) -> Arc<[Instruction]> {
-        self.bytecode.clone()
-    }
-
-    pub fn iter_instructions(&self) -> impl Iterator<Item = &Instruction> {
-        self.bytecode.iter()
-    }
-}
 
 /// Compiles Asts into `ByteCodeProc` objects.
 #[derive(Default)]
@@ -71,6 +57,7 @@ impl Compiler {
         if bytecode.is_empty() {
             bytecode.push(Instruction::PushVal(Val::Void));
         }
+        bytecode.shrink_to_fit();
         let arg_count = self
             .symbol_to_idx
             .values()
@@ -79,7 +66,7 @@ impl Compiler {
             .unwrap_or(0);
         ByteCodeProc {
             arg_count,
-            bytecode: Arc::from(bytecode.as_slice()),
+            bytecode,
         }
     }
 
@@ -161,7 +148,6 @@ impl Compiler {
                     Ast::Tree(args) => symbol_to_idx(args.as_slice())?,
                 };
                 // Build bytecode
-                let arg_count = symbol_to_idx.len();
                 let mut lambda_compiler = Compiler {
                     symbol_to_idx,
                     opcodes: Vec::new(),
@@ -169,10 +155,8 @@ impl Compiler {
                 for expr in exprs {
                     lambda_compiler.compile(expr)?;
                 }
-                let bytecode_proc = Procedure::with_bytecode(ByteCodeProc {
-                    arg_count,
-                    bytecode: Arc::from(lambda_compiler.opcodes),
-                });
+                let bytecode = lambda_compiler.finalize();
+                let bytecode_proc = Procedure::with_bytecode(bytecode.into());
                 self.opcodes
                     .push(Instruction::PushVal(Val::Proc(bytecode_proc)));
             }

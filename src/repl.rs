@@ -5,6 +5,7 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
+use crate::vm::types::proc::ByteCodeIter;
 use crate::vm::types::symbol::Symbol;
 use crate::vm::types::Val;
 use crate::vm::Vm;
@@ -92,7 +93,7 @@ fn eval_sexpr(s: &str, expr_count: &mut usize) {
 
 fn eval_ast(ast: &Ast) -> Result<Val> {
     let bytecode = Compiler::new().compile_and_finalize(ast)?;
-    Vm::singleton().env().eval_bytecode(bytecode.instructions())
+    Vm::singleton().env().eval_bytecode(bytecode.into())
 }
 
 fn analyze_bytecode(s: &str) {
@@ -111,7 +112,7 @@ fn analyze_bytecode(s: &str) {
                 continue;
             }
         };
-        for (idx, bc) in bytecode.instructions().iter().enumerate() {
+        for (idx, bc) in ByteCodeIter::from_proc(bytecode.into()).enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
         println!();
