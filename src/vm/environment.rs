@@ -33,6 +33,8 @@ pub struct Frame {
 impl Environment {
     /// Evaluate a sequence of bytecode.
     pub fn eval_bytecode(&mut self, proc: Arc<ByteCodeProc>) -> Result<Val> {
+        self.frames.clear();
+        self.stack.clear();
         self.frames.push(Frame {
             bytecode: ByteCodeIter::from_proc(proc),
             stack_start_idx: 0,

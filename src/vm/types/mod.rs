@@ -27,6 +27,25 @@ impl Val {
             v => Err(anyhow!("expected true/false, but found {}", v)),
         }
     }
+
+    /// If `Val` is a procedure, then it is assigned a name and returned. If not, then `self` is
+    /// returned unchanged.
+    pub fn as_named_procedure(self, name: &str) -> Val {
+        match self {
+            Val::Proc(proc) => {
+                let proc = Arc::unwrap_or_clone(proc);
+                match proc {
+                    Procedure::Native(n, p) => Procedure::Native(n, p).into(),
+                    Procedure::ByteCode(bc) => {
+                        let mut bc = Arc::unwrap_or_clone(bc);
+                        bc.name = name.to_string();
+                        Procedure::ByteCode(Arc::new(bc)).into()
+                    }
+                }
+            }
+            v => v,
+        }
+    }
 }
 
 impl AsRef<Val> for Val {

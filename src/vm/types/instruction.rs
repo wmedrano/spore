@@ -16,6 +16,15 @@ pub enum Instruction {
     GetArg(usize),
 }
 
+impl Instruction {
+    pub fn map_push_val(self, f: impl Fn(Val) -> Val) -> Instruction {
+        match self {
+            Instruction::PushVal(v) => Instruction::PushVal(f(v)),
+            i => i,
+        }
+    }
+}
+
 impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

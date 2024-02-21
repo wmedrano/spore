@@ -4,9 +4,10 @@ use anyhow::Result;
 
 use super::{instruction::Instruction, Val};
 
-type NativeProcFn = Box<dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>;
+type NativeProcFn = Arc<dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>;
 
 /// A function.
+#[derive(Clone)]
 pub enum Procedure {
     Native(&'static str, NativeProcFn),
     ByteCode(Arc<ByteCodeProc>),
@@ -15,6 +16,8 @@ pub enum Procedure {
 /// A procedure that can be evaluated on an environment.
 #[derive(Clone)]
 pub struct ByteCodeProc {
+    /// The name of the procedure.
+    pub name: String,
     /// The number of arguments to the procedure.
     pub arg_count: usize,
     /// The bytecode to run.
@@ -27,7 +30,7 @@ impl Procedure {
         name: &'static str,
         proc: P,
     ) -> Arc<Procedure> {
-        Arc::new(Procedure::Native(name, Box::new(proc)))
+        Arc::new(Procedure::Native(name, Arc::new(proc)))
     }
 
     pub fn with_bytecode(bc: Arc<ByteCodeProc>) -> Arc<Procedure> {
@@ -37,7 +40,10 @@ impl Procedure {
     pub fn name(&self) -> &str {
         match self {
             Procedure::Native(name, _) => name,
-            Procedure::ByteCode(_) => "_",
+            Procedure::ByteCode(bc) => match bc.name.as_str() {
+                "" => "_",
+                s => s,
+            },
         }
     }
 }

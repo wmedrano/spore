@@ -65,6 +65,7 @@ impl Compiler {
             .max()
             .unwrap_or(0);
         ByteCodeProc {
+            name: "".to_string(),
             arg_count,
             bytecode,
         }
@@ -176,9 +177,15 @@ impl Compiler {
                 };
                 self.opcodes.extend([
                     Instruction::GetSym("%define-sym".into()),
-                    Instruction::PushVal(sym.into()),
+                    Instruction::PushVal(sym.clone().into()),
                 ]);
                 self.compile(expr)?;
+                let val_opcode = self
+                    .opcodes
+                    .pop()
+                    .unwrap()
+                    .map_push_val(|val| val.as_named_procedure(sym.as_ref()));
+                self.opcodes.push(val_opcode);
                 self.opcodes.push(Instruction::Eval(3));
             }
             _ => bail!("def requires 2 args but found {}", args.len()),
