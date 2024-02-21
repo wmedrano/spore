@@ -1,6 +1,6 @@
 use super::{symbol::Symbol, Val};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
     /// Push a new value to the stack.
     PushVal(Val),
