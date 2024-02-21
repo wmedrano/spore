@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use colored::Colorize;
 use rustyline::error::ReadlineError;
@@ -5,7 +7,8 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
-use crate::vm::types::proc::ByteCodeIter;
+use crate::vm::types::instruction::Instruction;
+use crate::vm::types::proc::{ByteCodeIter, ByteCodeProc};
 use crate::vm::types::symbol::Symbol;
 use crate::vm::types::Val;
 use crate::vm::Vm;
@@ -105,14 +108,15 @@ fn analyze_bytecode(s: &str) {
         }
     };
     for ast in asts {
-        let bytecode = match Compiler::new().compile_and_finalize(&ast) {
+        let proc = match Compiler::new().compile_and_finalize(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
                 continue;
             }
         };
-        for (idx, bc) in ByteCodeIter::from_proc(bytecode.into()).enumerate() {
+        let bytecode = maybe_expand_bytecode(proc);
+        for (idx, bc) in bytecode.enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
         println!();
@@ -130,4 +134,30 @@ fn analyze_ast(s: &str) {
     for ast in asts {
         println!("{}", format!("{ast:#?}").blue());
     }
+}
+
+fn maybe_expand_bytecode(proc: ByteCodeProc) -> ByteCodeIter {
+    let proc = Arc::new(proc);
+    let mut iter = ByteCodeIter::from_proc(proc.clone());
+    if iter.clone().count() == 1 {
+        let instruction = iter.next().unwrap();
+        match instruction {
+            Instruction::GetVal(sym) => {
+                let maybe_proc = Vm::singleton()
+                    .get_value(sym)
+                    .as_ref()
+                    .and_then(Val::as_bytecode_proc);
+                if let Some(proc) = maybe_proc {
+                    return ByteCodeIter::from_proc(proc);
+                }
+            }
+            Instruction::PushVal(val) => {
+                if let Some(proc) = val.as_bytecode_proc() {
+                    return ByteCodeIter::from_proc(proc);
+                }
+            }
+            _ => (),
+        }
+    }
+    ByteCodeIter::from_proc(proc)
 }

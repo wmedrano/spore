@@ -120,7 +120,7 @@ impl Compiler {
                         .cloned();
                     match val {
                         Some(v) => self.opcodes.push(Instruction::PushVal(v)),
-                        None => self.opcodes.push(Instruction::GetSym(x.as_str().into())),
+                        None => self.opcodes.push(Instruction::GetVal(x.as_str().into())),
                     }
                 }
             },
@@ -176,7 +176,7 @@ impl Compiler {
                     ast => bail!("def must be bound to an identifier but found {:?}", ast),
                 };
                 self.opcodes.extend([
-                    Instruction::GetSym("%define-sym".into()),
+                    Instruction::GetVal("%define-sym".into()),
                     Instruction::PushVal(sym.clone().into()),
                 ]);
                 self.compile(expr)?;
@@ -184,7 +184,7 @@ impl Compiler {
                     .opcodes
                     .pop()
                     .unwrap()
-                    .map_push_val(|val| val.as_named_procedure(sym.as_ref()));
+                    .map_push_val(|val| val.to_named_procedure(sym.as_ref()));
                 self.opcodes.push(val_opcode);
                 self.opcodes.push(Instruction::Eval(3));
             }

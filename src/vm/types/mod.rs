@@ -1,7 +1,10 @@
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
 
-use self::{proc::Procedure, symbol::Symbol};
+use self::{
+    proc::{ByteCodeProc, Procedure},
+    symbol::Symbol,
+};
 
 pub mod instruction;
 pub mod proc;
@@ -28,9 +31,20 @@ impl Val {
         }
     }
 
+    /// Get the value as a `ByteCodeProc` or `None` if value is not a `ByteCodeProc`.
+    pub fn as_bytecode_proc(&self) -> Option<Arc<ByteCodeProc>> {
+        match self {
+            Val::Proc(proc) => match proc.as_ref() {
+                Procedure::ByteCode(bc) => Some(bc.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     /// If `Val` is a procedure, then it is assigned a name and returned. If not, then `self` is
     /// returned unchanged.
-    pub fn as_named_procedure(self, name: &str) -> Val {
+    pub fn to_named_procedure(self, name: &str) -> Val {
         match self {
             Val::Proc(proc) => {
                 let proc = Arc::unwrap_or_clone(proc);

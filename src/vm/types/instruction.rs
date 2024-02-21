@@ -11,7 +11,7 @@ pub enum Instruction {
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
     /// Get the value of the given symbol from the environment and push it on the stack.
-    GetSym(Symbol),
+    GetVal(Symbol),
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
 }
@@ -32,7 +32,7 @@ impl std::fmt::Display for Instruction {
             Instruction::Eval(n) => write!(f, "evaluate last {n}"),
             Instruction::JumpIf(n) => write!(f, "jump {n} if true"),
             Instruction::Jump(n) => write!(f, "jump {n}"),
-            Instruction::GetSym(s) => write!(f, "get symbol {s}"),
+            Instruction::GetVal(s) => write!(f, "get value for {s}"),
             Instruction::GetArg(n) => write!(f, "get arg {n}"),
         }
     }

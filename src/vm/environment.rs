@@ -64,7 +64,7 @@ impl Environment {
                 Some(Instruction::Eval(n)) => self.execute_eval_n(n)?,
                 Some(Instruction::JumpIf(n)) => self.execute_jump_if(n)?,
                 Some(Instruction::Jump(n)) => self.execute_jump(n),
-                Some(Instruction::GetSym(s)) => self.execute_get_sym(s.as_str())?,
+                Some(Instruction::GetVal(s)) => self.execute_get_val(s.as_str())?,
                 Some(Instruction::GetArg(n)) => self.execute_get_arg(n),
                 None => {
                     self.pop_frame()?;
@@ -162,7 +162,7 @@ impl Environment {
         Ok(())
     }
 
-    fn execute_get_sym(&mut self, s: &str) -> Result<()> {
+    fn execute_get_val(&mut self, s: &str) -> Result<()> {
         match self.get_value(s) {
             Some(v) => self.stack.push(v),
             None => bail!("{s} is not defined"),
