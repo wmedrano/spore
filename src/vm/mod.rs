@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use self::{
     environment::Environment,
@@ -38,25 +38,18 @@ impl Vm {
     }
 
     /// Register functions into the VM.
-    pub fn register_global_fn(&self, fns: impl IntoIterator<Item = Arc<Procedure>>) {
-        let mut registry = self.globals.lock().unwrap();
+    pub fn register_global_fn(&self, fns: impl IntoIterator<Item = Arc<Procedure>>) -> Result<()> {
         for f in fns {
-            let name = f.name().to_string();
-            let old_definition = registry.insert(Symbol::from(name.clone()), Val::Proc(f));
-            assert_eq!(
-                old_definition, None,
-                "Found duplicate definition for {name}.",
-            );
+            let sym = Symbol::from(f.name());
+            self.register_global_value(sym, Val::Proc(f))?;
         }
+        Ok(())
     }
 
     /// Register a value globally.
     pub fn register_global_value(&self, sym: Symbol, val: Val) -> Result<()> {
         let mut registry = self.globals.lock().unwrap();
-        if registry.contains_key(&sym) {
-            bail!("symbol {sym} is already registered");
-        }
-        registry.insert(sym, val);
+        let _old_value = registry.insert(sym, val);
         Ok(())
     }
 

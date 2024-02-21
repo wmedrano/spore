@@ -10,6 +10,7 @@ pub fn register_all(vm: &Vm) {
     vm.register_global_fn([
         Procedure::with_native("%define-sym", define_sym_fn),
         Procedure::with_native("%get-sym", get_sym_fn),
+        Procedure::with_native("%no-op", no_op_fn),
         Procedure::with_native("+", add_fn),
         Procedure::with_native("-", sub_fn),
         Procedure::with_native("*", multiply_fn),
@@ -21,6 +22,7 @@ pub fn register_all(vm: &Vm) {
         Procedure::with_native("list", list_fn),
         Procedure::with_native("equal?", equalp_fn),
     ])
+    .unwrap()
 }
 
 fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
@@ -62,6 +64,11 @@ fn get_sym_fn(args: &[Val]) -> Result<Val> {
         },
         _ => Err(anyhow!("expected 1 arg but found {}", args.len())),
     }
+}
+
+fn no_op_fn(args: &[Val]) -> Result<Val> {
+    let res = args.last().cloned().unwrap_or(Val::Void);
+    Ok(res)
 }
 
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.

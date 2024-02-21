@@ -81,7 +81,7 @@ impl ByteCodeIter {
     /// Create an interator over a `ByteCodeProc` shared reference.
     pub fn from_proc(proc: Arc<ByteCodeProc>) -> ByteCodeIter {
         let next = proc.bytecode.as_ptr();
-        let end = unsafe { next.offset(proc.bytecode.len() as isize) };
+        let end = unsafe { next.add(proc.bytecode.len()) };
         ByteCodeIter {
             _proc: proc,
             next_ptr: next,
@@ -93,7 +93,7 @@ impl ByteCodeIter {
 impl ByteCodeIter {
     /// Jump some number of instructions.
     pub fn jump(&mut self, n: usize) {
-        self.next_ptr = unsafe { self.next_ptr.offset(n as isize).min(self.end_ptr) };
+        self.next_ptr = unsafe { self.next_ptr.add(n).min(self.end_ptr) };
     }
 }
 

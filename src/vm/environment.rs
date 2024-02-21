@@ -5,11 +5,16 @@ use std::{
 
 use anyhow::{bail, Result};
 
-use super::types::{
-    instruction::Instruction,
-    proc::{ByteCodeIter, ByteCodeProc, Procedure},
-    symbol::Symbol,
-    Val,
+use crate::parser::ast::Ast;
+
+use super::{
+    compiler::Compiler,
+    types::{
+        instruction::Instruction,
+        proc::{ByteCodeIter, ByteCodeProc, Procedure},
+        symbol::Symbol,
+        Val,
+    },
 };
 
 /// An environment to evaluate bytecode on.
@@ -31,6 +36,19 @@ pub struct Frame {
 }
 
 impl Environment {
+    /// Evaluate an S-Expression string and return the last value. If there are no expression, than
+    /// `Val::Void` is returned.
+    pub fn eval_str(&mut self, s: &str) -> Result<Val> {
+        Ast::from_sexp_str(s)?
+            .iter()
+            .map(|ast| {
+                let proc = Compiler::new().compile_and_finalize(ast)?;
+                self.eval_bytecode(proc.into())
+            })
+            .last()
+            .unwrap_or(Ok(Val::Void))
+    }
+
     /// Evaluate a sequence of bytecode.
     pub fn eval_bytecode(&mut self, proc: Arc<ByteCodeProc>) -> Result<Val> {
         self.frames.clear();
@@ -155,69 +173,75 @@ impl Environment {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        parser::ast::Ast,
-        vm::{compiler::Compiler, types::Number, Vm},
-    };
-    use anyhow::Result;
     use pretty_assertions::assert_eq;
+
+    use crate::vm::{types::Number, Vm};
 
     use super::*;
 
-    fn eval_sexpr(s: &str) -> Result<Vec<Val>> {
-        let asts = Ast::from_sexp_str(s).unwrap();
-        let mut res = Vec::new();
-        for ast in asts {
-            let program = Compiler::new().compile_and_finalize(&ast).unwrap();
-            let mut env = Vm::singleton().env();
-            let v = env.eval_bytecode(program.into())?;
-            res.push(v);
-        }
-        Ok(res)
-    }
-
     #[test]
     fn can_execute_ast() {
-        let result = eval_sexpr("(+ 1 2 (- 3 4))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(2))])
+        assert_eq!(
+            Vm::singleton().env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
+            Val::Number(Number::Int(2))
+        );
     }
 
     #[test]
     fn if_with_true_returns_first_expr_result() {
-        let result = eval_sexpr("(if true (* 10 2) (+ 10 2))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(20))])
+        assert_eq!(
+            Vm::singleton()
+                .env()
+                .eval_str("(if true (* 10 2) (+ 10 2))")
+                .unwrap(),
+            Val::Number(Number::Int(20))
+        );
     }
 
     #[test]
     fn if_with_false_returns_second_expr_result() {
-        let result = eval_sexpr("(if false (* 10 2) (+ 10 2))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(12))])
+        assert_eq!(
+            Vm::singleton()
+                .env()
+                .eval_str("(if false (* 10 2) (+ 10 2))")
+                .unwrap(),
+            Val::Number(Number::Int(12))
+        )
     }
 
     #[test]
     fn if_with_true_and_single_arm_returns_true() {
-        let result = eval_sexpr("(if true (* 10 2))").unwrap();
-        assert_eq!(result, &[Val::Number(Number::Int(20))])
+        assert_eq!(
+            Vm::singleton()
+                .env()
+                .eval_str("(if true (* 10 2))")
+                .unwrap(),
+            Val::Number(Number::Int(20))
+        )
     }
 
     #[test]
     fn if_with_false_and_single_arm_returns_void() {
-        let result = eval_sexpr("(if false (* 10 2))").unwrap();
-        assert_eq!(result, &[Val::Void])
+        assert_eq!(
+            Vm::singleton()
+                .env()
+                .eval_str("(if false (* 10 2))")
+                .unwrap(),
+            Val::Void
+        )
     }
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        let result = eval_sexpr(
-            r#"
-(def fib (lambda (n)
-  (if (<= n 2)
-      1
-      (+ (fib (- n 1)) (fib (- n 2))))))
-(fib 10)
-"#,
-        )
-        .unwrap();
-        assert_eq!(result, &[Val::Void, Val::Number(Number::Int(55))]);
+        let mut env = Vm::singleton().env();
+        assert_eq!(
+            env.eval_str("(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
+                .unwrap(),
+            Val::Void
+        );
+        assert_eq!(
+            env.eval_str("(fib 10)").unwrap(),
+            Val::Number(Number::Int(55))
+        );
     }
 }
