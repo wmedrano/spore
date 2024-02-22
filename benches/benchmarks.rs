@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore::parser::ast::Ast;
 use spore::vm::compiler::Compiler;
+use spore::vm::Vm;
 use std::sync::Arc;
 
 const FIB_SRC: &str = "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))";
@@ -31,7 +32,11 @@ pub fn eval_benchmarks(c: &mut Criterion) {
 
 pub fn compile_benchmarks(c: &mut Criterion) {
     let fib_ast = &Ast::from_sexp_str(FIB_SRC).unwrap()[0];
-    c.bench_function("ast fib", |b| {
+    c.bench_function("init env", |b| {
+        let vm = Vm::singleton();
+        b.iter(|| vm.env())
+    })
+    .bench_function("ast fib", |b| {
         b.iter(|| Ast::from_sexp_str(FIB_SRC).unwrap())
     })
     .bench_function("compile fib", |b| {

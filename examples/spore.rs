@@ -1,5 +1,6 @@
 use spore;
 
 fn main() {
-    spore::repl::run_repl().unwrap();
+    let mut repl = spore::repl::Repl::new().unwrap();
+    repl.run().unwrap();
 }

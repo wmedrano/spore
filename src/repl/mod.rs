@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -13,73 +13,86 @@ use crate::vm::types::symbol::Symbol;
 use crate::vm::types::Val;
 use crate::vm::Vm;
 
-/// Run the REPL.
-pub fn run_repl() -> Result<()> {
-    let mut rl = DefaultEditor::new()?;
-    println!("{}", "Welcome to Spore!".cyan());
-    println!("{}", "  https://github.com/wmedrano/spore".cyan());
-    println!();
-    let mut expr_count = 0;
-    let mut sexpr = String::new();
-    loop {
-        let readline = rl.readline(if sexpr.is_empty() { ">> " } else { ".. " });
-        match readline {
-            Ok(line) => {
-                sexpr += line.as_str();
-                if line_is_complete(&sexpr) {
-                    rl.add_history_entry(sexpr.as_str())?;
-                    eval_str(sexpr.as_str(), &mut expr_count);
-                    sexpr.clear();
+use self::command::{Command, MetaCommand};
+
+pub mod command;
+
+pub struct Repl {
+    editor: DefaultEditor,
+    repl_input: String,
+    expression_count: usize,
+}
+
+impl Repl {
+    pub fn new() -> Result<Repl> {
+        let editor = DefaultEditor::new()?;
+        Ok(Repl {
+            editor,
+            repl_input: String::new(),
+            expression_count: 0,
+        })
+    }
+
+    /// Run the REPL.
+    pub fn run(&mut self) -> Result<()> {
+        println!("{}", "Welcome to Spore!".cyan());
+        println!("{}", "  https://github.com/wmedrano/spore".cyan());
+        println!();
+        loop {
+            let readline = self.editor.readline(if self.repl_input.is_empty() {
+                ">> "
+            } else {
+                ".. "
+            });
+            match readline {
+                Ok(line) => {
+                    self.repl_input += line.as_str();
+                    if line_is_complete(&self.repl_input) {
+                        self.editor.add_history_entry(self.repl_input.as_str())?;
+                        if let Err(err) = self.eval_input() {
+                            println!("{error}\n{err}", error = "Error:".to_string().red());
+                        }
+                    }
+                }
+                Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
+                    println!();
+                    break;
+                }
+                Err(err) => {
+                    println!("{}\n{:?}", "Error".red(), err);
+                    break;
                 }
             }
-            Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
-                println!();
-                break;
-            }
-            Err(err) => {
-                println!("{}: {:?}", "Error".red(), err);
-                break;
-            }
         }
+        Ok(())
     }
-    Ok(())
+
+    pub fn eval_input(&mut self) -> Result<()> {
+        let s = std::mem::take(&mut self.repl_input);
+        let cmd = Command::try_from(s.as_str())?;
+        let asts = match Ast::from_sexp_str(s.as_str()) {
+            Ok(ast) => ast,
+            Err(err) => {
+                bail!("{}", err.display_with_context(s.as_str()));
+            }
+        };
+        match cmd.command {
+            MetaCommand::None => eval_asts(asts, &mut self.expression_count),
+            MetaCommand::Ast => analyze_ast(asts),
+            MetaCommand::ByteCode => analyze_bytecode(asts),
+        }
+        Ok(())
+    }
 }
 
 fn line_is_complete(s: &str) -> bool {
-    let s = s.strip_prefix(",\\w+").unwrap_or(s);
     !matches!(
         Ast::from_sexp_str(s),
         Err(ParseAstError::MissingClosingParen { .. })
     )
 }
 
-fn eval_str(s: &str, expr_count: &mut usize) {
-    if s.starts_with(',') {
-        if let Some(s) = s.strip_prefix(",ast ") {
-            analyze_ast(s);
-        } else if let Some(s) = s.strip_prefix(",bytecode ") {
-            analyze_bytecode(s);
-        } else {
-            println!(
-                "{}: Command {} not recognized, valid commands are {}",
-                "Error".to_string().red(),
-                s.split_whitespace().next().unwrap().to_string().yellow(),
-                format!("{:?}", [",ast ", ",bytecode ", ",sexp "]).cyan(),
-            )
-        }
-    } else {
-        eval_sexpr(s, expr_count);
-    }
-}
-
-fn eval_sexpr(s: &str, expr_count: &mut usize) {
-    let asts = match Ast::from_sexp_str(s) {
-        Ok(ast) => ast,
-        Err(err) => {
-            println!("{}", err.display_with_context(s).to_string().red());
-            return;
-        }
-    };
+fn eval_asts(asts: Vec<Ast>, expr_count: &mut usize) {
     for ast in asts {
         match eval_ast(&ast) {
             Ok(Val::Void) => (),
@@ -99,14 +112,7 @@ fn eval_ast(ast: &Ast) -> Result<Val> {
     Vm::singleton().env().eval_bytecode(bytecode.into())
 }
 
-fn analyze_bytecode(s: &str) {
-    let asts = match Ast::from_sexp_str(s) {
-        Ok(ast) => ast,
-        Err(err) => {
-            println!("{}", err.display_with_context(s).to_string().red());
-            return;
-        }
-    };
+fn analyze_bytecode(asts: Vec<Ast>) {
     for ast in asts {
         let proc = match Compiler::new().compile_and_finalize(&ast) {
             Ok(b) => b,
@@ -123,14 +129,7 @@ fn analyze_bytecode(s: &str) {
     }
 }
 
-fn analyze_ast(s: &str) {
-    let asts = match Ast::from_sexp_str(s) {
-        Ok(ast) => ast,
-        Err(err) => {
-            println!("{}", err.display_with_context(s).to_string().red());
-            return;
-        }
-    };
+fn analyze_ast(asts: Vec<Ast>) {
     for ast in asts {
         println!("{}", format!("{ast:#?}").blue());
     }
