@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{bail, Result};
 
@@ -20,7 +17,7 @@ use super::{
 /// An environment to evaluate bytecode on.
 pub struct Environment {
     /// The registry of global values.
-    pub globals: Arc<Mutex<HashMap<Symbol, Val>>>,
+    pub globals: HashMap<Symbol, Val>,
     /// The processing stack.
     pub stack: Vec<Val>,
     /// Contains the current call frame. This includes the instructions that should be run and the
@@ -42,7 +39,7 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .iter()
             .map(|ast| {
-                let proc = Compiler::new().compile_and_finalize(ast)?;
+                let proc = Compiler::new(self).compile_and_finalize(ast)?;
                 self.eval_bytecode(proc.into())
             })
             .last()
@@ -65,6 +62,7 @@ impl Environment {
                 Some(Instruction::JumpIf(n)) => self.execute_jump_if(n)?,
                 Some(Instruction::Jump(n)) => self.execute_jump(n),
                 Some(Instruction::GetVal(s)) => self.execute_get_val(s.as_str())?,
+                Some(Instruction::SetVal(s)) => self.execute_set_val(s)?,
                 Some(Instruction::GetArg(n)) => self.execute_get_arg(n),
                 None => {
                     self.pop_frame()?;
@@ -100,8 +98,7 @@ impl Environment {
 
     /// Get a value from the current environment.
     fn get_value(&self, sym: impl AsRef<str>) -> Option<Val> {
-        let registry = self.globals.lock().unwrap();
-        registry.get(sym.as_ref()).cloned()
+        self.globals.get(sym.as_ref()).cloned()
     }
 
     fn execute_get_arg(&mut self, n: usize) {
@@ -134,10 +131,9 @@ impl Environment {
 
     fn execute_eval_n(&mut self, n: usize) -> Result<()> {
         let proc_idx = self.stack.len() - n;
-        let proc = match self.stack.get(proc_idx) {
-            None => bail!("eval_top must have at least one value on the stack"),
-            Some(Val::Proc(p)) => p.clone(),
-            Some(v) => bail!("value {v} is not a valid procedure."),
+        let proc = match &self.stack[proc_idx] {
+            Val::Proc(proc) => proc,
+            v => bail!("expected procedure but found {v}"),
         };
         match proc.as_ref() {
             Procedure::Native(_, proc) => {
@@ -169,6 +165,12 @@ impl Environment {
         }
         Ok(())
     }
+
+    fn execute_set_val(&mut self, s: Symbol) -> Result<()> {
+        self.globals
+            .insert(s, self.stack.pop().unwrap_or(Val::Void));
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -182,7 +184,10 @@ mod tests {
     #[test]
     fn can_execute_ast() {
         assert_eq!(
-            Vm::singleton().env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
+            Vm::with_builtins()
+                .env()
+                .eval_str("(+ 1 2 (- 3 4))")
+                .unwrap(),
             Val::Number(Number::Int(2))
         );
     }
@@ -190,7 +195,7 @@ mod tests {
     #[test]
     fn if_with_true_returns_first_expr_result() {
         assert_eq!(
-            Vm::singleton()
+            Vm::with_builtins()
                 .env()
                 .eval_str("(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
@@ -201,7 +206,7 @@ mod tests {
     #[test]
     fn if_with_false_returns_second_expr_result() {
         assert_eq!(
-            Vm::singleton()
+            Vm::with_builtins()
                 .env()
                 .eval_str("(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
@@ -212,7 +217,7 @@ mod tests {
     #[test]
     fn if_with_true_and_single_arm_returns_true() {
         assert_eq!(
-            Vm::singleton()
+            Vm::with_builtins()
                 .env()
                 .eval_str("(if true (* 10 2))")
                 .unwrap(),
@@ -223,7 +228,7 @@ mod tests {
     #[test]
     fn if_with_false_and_single_arm_returns_void() {
         assert_eq!(
-            Vm::singleton()
+            Vm::with_builtins()
                 .env()
                 .eval_str("(if false (* 10 2))")
                 .unwrap(),
@@ -233,14 +238,15 @@ mod tests {
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        let mut env = Vm::singleton().env();
+        let mut env = Vm::with_builtins().env();
         assert_eq!(
-            env.eval_str("(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
-                .unwrap(),
-            Val::Void
-        );
-        assert_eq!(
-            env.eval_str("(fib 10)").unwrap(),
+            env.eval_str(
+                r#"
+(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+(fib 10)
+"#
+            )
+            .unwrap(),
             Val::Number(Number::Int(55))
         );
     }

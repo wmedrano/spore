@@ -11,8 +11,9 @@ pub mod proc;
 pub mod symbol;
 
 /// Contains a single value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Val {
+    #[default]
     Void,
     String(Arc<String>),
     Symbol(Symbol),

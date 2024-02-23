@@ -8,37 +8,41 @@ use crate::parser::{
 };
 
 use super::{
+    environment::Environment,
     types::{
         instruction::Instruction,
         proc::{ByteCodeProc, Procedure},
         symbol::Symbol,
         Number, Val,
     },
-    Vm,
 };
 
 /// Compiles Asts into `ByteCodeProc` objects.
-#[derive(Default)]
-pub struct Compiler {
+pub struct Compiler<'a> {
+    env: &'a mut Environment,
     symbol_to_idx: HashMap<String, usize>,
     opcodes: Vec<Instruction>,
 }
 
-impl Compiler {
+impl<'a> Compiler<'a> {
     /// Create a new compiler.
-    pub fn new() -> Compiler {
-        Compiler::default()
+    pub fn new(env: &'a mut Environment) -> Compiler<'a> {
+        Compiler::with_args(env, std::iter::empty())
     }
 
     /// Create a new compiler with the given arguments at the base of the stack.
-    pub fn with_args(args: impl Iterator<Item = String>) -> Compiler {
+    pub fn with_args(env: &'a mut Environment, args: impl Iterator<Item = String>) -> Compiler<'a> {
         let symbol_to_idx = args.enumerate().map(|(idx, sym)| (sym, idx)).collect();
-        Compiler::with_symbols(symbol_to_idx)
+        Compiler::with_symbols(env, symbol_to_idx)
     }
 
     /// Create a new compiler where the base of the stack contains the values from `symbol_to_idx`.
-    pub fn with_symbols(symbol_to_idx: HashMap<String, usize>) -> Compiler {
+    pub fn with_symbols(
+        env: &'a mut Environment,
+        symbol_to_idx: HashMap<String, usize>,
+    ) -> Compiler {
         Compiler {
+            env,
             symbol_to_idx,
             opcodes: Vec::new(),
         }
@@ -56,6 +60,13 @@ impl Compiler {
         let mut bytecode = self.opcodes;
         if bytecode.is_empty() {
             bytecode.push(Instruction::PushVal(Val::Void));
+        }
+        for bc in bytecode.iter_mut() {
+            if let Instruction::GetVal(sym) = bc {
+                if let Some(val) = self.env.globals.get(sym) {
+                    *bc = Instruction::PushVal(val.clone());
+                }
+            }
         }
         bytecode.shrink_to_fit();
         let arg_count = self
@@ -111,18 +122,7 @@ impl Compiler {
             AstLeaf::Def => bail!("empty def is not a valid expression"),
             AstLeaf::Identifier(x) => match self.symbol_to_idx.get(x) {
                 Some(idx) => self.opcodes.push(Instruction::GetArg(*idx)),
-                None => {
-                    let val = Vm::singleton()
-                        .globals
-                        .lock()
-                        .unwrap()
-                        .get(x.as_str())
-                        .cloned();
-                    match val {
-                        Some(v) => self.opcodes.push(Instruction::PushVal(v)),
-                        None => self.opcodes.push(Instruction::GetVal(x.as_str().into())),
-                    }
-                }
+                None => self.opcodes.push(Instruction::GetVal(x.as_str().into())),
             },
             AstLeaf::Symbol(x) => self
                 .opcodes
@@ -150,6 +150,7 @@ impl Compiler {
                 };
                 // Build bytecode
                 let mut lambda_compiler = Compiler {
+                    env: self.env,
                     symbol_to_idx,
                     opcodes: Vec::new(),
                 };
@@ -175,10 +176,6 @@ impl Compiler {
                     }) => Symbol::from(ident.as_str()),
                     ast => bail!("def must be bound to an identifier but found {:?}", ast),
                 };
-                self.opcodes.extend([
-                    Instruction::GetVal("%define-sym".into()),
-                    Instruction::PushVal(sym.clone().into()),
-                ]);
                 self.compile(expr)?;
                 let val_opcode = self
                     .opcodes
@@ -186,7 +183,7 @@ impl Compiler {
                     .unwrap()
                     .map_push_val(|val| val.to_named_procedure(sym.as_ref()));
                 self.opcodes.push(val_opcode);
-                self.opcodes.push(Instruction::Eval(3));
+                self.opcodes.push(Instruction::SetVal(sym));
             }
             _ => bail!("def requires 2 args but found {}", args.len()),
         };
@@ -197,10 +194,10 @@ impl Compiler {
         match args {
             [pred, t_val, maybe_f_val @ ..] => {
                 self.compile(pred)?;
-                let t_bytecode = Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
+                let t_bytecode = Compiler::with_symbols(self.env, self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
                 let f_bytecode = match maybe_f_val {
                     [] => vec![Instruction::PushVal(Val::Void)],
-                    [f_val] => Compiler::with_symbols(self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode.to_vec(),
+                    [f_val] => Compiler::with_symbols(self.env, self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode.to_vec(),
                     rest => bail!("expected single false expression but found {}", rest.len()),
                 };
                 self.opcodes.push(Instruction::JumpIf(f_bytecode.len() + 1));

@@ -12,6 +12,8 @@ pub enum Instruction {
     Jump(usize),
     /// Get the value of the given symbol from the environment and push it on the stack.
     GetVal(Symbol),
+    /// Set the given symbol to the top value of the stack.
+    SetVal(Symbol),
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
 }
@@ -33,6 +35,7 @@ impl std::fmt::Display for Instruction {
             Instruction::JumpIf(n) => write!(f, "jump {n} if true"),
             Instruction::Jump(n) => write!(f, "jump {n}"),
             Instruction::GetVal(s) => write!(f, "get value for {s}"),
+            Instruction::SetVal(s) => write!(f, "set value for {s}"),
             Instruction::GetArg(n) => write!(f, "get arg {n}"),
         }
     }

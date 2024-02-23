@@ -6,10 +6,8 @@ use crate::vm::{
 };
 
 /// Register all builtin functions.
-pub fn register_all(vm: &Vm) {
+pub fn register_all(vm: &mut Vm) {
     vm.register_global_fn([
-        Procedure::with_native("%define-sym", define_sym_fn),
-        Procedure::with_native("%get-sym", get_sym_fn),
         Procedure::with_native("%no-op", no_op_fn),
         Procedure::with_native("+", add_fn),
         Procedure::with_native("-", sub_fn),
@@ -33,37 +31,6 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
         }
     }
     Ok(())
-}
-
-fn define_sym_fn(args: &[Val]) -> Result<Val> {
-    match args {
-        [] => bail!("expected 2 args (a symbol and a definition), but found none"),
-        [s] => bail!("expected 2 args but only found symbol {}", s),
-        [s, v] => {
-            let s = match s {
-                Val::Symbol(s) => s.clone(),
-                v => bail!("expected symbol as first arg but found {}", v),
-            };
-            Vm::singleton().register_global_value(s, v.clone())?;
-        }
-        _ => bail!(
-            "expected 2 args (symbol and value) but found only {} args",
-            args.len()
-        ),
-    }
-    Ok(Val::Void)
-}
-
-fn get_sym_fn(args: &[Val]) -> Result<Val> {
-    match args {
-        [sym] => match sym {
-            Val::Symbol(s) => Vm::singleton()
-                .get_value(s)
-                .ok_or_else(|| anyhow!("symbol {} is not defined", s)),
-            _ => Err(anyhow!("expected symbol object but found {}", sym)),
-        },
-        _ => Err(anyhow!("expected 1 arg but found {}", args.len())),
-    }
 }
 
 fn no_op_fn(args: &[Val]) -> Result<Val> {

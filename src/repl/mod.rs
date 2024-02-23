@@ -7,6 +7,7 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
+use crate::vm::environment::Environment;
 use crate::vm::types::instruction::Instruction;
 use crate::vm::types::proc::{ByteCodeIter, ByteCodeProc};
 use crate::vm::types::symbol::Symbol;
@@ -18,6 +19,7 @@ use self::command::{Command, MetaCommand};
 pub mod command;
 
 pub struct Repl {
+    env: Environment,
     editor: DefaultEditor,
     repl_input: String,
     expression_count: usize,
@@ -27,6 +29,7 @@ impl Repl {
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         Ok(Repl {
+            env: Vm::with_builtins().env(),
             editor,
             repl_input: String::new(),
             expression_count: 0,
@@ -68,18 +71,22 @@ impl Repl {
     }
 
     pub fn eval_input(&mut self) -> Result<()> {
-        let s = std::mem::take(&mut self.repl_input);
-        let cmd = Command::try_from(s.as_str())?;
-        let asts = match Ast::from_sexp_str(s.as_str()) {
+        let input = std::mem::take(&mut self.repl_input);
+        let cmd = Command::try_from(input.as_str())?;
+        let asts = match Ast::from_sexp_str(cmd.expression) {
             Ok(ast) => ast,
             Err(err) => {
-                bail!("{}", err.display_with_context(s.as_str()));
+                bail!("{}", err.display_with_context(cmd.expression));
             }
         };
         match cmd.command {
-            MetaCommand::None => eval_asts(asts, &mut self.expression_count),
-            MetaCommand::Ast => analyze_ast(asts),
-            MetaCommand::ByteCode => analyze_bytecode(asts),
+            MetaCommand::None => eval_asts(asts, &mut self.env, &mut self.expression_count),
+            MetaCommand::Ast => {
+                for ast in asts {
+                    println!("{}", format!("{ast:#?}").blue());
+                }
+            }
+            MetaCommand::ByteCode => analyze_bytecode(&mut self.env, asts),
         }
         Ok(())
     }
@@ -92,14 +99,17 @@ fn line_is_complete(s: &str) -> bool {
     )
 }
 
-fn eval_asts(asts: Vec<Ast>, expr_count: &mut usize) {
+fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize) {
     for ast in asts {
-        match eval_ast(&ast) {
+        let res = Compiler::new(env)
+            .compile_and_finalize(&ast)
+            .and_then(|bc| env.eval_bytecode(bc.into()));
+        match res {
             Ok(Val::Void) => (),
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                let _ = Vm::singleton().register_global_value(sym.clone(), v.clone());
+                let _ = env.globals.insert(sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(err) => println!("{}", err.to_string().red()),
@@ -107,21 +117,16 @@ fn eval_asts(asts: Vec<Ast>, expr_count: &mut usize) {
     }
 }
 
-fn eval_ast(ast: &Ast) -> Result<Val> {
-    let bytecode = Compiler::new().compile_and_finalize(ast)?;
-    Vm::singleton().env().eval_bytecode(bytecode.into())
-}
-
-fn analyze_bytecode(asts: Vec<Ast>) {
+fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match Compiler::new().compile_and_finalize(&ast) {
+        let proc = match Compiler::new(env).compile_and_finalize(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
                 continue;
             }
         };
-        let bytecode = maybe_expand_bytecode(proc);
+        let bytecode = maybe_expand_bytecode(env, proc);
         for (idx, bc) in bytecode.enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
@@ -129,23 +134,14 @@ fn analyze_bytecode(asts: Vec<Ast>) {
     }
 }
 
-fn analyze_ast(asts: Vec<Ast>) {
-    for ast in asts {
-        println!("{}", format!("{ast:#?}").blue());
-    }
-}
-
-fn maybe_expand_bytecode(proc: ByteCodeProc) -> ByteCodeIter {
+fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
     let proc = Arc::new(proc);
     let mut iter = ByteCodeIter::from_proc(proc.clone());
     if iter.clone().count() == 1 {
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                let maybe_proc = Vm::singleton()
-                    .get_value(sym)
-                    .as_ref()
-                    .and_then(Val::as_bytecode_proc);
+                let maybe_proc = env.globals.get(&sym).and_then(Val::as_bytecode_proc);
                 if let Some(proc) = maybe_proc {
                     return ByteCodeIter::from_proc(proc);
                 }

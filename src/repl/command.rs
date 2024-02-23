@@ -26,11 +26,8 @@ impl<'a> TryFrom<&'a str> for Command<'a> {
                 expression: input,
             });
         }
-        while let Some((_, ch)) = iter_chars.next() {
-            if ch.is_whitespace() {
-                break;
-            }
-        }
+        while iter_chars.next_if(|(_, ch)| !ch.is_whitespace()).is_some() {}
+        while iter_chars.next_if(|(_, ch)| ch.is_whitespace()).is_some() {}
         let split_idx = iter_chars
             .next()
             .map(|(idx, _)| idx)
@@ -81,12 +78,8 @@ mod tests {
                 expression: "(+ 1 2)",
             }
         );
-    }
-
-    #[test]
-    fn ast_metacommand_is_parsed() {
         assert_eq!(
-            Command::try_from(" ,ast (+ 1 2)").unwrap(),
+            Command::try_from("  ,ast  (+ 1 2)  ").unwrap(),
             Command {
                 command: MetaCommand::Ast,
                 expression: "(+ 1 2)",
@@ -95,7 +88,14 @@ mod tests {
     }
 
     #[test]
-    fn bytecode_metacommand_is_parsed() {
+    fn metacommands_are_parsed() {
+        assert_eq!(
+            Command::try_from(",ast (+ 1 2)").unwrap(),
+            Command {
+                command: MetaCommand::Ast,
+                expression: "(+ 1 2)",
+            }
+        );
         assert_eq!(
             Command::try_from(",bytecode (+ 1 2)").unwrap(),
             Command {
