@@ -185,7 +185,7 @@ mod tests {
     fn can_execute_ast() {
         assert_eq!(
             Vm::with_builtins()
-                .env()
+                .build_env()
                 .eval_str("(+ 1 2 (- 3 4))")
                 .unwrap(),
             Val::Number(Number::Int(2))
@@ -196,7 +196,7 @@ mod tests {
     fn if_with_true_returns_first_expr_result() {
         assert_eq!(
             Vm::with_builtins()
-                .env()
+                .build_env()
                 .eval_str("(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
             Val::Number(Number::Int(20))
@@ -207,7 +207,7 @@ mod tests {
     fn if_with_false_returns_second_expr_result() {
         assert_eq!(
             Vm::with_builtins()
-                .env()
+                .build_env()
                 .eval_str("(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
             Val::Number(Number::Int(12))
@@ -218,7 +218,7 @@ mod tests {
     fn if_with_true_and_single_arm_returns_true() {
         assert_eq!(
             Vm::with_builtins()
-                .env()
+                .build_env()
                 .eval_str("(if true (* 10 2))")
                 .unwrap(),
             Val::Number(Number::Int(20))
@@ -229,7 +229,7 @@ mod tests {
     fn if_with_false_and_single_arm_returns_void() {
         assert_eq!(
             Vm::with_builtins()
-                .env()
+                .build_env()
                 .eval_str("(if false (* 10 2))")
                 .unwrap(),
             Val::Void
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        let mut env = Vm::with_builtins().env();
+        let mut env = Vm::with_builtins().build_env();
         assert_eq!(
             env.eval_str(
                 r#"

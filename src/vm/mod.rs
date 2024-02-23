@@ -49,7 +49,7 @@ impl Vm {
     }
 
     /// Create a new environment that can evaluate bytecode.
-    pub fn env(&self) -> Environment {
+    pub fn build_env(&self) -> Environment {
         Environment {
             globals: self.globals.clone(),
             stack: Vec::with_capacity(4096),

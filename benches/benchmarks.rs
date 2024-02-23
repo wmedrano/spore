@@ -1,14 +1,15 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore::parser::ast::Ast;
 use spore::vm::compiler::Compiler;
+use spore::vm::types::proc::ByteCodeIter;
 use spore::vm::Vm;
 use std::sync::Arc;
 
 const FIB_SRC: &str = "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))";
 
 pub fn eval_benchmarks(c: &mut Criterion) {
-    let mut env = spore::vm::Vm::with_builtins().env();
-    c.bench_function("eval fib 20", |b| {
+    let mut env = spore::vm::Vm::with_builtins().build_env();
+    c.bench_function("eval_fib_20", |b| {
         env.eval_str(FIB_SRC).unwrap();
         let bytecode = Arc::new(
             Compiler::new(&mut env)
@@ -17,7 +18,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
         );
         b.iter(|| env.eval_bytecode(black_box(bytecode.clone())).unwrap())
     })
-    .bench_function("eval add 20 elements", |b| {
+    .bench_function("eval_add_20_elements", |b| {
         let bytecode = Arc::new(
             Compiler::new(&mut env)
                 .compile_and_finalize(
@@ -30,17 +31,33 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     });
 }
 
+pub fn eval_microbenchmarks(c: &mut Criterion) {
+    let mut env = spore::vm::Vm::with_builtins().build_env();
+    let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
+    let proc = Arc::new(Compiler::new(&mut env).compile_and_finalize(&ast).unwrap());
+    c.bench_function("iter_bytecode", |b| {
+        let iter = ByteCodeIter::from_proc(proc.clone());
+        b.iter(|| {
+            let mut count = 0;
+            for _ in black_box(iter.clone()) {
+                count += 1;
+            }
+            count
+        })
+    });
+}
+
 pub fn compile_benchmarks(c: &mut Criterion) {
     let fib_ast = &Ast::from_sexp_str(FIB_SRC).unwrap()[0];
-    c.bench_function("init env", |b| {
+    c.bench_function("init_env", |b| {
         let vm = Vm::with_builtins();
-        b.iter(|| vm.env())
+        b.iter(|| vm.build_env())
     })
-    .bench_function("ast fib", |b| {
+    .bench_function("ast_fib", |b| {
         b.iter(|| Ast::from_sexp_str(FIB_SRC).unwrap())
     })
-    .bench_function("compile fib", |b| {
-        let mut env = Vm::with_builtins().env();
+    .bench_function("compile_fib", |b| {
+        let mut env = Vm::with_builtins().build_env();
         b.iter(|| {
             Compiler::new(&mut env)
                 .compile_and_finalize(fib_ast)
@@ -49,5 +66,10 @@ pub fn compile_benchmarks(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, eval_benchmarks, compile_benchmarks);
+criterion_group!(
+    benches,
+    eval_benchmarks,
+    eval_microbenchmarks,
+    compile_benchmarks
+);
 criterion_main!(benches);

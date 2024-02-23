@@ -14,8 +14,6 @@ use crate::vm::types::symbol::Symbol;
 use crate::vm::types::Val;
 use crate::vm::Vm;
 
-use self::command::{Command, MetaCommand};
-
 pub mod command;
 
 pub struct Repl {
@@ -29,7 +27,7 @@ impl Repl {
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         Ok(Repl {
-            env: Vm::with_builtins().env(),
+            env: Vm::with_builtins().build_env(),
             editor,
             repl_input: String::new(),
             expression_count: 0,
@@ -72,21 +70,22 @@ impl Repl {
 
     pub fn eval_input(&mut self) -> Result<()> {
         let input = std::mem::take(&mut self.repl_input);
-        let cmd = Command::try_from(input.as_str())?;
-        let asts = match Ast::from_sexp_str(cmd.expression) {
+        let (cmd, expr) = command::parse_command(input.as_str());
+        let asts = match Ast::from_sexp_str(expr) {
             Ok(ast) => ast,
             Err(err) => {
-                bail!("{}", err.display_with_context(cmd.expression));
+                bail!("{}", err.display_with_context(expr));
             }
         };
-        match cmd.command {
-            MetaCommand::None => eval_asts(asts, &mut self.env, &mut self.expression_count),
-            MetaCommand::Ast => {
+        match cmd {
+            "" => eval_asts(asts, &mut self.env, &mut self.expression_count),
+            ",ast" => {
                 for ast in asts {
                     println!("{}", format!("{ast:#?}").blue());
                 }
             }
-            MetaCommand::ByteCode => analyze_bytecode(&mut self.env, asts),
+            ",bytecode" => analyze_bytecode(&mut self.env, asts),
+            unknown => bail!("unknown command {unknown}"),
         }
         Ok(())
     }
