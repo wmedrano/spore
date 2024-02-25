@@ -127,7 +127,7 @@ impl<'a> Compiler<'a> {
             AstLeaf::Symbol(x) => self
                 .opcodes
                 .push(Instruction::PushVal(Symbol::from(x.clone()).into())),
-            AstLeaf::String(x) => self.opcodes.push(Instruction::PushVal(x.clone().into())),
+            AstLeaf::String(_) => unimplemented!("Strings are not yet supported."),
             AstLeaf::Float(x) => self
                 .opcodes
                 .push(Instruction::PushVal(Number::Float(*x).into())),

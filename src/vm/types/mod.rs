@@ -15,12 +15,10 @@ pub mod symbol;
 pub enum Val {
     #[default]
     Void,
-    String(Arc<String>),
     Symbol(Symbol),
     Bool(bool),
     Number(Number),
     Proc(Arc<Procedure>),
-    List(Box<Vec<Val>>),
 }
 
 impl Val {
@@ -73,7 +71,6 @@ impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Val::Void => write!(f, "<void>"),
-            Val::String(x) => write!(f, "{:?}", x),
             Val::Symbol(x) => write!(f, "{}", x),
             Val::Bool(x) => write!(f, "{x}"),
             Val::Number(x) => match x {
@@ -81,17 +78,6 @@ impl std::fmt::Display for Val {
                 Number::Float(x) => write!(f, "{x}"),
             },
             Val::Proc(x) => write!(f, "{:}", x),
-            Val::List(xs) => {
-                write!(f, "(")?;
-                let mut items = xs.iter();
-                if let Some(item) = items.next() {
-                    write!(f, "{item}")?;
-                }
-                for item in items {
-                    write!(f, " {item}")?;
-                }
-                write!(f, ")")
-            }
         }
     }
 }
@@ -106,12 +92,10 @@ macro_rules! impl_enum_from {
     };
 }
 
-impl_enum_from!(Val, String => String);
 impl_enum_from!(Val, Symbol => Symbol);
 impl_enum_from!(Val, Number => Number);
 impl_enum_from!(Val, bool => Bool);
 impl_enum_from!(Val, Procedure => Proc);
-impl_enum_from!(Val, Vec<Val> => List);
 
 /// A number value.
 #[derive(Copy, Clone, Debug, PartialEq)]

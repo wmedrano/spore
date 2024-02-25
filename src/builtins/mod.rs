@@ -17,7 +17,6 @@ pub fn register_all(vm: &mut Vm) {
         Procedure::with_native("<=", less_eq_fn),
         Procedure::with_native(">", greater_fn),
         Procedure::with_native(">=", greater_eq_fn),
-        Procedure::with_native("list", list_fn),
         Procedure::with_native("equal?", equalp_fn),
     ])
     .unwrap()
@@ -157,12 +156,6 @@ fn multiply_fn(args: &[Val]) -> Result<Val> {
         }
     };
     Ok(res)
-}
-
-/// Return `args` as a list.
-fn list_fn(args: &[Val]) -> Result<Val> {
-    let items = Vec::from_iter(args.iter().cloned());
-    Ok(items.into())
 }
 
 fn equalp_fn(args: &[Val]) -> Result<Val> {
