@@ -104,6 +104,17 @@ impl ByteCodeIter {
     pub fn jump(&mut self, n: usize) {
         self.next_ptr = unsafe { self.next_ptr.add(n).min(self.end_ptr) };
     }
+
+    /// Get the next instruction or `Instruction::Return` if there are no more instructions.
+    pub fn next_instruction(&mut self) -> &Instruction {
+        if self.next_ptr < self.end_ptr {
+            let res = unsafe { &*self.next_ptr };
+            self.next_ptr = unsafe { self.next_ptr.offset(1) };
+            res
+        } else {
+            &Instruction::Return
+        }
+    }
 }
 
 impl Iterator for ByteCodeIter {

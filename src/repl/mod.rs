@@ -107,7 +107,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
         } else {
             None
         };
-        let res = Compiler::new(env)
+        let res = Compiler::new("repl-eval", env)
             .compile_and_finalize(&ast)
             .and_then(|bc| match maybe_trace.as_mut() {
                 Some(t) => env.eval_with_debugger(bc.into(), &[], t),
@@ -124,14 +124,18 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
                 let _ = env.globals.insert(sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
-            Err(err) => println!("{}", err.to_string().red()),
+            Err(errs) => {
+                for err in errs.chain() {
+                    println!("{}", err.to_string().red());
+                }
+            }
         }
     }
 }
 
 fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match Compiler::new(env).compile_and_finalize(&ast) {
+        let proc = match Compiler::new("repl-eval-bytecode", env).compile_and_finalize(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());

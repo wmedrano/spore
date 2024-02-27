@@ -22,24 +22,30 @@ pub struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     /// Create a new compiler.
-    pub fn new(env: &'a mut Environment) -> Compiler<'a> {
-        Compiler::with_args(env, std::iter::empty())
+    pub fn new(name: &str, env: &'a mut Environment) -> Compiler<'a> {
+        Compiler::with_args(name, env, std::iter::empty())
     }
 
     /// Create a new compiler with the given arguments at the base of the stack.
-    pub fn with_args(env: &'a mut Environment, args: impl Iterator<Item = String>) -> Compiler<'a> {
+    pub fn with_args(
+        name: &str,
+        env: &'a mut Environment,
+        args: impl Iterator<Item = String>,
+    ) -> Compiler<'a> {
         let symbol_to_idx = args.enumerate().map(|(idx, sym)| (sym, idx)).collect();
-        Compiler::with_symbols(env, symbol_to_idx)
+        Compiler::with_symbols(name, env, symbol_to_idx)
     }
 
     /// Create a new compiler where the base of the stack contains the values from `symbol_to_idx`.
     pub fn with_symbols(
+        name: &'_ str,
         env: &'a mut Environment,
         symbol_to_idx: HashMap<String, usize>,
-    ) -> Compiler {
+    ) -> Compiler<'a> {
+        let name = name.to_string();
         Compiler {
             env,
-            name: "".to_string(),
+            name,
             symbol_to_idx,
             opcodes: Vec::new(),
         }
@@ -189,10 +195,10 @@ impl<'a> Compiler<'a> {
         match args {
             [pred, t_val, maybe_f_val @ ..] => {
                 self.compile(pred)?;
-                let t_bytecode = Compiler::with_symbols(self.env, self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
+                let t_bytecode = Compiler::with_symbols("", self.env, self.symbol_to_idx.clone()).compile_and_finalize(t_val)?.bytecode;
                 let f_bytecode = match maybe_f_val {
                     [] => vec![Instruction::PushVal(Val::Void)],
-                    [f_val] => Compiler::with_symbols(self.env, self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode.to_vec(),
+                    [f_val] => Compiler::with_symbols("", self.env, self.symbol_to_idx.clone()).compile_and_finalize(f_val)?.bytecode.to_vec(),
                     rest => bail!("expected single false expression but found {}", rest.len()),
                 };
                 self.opcodes.push(Instruction::JumpIf(f_bytecode.len() + 1));
@@ -229,7 +235,7 @@ mod tests {
     #[test]
     fn lambda_compiles_to_bytecode() {
         let mut env = Vm::with_builtins().build_env();
-        let instructions = Compiler::new(&mut env)
+        let instructions = Compiler::new("", &mut env)
             .compile_and_finalize(&Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap()[0])
             .unwrap()
             .bytecode

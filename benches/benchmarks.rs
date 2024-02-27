@@ -3,6 +3,7 @@ use std::rc::Rc;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore::parser::ast::Ast;
 use spore::vm::compiler::Compiler;
+use spore::vm::types::instruction::Instruction;
 use spore::vm::types::proc::ByteCodeIter;
 use spore::vm::Vm;
 
@@ -13,7 +14,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     c.bench_function("eval_fib_20", |b| {
         env.eval_str(FIB_SRC).unwrap();
         let bytecode = Rc::new(
-            Compiler::new(&mut env)
+            Compiler::new("run-fib", &mut env)
                 .compile_and_finalize(&Ast::from_sexp_str("(fib 20)").unwrap()[0])
                 .unwrap(),
         );
@@ -21,7 +22,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     })
     .bench_function("eval_add_20_elements", |b| {
         let bytecode = Rc::new(
-            Compiler::new(&mut env)
+            Compiler::new("add-20", &mut env)
                 .compile_and_finalize(
                     &Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)")
                         .unwrap()[0],
@@ -35,12 +36,17 @@ pub fn eval_benchmarks(c: &mut Criterion) {
 pub fn eval_microbenchmarks(c: &mut Criterion) {
     let mut env = spore::vm::Vm::with_builtins().build_env();
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
-    let proc = Rc::new(Compiler::new(&mut env).compile_and_finalize(&ast).unwrap());
+    let proc = Rc::new(
+        Compiler::new("eval-microbenchmarks", &mut env)
+            .compile_and_finalize(&ast)
+            .unwrap(),
+    );
     c.bench_function("iter_bytecode", |b| {
         let iter = ByteCodeIter::from_proc(proc.clone());
         b.iter(|| {
+            let mut iter = black_box(iter.clone());
             let mut count = 0;
-            for _ in black_box(iter.clone()) {
+            while iter.next_instruction() != &Instruction::Return {
                 count += 1;
             }
             count
@@ -60,7 +66,7 @@ pub fn compile_benchmarks(c: &mut Criterion) {
     .bench_function("compile_fib", |b| {
         let mut env = Vm::with_builtins().build_env();
         b.iter(|| {
-            Compiler::new(&mut env)
+            Compiler::new("compile-fib", &mut env)
                 .compile_and_finalize(fib_ast)
                 .unwrap()
         })

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::parser::ast::Ast;
 
@@ -40,7 +40,7 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .iter()
             .map(|ast| {
-                let proc = Compiler::new(self).compile_and_finalize(ast)?;
+                let proc = Compiler::new("eval", self).compile_and_finalize(ast)?;
                 self.eval_bytecode(proc.into(), &[])
             })
             .collect()
@@ -48,6 +48,7 @@ impl Environment {
 
     pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
         self.eval_bytecode_impl(proc, args, &mut ())
+            .with_context(|| self.stack_trace())
     }
 
     #[cold]
@@ -58,6 +59,7 @@ impl Environment {
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
         self.eval_bytecode_impl(proc, args, debugger)
+            .with_context(|| self.stack_trace())
     }
 
     /// Evaluate a sequence of bytecode.
@@ -75,28 +77,58 @@ impl Environment {
             bytecode: ByteCodeIter::from_proc(proc),
             stack_start_idx: 0,
         });
-        loop {
-            let instruction = self
-                .frames
-                .last_mut()
-                .and_then(|f| f.bytecode.next())
-                .unwrap_or(Instruction::Return);
+        while let Some(frame) = self.frames.last_mut() {
+            let instruction = frame.bytecode.next_instruction();
             match instruction {
-                Instruction::PushVal(v) => self.execute_push_val(v.clone()),
-                Instruction::Eval(n) => self.execute_eval_n(n, debugger)?,
-                Instruction::JumpIf(n) => self.execute_jump_if(n)?,
-                Instruction::Jump(n) => self.execute_jump(n),
-                Instruction::GetVal(s) => self.execute_get_val(&s)?,
-                Instruction::SetVal(s) => self.execute_set_val(s)?,
-                Instruction::GetArg(n) => self.execute_get_arg(n),
+                Instruction::PushVal(v) => {
+                    self.stack.push(v.clone());
+                }
+                Instruction::Eval(n) => {
+                    let n = *n;
+                    self.execute_eval_n(n, debugger)?
+                }
+                Instruction::JumpIf(n) => {
+                    let n = *n;
+                    self.execute_jump_if(n)?
+                }
+                Instruction::Jump(n) => {
+                    let n = *n;
+                    self.execute_jump(n)
+                }
+                Instruction::GetVal(s) => match self.globals.get(s) {
+                    Some(v) => {
+                        self.stack.push(v.clone());
+                    }
+                    None => bail!("{s} is not defined"),
+                },
+                Instruction::SetVal(s) => {
+                    let s = s.clone();
+                    self.execute_set_val(s)?
+                }
+                Instruction::GetArg(n) => {
+                    let n = *n;
+                    self.execute_get_arg(n)
+                }
                 Instruction::Return => {
                     self.pop_frame(debugger)?;
-                    if self.frames.is_empty() {
-                        return Ok(self.stack.pop().unwrap_or_default());
-                    }
                 }
             }
         }
+        Ok(self.stack.pop().unwrap_or_default())
+    }
+
+    #[cold]
+    fn stack_trace(&self) -> String {
+        let trace: Vec<_> = ["Stack Trace:".to_string()]
+            .into_iter()
+            .chain(
+                self.frames
+                    .iter()
+                    .map(|f| format!("  - {}", f.bytecode.inner().name.as_str())),
+            )
+            .collect();
+        println!("{trace:?}");
+        trace.join("\n")
     }
 
     /// Pop the current frame. This truncates the local stack and replaces the top value of the
@@ -114,11 +146,6 @@ impl Environment {
         self.stack.pop();
         self.stack.push(return_val);
         Ok(())
-    }
-
-    /// Get a value from the current environment.
-    fn get_value(&self, sym: &Symbol) -> Option<Val> {
-        self.globals.get(sym).cloned()
     }
 
     fn execute_get_arg(&mut self, n: usize) {
@@ -141,27 +168,23 @@ impl Environment {
         frame.bytecode.jump(n);
     }
 
-    fn execute_push_val(&mut self, v: Val) {
-        self.stack.push(v);
-    }
-
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
         let proc_idx = self.stack.len() - n;
         match &self.stack[proc_idx] {
             Val::ByteCodeProc(proc) => {
                 let expected_args = proc.arg_count;
                 let actual_args = n - 1;
+                debugger.start_eval(self, proc, actual_args);
+                self.frames.push(Frame {
+                    bytecode: ByteCodeIter::from_proc(proc.clone()),
+                    stack_start_idx: proc_idx + 1,
+                });
                 if expected_args != actual_args {
                     bail!(
                         "{name} expected {expected_args} but found {actual_args}",
                         name = proc.name
                     );
                 }
-                debugger.start_eval(self, proc, actual_args);
-                self.frames.push(Frame {
-                    bytecode: ByteCodeIter::from_proc(proc.clone()),
-                    stack_start_idx: proc_idx + 1,
-                });
             }
             Val::NativeProc(proc) => {
                 let stack_base = proc_idx + 1;
@@ -171,16 +194,6 @@ impl Environment {
             }
             v => bail!("expected procedure but found {v}"),
         };
-        Ok(())
-    }
-
-    fn execute_get_val(&mut self, s: &Symbol) -> Result<()> {
-        match self.get_value(s) {
-            Some(v) => {
-                self.stack.push(v);
-            }
-            None => bail!("{s} is not defined"),
-        }
         Ok(())
     }
 
