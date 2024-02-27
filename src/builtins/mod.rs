@@ -1,23 +1,23 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
-    types::{proc::Procedure, Number, Val},
+    types::{proc::NativeProc, Number, Val},
     Vm,
 };
 
 /// Register all builtin functions.
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_fn([
-        Procedure::with_native("%no-op", no_op_fn),
-        Procedure::with_native("+", add_fn),
-        Procedure::with_native("-", sub_fn),
-        Procedure::with_native("*", multiply_fn),
-        Procedure::with_native("/", divide_fn),
-        Procedure::with_native("<", less_fn),
-        Procedure::with_native("<=", less_eq_fn),
-        Procedure::with_native(">", greater_fn),
-        Procedure::with_native(">=", greater_eq_fn),
-        Procedure::with_native("equal?", equalp_fn),
+        NativeProc::new("%no-op", no_op_fn),
+        NativeProc::new("+", add_fn),
+        NativeProc::new("-", sub_fn),
+        NativeProc::new("*", multiply_fn),
+        NativeProc::new("/", divide_fn),
+        NativeProc::new("<", less_fn),
+        NativeProc::new("<=", less_eq_fn),
+        NativeProc::new(">", greater_fn),
+        NativeProc::new(">=", greater_eq_fn),
+        NativeProc::new("equal?", equalp_fn),
     ])
     .unwrap()
 }
@@ -161,7 +161,10 @@ fn multiply_fn(args: &[Val]) -> Result<Val> {
 fn equalp_fn(args: &[Val]) -> Result<Val> {
     match args {
         [a, b] => Ok(Val::Bool(a == b)),
-        _ => bail!("equal? expects 2 arguments but found {}", args.len()),
+        _ => Err(anyhow!(
+            "equal? expects 2 arguments but found {}",
+            args.len()
+        )),
     }
 }
 
@@ -191,7 +194,7 @@ fn add_two(x: &Val, y: &Val) -> Val {
                 Number::Float(*x as f64 + y).into()
             }
         },
-        _ => unreachable!(),
+        (a, b) => unreachable!("tried to add {a} and {b}"),
     }
 }
 

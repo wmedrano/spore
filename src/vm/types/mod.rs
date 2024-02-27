@@ -1,10 +1,7 @@
 use anyhow::{anyhow, Result};
-use std::sync::Arc;
+use std::rc::Rc;
 
-use self::{
-    proc::{ByteCodeProc, Procedure},
-    symbol::Symbol,
-};
+use self::symbol::Symbol;
 
 pub mod instruction;
 pub mod proc;
@@ -18,7 +15,8 @@ pub enum Val {
     Symbol(Symbol),
     Bool(bool),
     Number(Number),
-    Proc(Arc<Procedure>),
+    ByteCodeProc(Rc<proc::ByteCodeProc>),
+    NativeProc(Rc<proc::NativeProc>),
 }
 
 impl Val {
@@ -27,36 +25,6 @@ impl Val {
         match self {
             Val::Bool(v) => Ok(*v),
             v => Err(anyhow!("expected true/false, but found {}", v)),
-        }
-    }
-
-    /// Get the value as a `ByteCodeProc` or `None` if value is not a `ByteCodeProc`.
-    pub fn as_bytecode_proc(&self) -> Option<Arc<ByteCodeProc>> {
-        match self {
-            Val::Proc(proc) => match proc.as_ref() {
-                Procedure::ByteCode(bc) => Some(bc.clone()),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    /// If `Val` is a procedure, then it is assigned a name and returned. If not, then `self` is
-    /// returned unchanged.
-    pub fn to_named_procedure(self, name: &str) -> Val {
-        match self {
-            Val::Proc(proc) => {
-                let proc = Arc::unwrap_or_clone(proc);
-                match proc {
-                    Procedure::Native(n, p) => Procedure::Native(n, p).into(),
-                    Procedure::ByteCode(bc) => {
-                        let mut bc = Arc::unwrap_or_clone(bc);
-                        bc.name = name.to_string();
-                        Procedure::ByteCode(Arc::new(bc)).into()
-                    }
-                }
-            }
-            v => v,
         }
     }
 }
@@ -77,7 +45,8 @@ impl std::fmt::Display for Val {
                 Number::Int(x) => write!(f, "{x}"),
                 Number::Float(x) => write!(f, "{x}"),
             },
-            Val::Proc(x) => write!(f, "{:}", x),
+            Val::ByteCodeProc(x) => write!(f, "{}", x),
+            Val::NativeProc(x) => write!(f, "{}", x),
         }
     }
 }
@@ -95,7 +64,8 @@ macro_rules! impl_enum_from {
 impl_enum_from!(Val, Symbol => Symbol);
 impl_enum_from!(Val, Number => Number);
 impl_enum_from!(Val, bool => Bool);
-impl_enum_from!(Val, Procedure => Proc);
+impl_enum_from!(Val, proc::ByteCodeProc => ByteCodeProc);
+impl_enum_from!(Val, proc::NativeProc => NativeProc);
 
 /// A number value.
 #[derive(Copy, Clone, Debug, PartialEq)]

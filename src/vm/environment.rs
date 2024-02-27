@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{bail, Result};
 
@@ -8,7 +8,7 @@ use super::{
     compiler::Compiler,
     types::{
         instruction::Instruction,
-        proc::{ByteCodeIter, ByteCodeProc, Procedure},
+        proc::{ByteCodeIter, ByteCodeProc},
         symbol::Symbol,
         Val,
     },
@@ -35,49 +35,51 @@ pub struct Frame {
 impl Environment {
     /// Evaluate an S-Expression string and return the last value. If there are no expression, than
     /// `Val::Void` is returned.
-    pub fn eval_str(&mut self, s: &str) -> Result<Val> {
+    pub fn eval_str(&mut self, s: &str) -> Result<Vec<Val>> {
         Ast::from_sexp_str(s)?
             .iter()
             .map(|ast| {
                 let proc = Compiler::new(self).compile_and_finalize(ast)?;
-                self.eval_bytecode(proc.into())
+                self.eval_bytecode(proc.into(), &[])
             })
-            .last()
-            .unwrap_or(Ok(Val::Void))
+            .collect()
     }
 
     /// Evaluate a sequence of bytecode.
-    pub fn eval_bytecode(&mut self, proc: Arc<ByteCodeProc>) -> Result<Val> {
-        self.frames.clear();
-        self.stack.clear();
-        self.frames.push(Frame {
-            bytecode: ByteCodeIter::from_proc(proc),
-            stack_start_idx: 0,
-        });
+    pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
+        self.prepare(proc, args);
         loop {
-            let maybe_next_instruction = self.next_instruction();
-            match maybe_next_instruction {
-                Some(Instruction::PushVal(v)) => self.execute_push_val(v),
-                Some(Instruction::Eval(n)) => self.execute_eval_n(n)?,
-                Some(Instruction::JumpIf(n)) => self.execute_jump_if(n)?,
-                Some(Instruction::Jump(n)) => self.execute_jump(n),
-                Some(Instruction::GetVal(s)) => self.execute_get_val(s.as_str())?,
-                Some(Instruction::SetVal(s)) => self.execute_set_val(s)?,
-                Some(Instruction::GetArg(n)) => self.execute_get_arg(n),
-                None => {
+            let instruction = self
+                .frames
+                .last_mut()
+                .and_then(|f| f.bytecode.next())
+                .unwrap_or(Instruction::Return);
+            match instruction {
+                Instruction::PushVal(v) => self.execute_push_val(v.clone()),
+                Instruction::Eval(n) => self.execute_eval_n(n)?,
+                Instruction::JumpIf(n) => self.execute_jump_if(n)?,
+                Instruction::Jump(n) => self.execute_jump(n),
+                Instruction::GetVal(s) => self.execute_get_val(&s)?,
+                Instruction::SetVal(s) => self.execute_set_val(s)?,
+                Instruction::GetArg(n) => self.execute_get_arg(n),
+                Instruction::Return => {
                     self.pop_frame()?;
                     if self.frames.is_empty() {
-                        return Ok(self.stack.pop().unwrap_or(Val::Void));
+                        return Ok(self.stack.pop().unwrap_or_default());
                     }
                 }
             }
         }
     }
 
-    /// Get the next instruction or none if the frame has run out of instructions.
-    fn next_instruction(&mut self) -> Option<Instruction> {
-        let frame = self.frames.last_mut()?;
-        frame.bytecode.next()
+    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) {
+        self.frames.clear();
+        self.stack.clear();
+        self.stack.extend_from_slice(args);
+        self.frames.push(Frame {
+            bytecode: ByteCodeIter::from_proc(proc),
+            stack_start_idx: 0,
+        });
     }
 
     /// Pop the current frame. This truncates the local stack and replaces the top value of the
@@ -86,7 +88,7 @@ impl Environment {
     fn pop_frame(&mut self) -> Result<()> {
         let frame = self.frames.pop().unwrap();
         let return_val = if self.stack.len() > frame.stack_start_idx {
-            self.stack.pop().unwrap()
+            self.stack.pop().unwrap_or_default()
         } else {
             Val::Void
         };
@@ -97,8 +99,8 @@ impl Environment {
     }
 
     /// Get a value from the current environment.
-    fn get_value(&self, sym: impl AsRef<str>) -> Option<Val> {
-        self.globals.get(sym.as_ref()).cloned()
+    fn get_value(&self, sym: &Symbol) -> Option<Val> {
+        self.globals.get(sym).cloned()
     }
 
     fn execute_get_arg(&mut self, n: usize) {
@@ -109,13 +111,9 @@ impl Environment {
     }
 
     fn execute_jump_if(&mut self, n: usize) -> Result<()> {
-        match self.stack.pop() {
-            Some(v) => {
-                if v.is_truthy()? {
-                    self.execute_jump(n);
-                }
-            }
-            None => bail!("bytecode if found no value to evaluate if statement"),
+        let v = self.stack.pop().unwrap_or_default();
+        if v.is_truthy()? {
+            self.execute_jump(n);
         }
         Ok(())
     }
@@ -131,44 +129,45 @@ impl Environment {
 
     fn execute_eval_n(&mut self, n: usize) -> Result<()> {
         let proc_idx = self.stack.len() - n;
-        let proc = match &self.stack[proc_idx] {
-            Val::Proc(proc) => proc,
-            v => bail!("expected procedure but found {v}"),
-        };
-        match proc.as_ref() {
-            Procedure::Native(_, proc) => {
-                let stack_base = proc_idx + 1;
-                let res = proc(&self.stack[stack_base..])?;
-                self.stack.truncate(stack_base);
-                self.stack[proc_idx] = res;
-                return Ok(());
-            }
-            Procedure::ByteCode(proc) => {
+        match &self.stack[proc_idx] {
+            Val::ByteCodeProc(proc) => {
                 let expected_args = proc.arg_count;
-                let actual_args = self.stack.len() - proc_idx - 1;
+                let actual_args = n - 1;
                 if expected_args != actual_args {
-                    bail!("expected {expected_args} but found {actual_args}");
+                    bail!(
+                        "{name} expected {expected_args} but found {actual_args}",
+                        name = proc.name
+                    );
                 }
                 self.frames.push(Frame {
                     bytecode: ByteCodeIter::from_proc(proc.clone()),
                     stack_start_idx: proc_idx + 1,
                 });
             }
+            Val::NativeProc(proc) => {
+                let stack_base = proc_idx + 1;
+                let res = (proc.f)(&self.stack[stack_base..])?;
+                self.stack.truncate(stack_base);
+                *self.stack.last_mut().unwrap() = res;
+            }
+            v => bail!("expected procedure but found {v}"),
         };
         Ok(())
     }
 
-    fn execute_get_val(&mut self, s: &str) -> Result<()> {
+    fn execute_get_val(&mut self, s: &Symbol) -> Result<()> {
         match self.get_value(s) {
-            Some(v) => self.stack.push(v),
+            Some(v) => {
+                self.stack.push(v);
+            }
             None => bail!("{s} is not defined"),
         }
         Ok(())
     }
 
     fn execute_set_val(&mut self, s: Symbol) -> Result<()> {
-        self.globals
-            .insert(s, self.stack.pop().unwrap_or(Val::Void));
+        let v = self.stack.pop().unwrap();
+        self.globals.insert(s, v);
         Ok(())
     }
 }
@@ -188,7 +187,7 @@ mod tests {
                 .build_env()
                 .eval_str("(+ 1 2 (- 3 4))")
                 .unwrap(),
-            Val::Number(Number::Int(2))
+            vec![Val::Number(Number::Int(2))]
         );
     }
 
@@ -199,7 +198,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
-            Val::Number(Number::Int(20))
+            vec![Val::Number(Number::Int(20))],
         );
     }
 
@@ -210,7 +209,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
-            Val::Number(Number::Int(12))
+            vec![Val::Number(Number::Int(12))],
         )
     }
 
@@ -221,7 +220,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if true (* 10 2))")
                 .unwrap(),
-            Val::Number(Number::Int(20))
+            vec![Val::Number(Number::Int(20))],
         )
     }
 
@@ -232,7 +231,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if false (* 10 2))")
                 .unwrap(),
-            Val::Void
+            vec![Val::Void],
         )
     }
 
@@ -242,12 +241,12 @@ mod tests {
         assert_eq!(
             env.eval_str(
                 r#"
-(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
 (fib 10)
 "#
             )
             .unwrap(),
-            Val::Number(Number::Int(55))
+            vec![Val::Void, Val::Number(Number::Int(55))],
         );
     }
 }

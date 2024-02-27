@@ -13,7 +13,7 @@ pub enum Ast {
 pub enum AstLeaf {
     If,
     Lambda,
-    Def,
+    Define,
     Identifier(String),
     Symbol(String),
     String(String),
@@ -87,7 +87,7 @@ impl Ast {
                         match s.as_str() {
                             "if" => exps.push(Ast::Leaf(token.with_item(AstLeaf::If))),
                             "lambda" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Lambda))),
-                            "def" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Def))),
+                            "define" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Define))),
                             _ => exps
                                 .push(Ast::Leaf(token.with_item(AstLeaf::Identifier(s.clone())))),
                         }

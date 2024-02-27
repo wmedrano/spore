@@ -9,17 +9,13 @@ use crate::parser::{
 
 use super::{
     environment::Environment,
-    types::{
-        instruction::Instruction,
-        proc::{ByteCodeProc, Procedure},
-        symbol::Symbol,
-        Number, Val,
-    },
+    types::{instruction::Instruction, proc::ByteCodeProc, symbol::Symbol, Number, Val},
 };
 
 /// Compiles Asts into `ByteCodeProc` objects.
 pub struct Compiler<'a> {
     env: &'a mut Environment,
+    name: String,
     symbol_to_idx: HashMap<String, usize>,
     opcodes: Vec<Instruction>,
 }
@@ -43,6 +39,7 @@ impl<'a> Compiler<'a> {
     ) -> Compiler {
         Compiler {
             env,
+            name: "".to_string(),
             symbol_to_idx,
             opcodes: Vec::new(),
         }
@@ -76,7 +73,7 @@ impl<'a> Compiler<'a> {
             .max()
             .unwrap_or(0);
         ByteCodeProc {
-            name: "".to_string(),
+            name: self.name.clone(),
             arg_count,
             bytecode,
         }
@@ -91,7 +88,7 @@ impl<'a> Compiler<'a> {
                 [Ast::Leaf(Token { item, .. }), args @ ..] => match item {
                     AstLeaf::If => self.if_to_bytecode(args)?,
                     AstLeaf::Lambda => self.lambda_to_bytecode(args)?,
-                    AstLeaf::Def => self.def_to_bytecode(args)?,
+                    AstLeaf::Define => self.define_to_bytecode(args)?,
                     AstLeaf::Identifier(_) => {
                         for c in children {
                             self.compile(c)?;
@@ -119,10 +116,12 @@ impl<'a> Compiler<'a> {
         match l {
             AstLeaf::If => bail!("empty if is not a valid expression"),
             AstLeaf::Lambda => bail!("empty lambda is not a valid expression"),
-            AstLeaf::Def => bail!("empty def is not a valid expression"),
+            AstLeaf::Define => bail!("empty define is not a valid expression"),
             AstLeaf::Identifier(x) => match self.symbol_to_idx.get(x) {
                 Some(idx) => self.opcodes.push(Instruction::GetArg(*idx)),
-                None => self.opcodes.push(Instruction::GetVal(x.as_str().into())),
+                None => {
+                    self.opcodes.push(Instruction::GetVal(x.as_str().into()));
+                }
             },
             AstLeaf::Symbol(x) => self
                 .opcodes
@@ -151,6 +150,7 @@ impl<'a> Compiler<'a> {
                 // Build bytecode
                 let mut lambda_compiler = Compiler {
                     env: self.env,
+                    name: self.name.clone(),
                     symbol_to_idx,
                     opcodes: Vec::new(),
                 };
@@ -158,15 +158,13 @@ impl<'a> Compiler<'a> {
                     lambda_compiler.compile(expr)?;
                 }
                 let bytecode = lambda_compiler.finalize();
-                let bytecode_proc = Procedure::with_bytecode(bytecode.into());
-                self.opcodes
-                    .push(Instruction::PushVal(Val::Proc(bytecode_proc)));
+                self.opcodes.push(Instruction::PushVal(bytecode.into()));
             }
         };
         Ok(())
     }
 
-    fn def_to_bytecode(&mut self, args: &[Ast]) -> Result<()> {
+    fn define_to_bytecode(&mut self, args: &[Ast]) -> Result<()> {
         match args {
             [sym, expr] => {
                 let sym = match sym {
@@ -174,18 +172,15 @@ impl<'a> Compiler<'a> {
                         item: AstLeaf::Identifier(ident),
                         ..
                     }) => Symbol::from(ident.as_str()),
-                    ast => bail!("def must be bound to an identifier but found {:?}", ast),
+                    ast => bail!("define must be bound to an identifier but found {:?}", ast),
                 };
+                let mut tmp_name = sym.0.to_string();
+                std::mem::swap(&mut tmp_name, &mut self.name);
                 self.compile(expr)?;
-                let val_opcode = self
-                    .opcodes
-                    .pop()
-                    .unwrap()
-                    .map_push_val(|val| val.to_named_procedure(sym.as_ref()));
-                self.opcodes.push(val_opcode);
+                std::mem::swap(&mut tmp_name, &mut self.name);
                 self.opcodes.push(Instruction::SetVal(sym));
             }
-            _ => bail!("def requires 2 args but found {}", args.len()),
+            _ => bail!("define requires 2 args but found {}", args.len()),
         };
         Ok(())
     }
@@ -223,4 +218,40 @@ fn symbol_to_idx(list: &[Ast]) -> Result<HashMap<String, usize>> {
         };
     }
     Ok(res)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vm::Vm;
+
+    use super::*;
+
+    #[test]
+    fn lambda_compiles_to_bytecode() {
+        let mut env = Vm::with_builtins().build_env();
+        let instructions = Compiler::new(&mut env)
+            .compile_and_finalize(&Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap()[0])
+            .unwrap()
+            .bytecode
+            .into_iter()
+            .next()
+            .unwrap();
+        let bytecode = match instructions {
+            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc,
+            v => panic!("Expected PushVal(ByteCodeProc) but found {v:?}"),
+        };
+        assert!(
+            matches!(
+                bytecode.bytecode.as_slice(),
+                [
+                    Instruction::PushVal(Val::NativeProc(_)),
+                    Instruction::GetArg(0),
+                    Instruction::PushVal(Val::Number(Number::Int(1))),
+                    Instruction::Eval(3),
+                ]
+            ),
+            "Found {:?}",
+            bytecode.bytecode
+        );
+    }
 }

@@ -16,6 +16,7 @@ pub enum Instruction {
     SetVal(Symbol),
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
+    Return,
 }
 
 impl Instruction {
@@ -37,6 +38,7 @@ impl std::fmt::Display for Instruction {
             Instruction::GetVal(s) => write!(f, "get value for {s}"),
             Instruction::SetVal(s) => write!(f, "set value for {s}"),
             Instruction::GetArg(n) => write!(f, "get arg {n}"),
+            Instruction::Return => write!(f, "return"),
         }
     }
 }

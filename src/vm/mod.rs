@@ -1,10 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::Result;
 
 use self::{
     environment::Environment,
-    types::{proc::Procedure, symbol::Symbol, Val},
+    types::{proc::NativeProc, symbol::Symbol, Val},
 };
 
 pub mod compiler;
@@ -33,11 +33,11 @@ impl Vm {
     /// Register functions into the VM.
     pub fn register_global_fn(
         &mut self,
-        fns: impl IntoIterator<Item = Arc<Procedure>>,
+        fns: impl IntoIterator<Item = Rc<NativeProc>>,
     ) -> Result<()> {
         for f in fns {
-            let sym = Symbol::from(f.name());
-            self.register_global_value(sym, Val::Proc(f))?;
+            let sym = Symbol::from(f.name);
+            self.register_global_value(sym, Val::NativeProc(f))?;
         }
         Ok(())
     }

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::{bail, Result};
 use colored::Colorize;
@@ -102,14 +102,14 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize) {
     for ast in asts {
         let res = Compiler::new(env)
             .compile_and_finalize(&ast)
-            .and_then(|bc| env.eval_bytecode(bc.into()));
+            .and_then(|bc| env.eval_bytecode(bc.into(), &[]));
         match res {
             Ok(Val::Void) => (),
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
                 let _ = env.globals.insert(sym.clone(), v.clone());
-                println!("{} = {}", sym.as_str().to_string().cyan(), v);
+                println!("{} = {}", sym.to_string().cyan(), v);
             }
             Err(err) => println!("{}", err.to_string().red()),
         }
@@ -134,21 +134,18 @@ fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
 }
 
 fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
-    let proc = Arc::new(proc);
+    let proc = Rc::new(proc);
     let mut iter = ByteCodeIter::from_proc(proc.clone());
     if iter.clone().count() == 1 {
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                let maybe_proc = env.globals.get(&sym).and_then(Val::as_bytecode_proc);
-                if let Some(proc) = maybe_proc {
-                    return ByteCodeIter::from_proc(proc);
+                if let Some(Val::ByteCodeProc(bc)) = env.globals.get(&sym) {
+                    return ByteCodeIter::from_proc(bc.clone());
                 }
             }
-            Instruction::PushVal(val) => {
-                if let Some(proc) = val.as_bytecode_proc() {
-                    return ByteCodeIter::from_proc(proc);
-                }
+            Instruction::PushVal(Val::ByteCodeProc(bc)) => {
+                return ByteCodeIter::from_proc(bc.clone());
             }
             _ => (),
         }

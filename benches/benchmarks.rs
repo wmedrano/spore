@@ -1,25 +1,26 @@
+use std::rc::Rc;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore::parser::ast::Ast;
 use spore::vm::compiler::Compiler;
 use spore::vm::types::proc::ByteCodeIter;
 use spore::vm::Vm;
-use std::sync::Arc;
 
-const FIB_SRC: &str = "(def fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))";
+const FIB_SRC: &str = "(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))";
 
 pub fn eval_benchmarks(c: &mut Criterion) {
     let mut env = spore::vm::Vm::with_builtins().build_env();
     c.bench_function("eval_fib_20", |b| {
         env.eval_str(FIB_SRC).unwrap();
-        let bytecode = Arc::new(
+        let bytecode = Rc::new(
             Compiler::new(&mut env)
                 .compile_and_finalize(&Ast::from_sexp_str("(fib 20)").unwrap()[0])
                 .unwrap(),
         );
-        b.iter(|| env.eval_bytecode(black_box(bytecode.clone())).unwrap())
+        b.iter(|| env.eval_bytecode(black_box(bytecode.clone()), &[]).unwrap())
     })
     .bench_function("eval_add_20_elements", |b| {
-        let bytecode = Arc::new(
+        let bytecode = Rc::new(
             Compiler::new(&mut env)
                 .compile_and_finalize(
                     &Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)")
@@ -27,14 +28,14 @@ pub fn eval_benchmarks(c: &mut Criterion) {
                 )
                 .unwrap(),
         );
-        b.iter(|| env.eval_bytecode(black_box(bytecode.clone())).unwrap())
+        b.iter(|| env.eval_bytecode(black_box(bytecode.clone()), &[]).unwrap())
     });
 }
 
 pub fn eval_microbenchmarks(c: &mut Criterion) {
     let mut env = spore::vm::Vm::with_builtins().build_env();
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
-    let proc = Arc::new(Compiler::new(&mut env).compile_and_finalize(&ast).unwrap());
+    let proc = Rc::new(Compiler::new(&mut env).compile_and_finalize(&ast).unwrap());
     c.bench_function("iter_bytecode", |b| {
         let iter = ByteCodeIter::from_proc(proc.clone());
         b.iter(|| {

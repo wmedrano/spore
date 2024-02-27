@@ -1,16 +1,46 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::Result;
 
 use super::{instruction::Instruction, Val};
 
-type NativeProcFn = Arc<dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>;
+type NativeProcFn = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
 
-/// A function.
 #[derive(Clone)]
-pub enum Procedure {
-    Native(&'static str, NativeProcFn),
-    ByteCode(Arc<ByteCodeProc>),
+pub struct NativeProc {
+    pub name: &'static str,
+    pub f: Rc<NativeProcFn>,
+}
+
+impl NativeProc {
+    /// Create a new function.
+    pub fn new<P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
+        name: &'static str,
+        proc: P,
+    ) -> Rc<NativeProc> {
+        let f = Rc::new(proc);
+        Rc::new(NativeProc { name, f })
+    }
+}
+
+impl PartialEq for NativeProc {
+    fn eq(&self, _: &Self) -> bool {
+        false
+    }
+}
+
+impl std::fmt::Debug for NativeProc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Procedure")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Display for NativeProc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<proc {name}>", name = &self.name)
+    }
 }
 
 /// A procedure that can be evaluated on an environment.
@@ -24,66 +54,45 @@ pub struct ByteCodeProc {
     pub bytecode: Vec<Instruction>,
 }
 
-impl Procedure {
-    /// Create a new function.
-    pub fn with_native<P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
-        name: &'static str,
-        proc: P,
-    ) -> Arc<Procedure> {
-        Arc::new(Procedure::Native(name, Arc::new(proc)))
-    }
-
-    pub fn with_bytecode(bc: Arc<ByteCodeProc>) -> Arc<Procedure> {
-        Arc::new(Procedure::ByteCode(bc))
-    }
-
-    pub fn name(&self) -> &str {
-        match self {
-            Procedure::Native(name, _) => name,
-            Procedure::ByteCode(bc) => match bc.name.as_str() {
-                "" => "_",
-                s => s,
-            },
-        }
-    }
-}
-
-impl PartialEq for Procedure {
+impl PartialEq for ByteCodeProc {
     fn eq(&self, _: &Self) -> bool {
         false
     }
 }
 
-impl std::fmt::Debug for Procedure {
+impl std::fmt::Debug for ByteCodeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = self.name();
         f.debug_struct("Procedure")
-            .field("name", &name)
+            .field("name", &self.name)
             .finish_non_exhaustive()
     }
 }
 
-impl std::fmt::Display for Procedure {
+impl std::fmt::Display for ByteCodeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<proc {name}>", name = self.name())
+        write!(f, "<proc {name}>", name = &self.name)
     }
 }
 
 /// An iterator over bytecode.
 #[derive(Clone)]
 pub struct ByteCodeIter {
-    _proc: Arc<ByteCodeProc>,
+    proc: Rc<ByteCodeProc>,
     next_ptr: *const Instruction,
     end_ptr: *const Instruction,
 }
 
 impl ByteCodeIter {
+    pub fn inner(&self) -> &Rc<ByteCodeProc> {
+        &self.proc
+    }
+
     /// Create an interator over a `ByteCodeProc` shared reference.
-    pub fn from_proc(proc: Arc<ByteCodeProc>) -> ByteCodeIter {
+    pub fn from_proc(proc: Rc<ByteCodeProc>) -> ByteCodeIter {
         let next = proc.bytecode.as_ptr();
         let end = unsafe { next.add(proc.bytecode.len()) };
         ByteCodeIter {
-            _proc: proc,
+            proc,
             next_ptr: next,
             end_ptr: end,
         }
@@ -102,20 +111,11 @@ impl Iterator for ByteCodeIter {
 
     fn next(&mut self) -> Option<Instruction> {
         if self.next_ptr < self.end_ptr {
-            let res = (unsafe { &*self.next_ptr }).clone();
+            let res = unsafe { &*self.next_ptr };
             self.next_ptr = unsafe { self.next_ptr.offset(1) };
-            Some(res)
+            Some(res.clone())
         } else {
             None
-        }
-    }
-
-    fn count(self) -> usize {
-        let offset = unsafe { self.end_ptr.offset_from(self.next_ptr) };
-        if offset < 0 {
-            0
-        } else {
-            offset as usize
         }
     }
 }
