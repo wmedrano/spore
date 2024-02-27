@@ -9,31 +9,41 @@ use super::{
     debugger::Debugger,
     types::{
         instruction::Instruction,
-        proc::{ByteCodeIter, ByteCodeProc},
+        proc::bytecode::{ByteCodeIter, ByteCodeProc},
         symbol::Symbol,
         Val,
     },
+    Vm,
 };
 
 /// An environment to evaluate bytecode on.
 pub struct Environment {
     /// The registry of global values.
-    pub globals: HashMap<Symbol, Val>,
+    globals: HashMap<Symbol, Val>,
     /// The processing stack.
-    pub stack: Vec<Val>,
+    stack: Vec<Val>,
     /// Contains the current call frame. This includes the instructions that should be run and the
     /// base of the frame's stack.
-    pub frames: Vec<Frame>,
+    frames: Vec<Frame>,
 }
 
 pub struct Frame {
     /// The bytecode that is under execution in the frame.
-    pub bytecode: ByteCodeIter,
+    bytecode: ByteCodeIter,
     /// The index of the local stack.
-    pub stack_start_idx: usize,
+    stack_start_idx: usize,
 }
 
 impl Environment {
+    /// Create a new environment.
+    pub fn new(vm: &Vm) -> Environment {
+        Environment {
+            globals: vm.globals.clone(),
+            stack: Vec::with_capacity(4096),
+            frames: Vec::with_capacity(128),
+        }
+    }
+
     /// Evaluate an S-Expression string and return the last value. If there are no expression, than
     /// `Val::Void` is returned.
     pub fn eval_str(&mut self, s: &str) -> Result<Vec<Val>> {
@@ -46,12 +56,13 @@ impl Environment {
             .collect()
     }
 
+    /// Evaluate a bytecode procedure with the given arguments.
     pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
         self.eval_bytecode_impl(proc, args, &mut ())
             .with_context(|| self.stack_trace())
     }
 
-    #[cold]
+    /// Evaluate a bytecode procedure with the given arguments and the given debugger.
     pub fn eval_with_debugger(
         &mut self,
         proc: Rc<ByteCodeProc>,
@@ -62,8 +73,31 @@ impl Environment {
             .with_context(|| self.stack_trace())
     }
 
+    /// Set a symbol to a global value.
+    pub fn set_global(&mut self, sym: Symbol, val: Val) {
+        // TODO: Consider signaling when a symbol is being overwritten.
+        self.globals.insert(sym, val);
+    }
+
+    /// Gets the value of a global symbol or `None` if it is not defined.
+    pub fn get_global(&self, sym: &Symbol) -> Option<Val> {
+        self.globals.get(&sym).cloned()
+    }
+
+    /// The values on the current stack frame.
+    pub fn frame_stack(&self) -> &[Val] {
+        match self.frames.last() {
+            None => &[],
+            Some(f) => &self.stack[f.stack_start_idx..],
+        }
+    }
+
+    /// The current depth of the call stack.
+    pub fn frame_depth(&self) -> usize {
+        self.frames.len()
+    }
+
     /// Evaluate a sequence of bytecode.
-    #[inline(always)]
     fn eval_bytecode_impl(
         &mut self,
         proc: Rc<ByteCodeProc>,
@@ -103,7 +137,7 @@ impl Environment {
                 },
                 Instruction::SetVal(s) => {
                     let s = s.clone();
-                    self.execute_set_val(s)?
+                    self.execute_set_val(s, debugger)?
                 }
                 Instruction::GetArg(n) => {
                     let n = *n;
@@ -117,7 +151,6 @@ impl Environment {
         Ok(self.stack.pop().unwrap_or_default())
     }
 
-    #[cold]
     fn stack_trace(&self) -> String {
         let trace: Vec<_> = ["Stack Trace:".to_string()]
             .into_iter()
@@ -127,7 +160,6 @@ impl Environment {
                     .map(|f| format!("  - {}", f.bytecode.inner().name.as_str())),
             )
             .collect();
-        println!("{trace:?}");
         trace.join("\n")
     }
 
@@ -174,11 +206,11 @@ impl Environment {
             Val::ByteCodeProc(proc) => {
                 let expected_args = proc.arg_count;
                 let actual_args = n - 1;
-                debugger.start_eval(self, proc, actual_args);
                 self.frames.push(Frame {
                     bytecode: ByteCodeIter::from_proc(proc.clone()),
                     stack_start_idx: proc_idx + 1,
                 });
+                debugger.start_eval(self, proc);
                 if expected_args != actual_args {
                     bail!(
                         "{name} expected {expected_args} but found {actual_args}",
@@ -188,7 +220,7 @@ impl Environment {
             }
             Val::NativeProc(proc) => {
                 let stack_base = proc_idx + 1;
-                let res = (proc.f)(&self.stack[stack_base..])?;
+                let res = proc.eval(&self.stack[stack_base..])?;
                 self.stack.truncate(stack_base);
                 *self.stack.last_mut().unwrap() = res;
             }
@@ -197,8 +229,9 @@ impl Environment {
         Ok(())
     }
 
-    fn execute_set_val(&mut self, s: Symbol) -> Result<()> {
+    fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
         let v = self.stack.pop().unwrap();
+        debugger.define(self, &s, &v);
         self.globals.insert(s, v);
         Ok(())
     }
@@ -215,10 +248,7 @@ mod tests {
     #[test]
     fn can_execute_ast() {
         assert_eq!(
-            Vm::with_builtins()
-                .build_env()
-                .eval_str("(+ 1 2 (- 3 4))")
-                .unwrap(),
+            Vm::new().build_env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
             vec![Val::Number(Number::Int(2))]
         );
     }
@@ -226,7 +256,7 @@ mod tests {
     #[test]
     fn if_with_true_returns_first_expr_result() {
         assert_eq!(
-            Vm::with_builtins()
+            Vm::new()
                 .build_env()
                 .eval_str("(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
@@ -237,7 +267,7 @@ mod tests {
     #[test]
     fn if_with_false_returns_second_expr_result() {
         assert_eq!(
-            Vm::with_builtins()
+            Vm::new()
                 .build_env()
                 .eval_str("(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
@@ -248,7 +278,7 @@ mod tests {
     #[test]
     fn if_with_true_and_single_arm_returns_true() {
         assert_eq!(
-            Vm::with_builtins()
+            Vm::new()
                 .build_env()
                 .eval_str("(if true (* 10 2))")
                 .unwrap(),
@@ -259,7 +289,7 @@ mod tests {
     #[test]
     fn if_with_false_and_single_arm_returns_void() {
         assert_eq!(
-            Vm::with_builtins()
+            Vm::new()
                 .build_env()
                 .eval_str("(if false (* 10 2))")
                 .unwrap(),
@@ -269,7 +299,7 @@ mod tests {
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        let mut env = Vm::with_builtins().build_env();
+        let mut env = Vm::new().build_env();
         assert_eq!(
             env.eval_str(
                 r#"

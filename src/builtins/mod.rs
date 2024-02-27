@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
-    types::{proc::NativeProc, Number, Val},
+    types::{proc::native::NativeProc, Number, Val},
     Vm,
 };
 

@@ -9,7 +9,7 @@ use crate::parser::{
 
 use super::{
     environment::Environment,
-    types::{instruction::Instruction, proc::ByteCodeProc, symbol::Symbol, Number, Val},
+    types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Number, Val},
 };
 
 /// Compiles Asts into `ByteCodeProc` objects.
@@ -66,7 +66,7 @@ impl<'a> Compiler<'a> {
         }
         for bc in bytecode.iter_mut() {
             if let Instruction::GetVal(sym) = bc {
-                if let Some(val) = self.env.globals.get(sym) {
+                if let Some(val) = self.env.get_global(sym) {
                     *bc = Instruction::PushVal(val.clone());
                 }
             }
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn lambda_compiles_to_bytecode() {
-        let mut env = Vm::with_builtins().build_env();
+        let mut env = Vm::new().build_env();
         let instructions = Compiler::new("", &mut env)
             .compile_and_finalize(&Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap()[0])
             .unwrap()

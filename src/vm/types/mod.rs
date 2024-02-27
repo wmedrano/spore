@@ -1,7 +1,10 @@
 use anyhow::{anyhow, Result};
 use std::rc::Rc;
 
-use self::symbol::Symbol;
+use self::{
+    proc::{bytecode::ByteCodeProc, native::NativeProc},
+    symbol::Symbol,
+};
 
 pub mod instruction;
 pub mod proc;
@@ -15,8 +18,8 @@ pub enum Val {
     Symbol(Symbol),
     Bool(bool),
     Number(Number),
-    ByteCodeProc(Rc<proc::ByteCodeProc>),
-    NativeProc(Rc<proc::NativeProc>),
+    ByteCodeProc(Rc<ByteCodeProc>),
+    NativeProc(Rc<NativeProc>),
 }
 
 impl Val {
@@ -64,8 +67,8 @@ macro_rules! impl_enum_from {
 impl_enum_from!(Val, Symbol => Symbol);
 impl_enum_from!(Val, Number => Number);
 impl_enum_from!(Val, bool => Bool);
-impl_enum_from!(Val, proc::ByteCodeProc => ByteCodeProc);
-impl_enum_from!(Val, proc::NativeProc => NativeProc);
+impl_enum_from!(Val, ByteCodeProc => ByteCodeProc);
+impl_enum_from!(Val, NativeProc => NativeProc);
 
 /// A number value.
 #[derive(Copy, Clone, Debug, PartialEq)]

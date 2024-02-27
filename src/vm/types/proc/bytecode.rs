@@ -1,47 +1,6 @@
 use std::rc::Rc;
 
-use anyhow::Result;
-
-use super::{instruction::Instruction, Val};
-
-type NativeProcFn = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
-
-#[derive(Clone)]
-pub struct NativeProc {
-    pub name: &'static str,
-    pub f: Rc<NativeProcFn>,
-}
-
-impl NativeProc {
-    /// Create a new function.
-    pub fn new<P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
-        name: &'static str,
-        proc: P,
-    ) -> Rc<NativeProc> {
-        let f = Rc::new(proc);
-        Rc::new(NativeProc { name, f })
-    }
-}
-
-impl PartialEq for NativeProc {
-    fn eq(&self, _: &Self) -> bool {
-        false
-    }
-}
-
-impl std::fmt::Debug for NativeProc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Procedure")
-            .field("name", &self.name)
-            .finish_non_exhaustive()
-    }
-}
-
-impl std::fmt::Display for NativeProc {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{proc {name}}}", name = &self.name)
-    }
-}
+use crate::vm::types::instruction::Instruction;
 
 /// A procedure that can be evaluated on an environment.
 #[derive(Clone)]
@@ -133,7 +92,7 @@ impl Iterator for ByteCodeIter {
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::types::Number;
+    use crate::vm::types::{Number, Val};
 
     use super::*;
 

@@ -2,39 +2,69 @@ use std::rc::Rc;
 
 use super::{
     environment::Environment,
-    types::{proc::ByteCodeProc, Val},
+    types::{proc::bytecode::ByteCodeProc, symbol::Symbol, Val},
 };
 
 pub trait Debugger {
-    #[inline(always)]
-    fn start_eval(&mut self, _env: &Environment, _proc: &Rc<ByteCodeProc>, _arg_count: usize) {}
+    /// Called when a new procedure will be evaluated.
+    fn start_eval(&mut self, _env: &Environment, _proc: &Rc<ByteCodeProc>) {}
 
-    #[inline(always)]
+    /// Called when a procedure returns its value.
     fn return_value(&mut self, _val: &Val) {}
+
+    fn define(&mut self, _env: &Environment, _sym: &Symbol, _val: &Val) {}
 }
 
 impl Debugger for () {}
 
+/// Collects traces from an evaluation. The results can be printed by calling `.to_string()`.
+///
+/// Example output:
+///
+/// ```text
+/// ({proc fib} 4) => 3
+///   ({proc fib} 3) => 2
+///     ({proc fib} 2) => 1
+///     ({proc fib} 1) => 1
+///   ({proc fib} 2) => 1
+/// ```
 #[derive(Default)]
 pub struct TraceDebugger {
     traces: Vec<TraceCall>,
 }
 
 struct TraceCall {
-    proc: Rc<ByteCodeProc>,
+    proc: Proc,
     args: Vec<Val>,
     return_val: Option<Val>,
     depth: usize,
 }
 
+enum Proc {
+    ByteCode(Rc<ByteCodeProc>),
+    Define,
+}
+
+impl TraceDebugger {
+    /// Create a new `TraceDebugger`.
+    pub fn new() -> TraceDebugger {
+        Self::default()
+    }
+}
+
 impl std::fmt::Display for TraceDebugger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut traces = self.traces.iter();
-        if let Some(t) = traces.next() {
-            write!(f, "{t}")?;
-        }
+        match traces.next() {
+            Some(t) => write!(f, "{t}")?,
+            None => return write!(f, "_"),
+        };
         for t in traces {
-            write!(f, "\n{t}")?;
+            write!(
+                f,
+                "
+{t}"
+            )?;
         }
         Ok(())
     }
@@ -45,7 +75,10 @@ impl std::fmt::Display for TraceCall {
         for _ in 0..self.depth {
             write!(f, "  ")?;
         }
-        write!(f, "({proc}", proc = self.proc)?;
+        match &self.proc {
+            Proc::ByteCode(proc) => write!(f, "({proc}")?,
+            Proc::Define => write!(f, "(define")?,
+        };
         for arg in self.args.iter() {
             write!(f, " {arg}")?;
         }
@@ -58,13 +91,13 @@ impl std::fmt::Display for TraceCall {
 }
 
 impl Debugger for TraceDebugger {
-    fn start_eval(&mut self, env: &Environment, proc: &Rc<ByteCodeProc>, arg_count: usize) {
-        let args = env.stack[env.stack.len() - arg_count..].to_vec();
+    fn start_eval(&mut self, env: &Environment, proc: &Rc<ByteCodeProc>) {
+        let args = env.frame_stack().to_vec();
         self.traces.push(TraceCall {
-            proc: proc.clone(),
+            proc: Proc::ByteCode(proc.clone()),
             args,
             return_val: None,
-            depth: env.frames.len(),
+            depth: env.frame_depth(),
         })
     }
 
@@ -75,5 +108,75 @@ impl Debugger for TraceDebugger {
                 return;
             }
         }
+    }
+
+    fn define(&mut self, env: &Environment, sym: &Symbol, val: &Val) {
+        let args = vec![sym.clone().into(), val.clone()];
+        self.traces.push(TraceCall {
+            proc: Proc::Define,
+            args,
+            return_val: Some(Val::Void),
+            depth: env.frame_depth(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        parser::ast::Ast,
+        vm::{compiler::Compiler, Vm},
+    };
+
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn trace_prints_out_entire_trace() {
+        let mut env = Vm::new().build_env();
+        env.eval_str("(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
+            .unwrap();
+        let proc = Compiler::new("test-proc", &mut env)
+            .compile_and_finalize(&Ast::from_sexp_str("(fib 5)").unwrap().get(0).unwrap())
+            .unwrap();
+        let mut debugger = TraceDebugger::new();
+        env.eval_with_debugger(proc.into(), &[], &mut debugger)
+            .unwrap();
+        assert_eq!(
+            debugger.to_string(),
+            r#"    ({proc fib} 5) => 5
+      ({proc fib} 4) => 3
+        ({proc fib} 3) => 2
+          ({proc fib} 2) => 1
+          ({proc fib} 1) => 1
+        ({proc fib} 2) => 1
+      ({proc fib} 3) => 2
+        ({proc fib} 2) => 1
+        ({proc fib} 1) => 1"#
+        );
+    }
+
+    #[test]
+    fn error_encountered_in_stack_returns_trace_up_to_that_point() {
+        let mut env = Vm::new().build_env();
+        // This version of fib has a runtime error in its base case (when n <= 2).
+        env.eval_str(
+            "(define fib (lambda (n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2))))))",
+        )
+        .unwrap();
+        let proc = Compiler::new("test-proc", &mut env)
+            .compile_and_finalize(&Ast::from_sexp_str("(fib 5)").unwrap().get(0).unwrap())
+            .unwrap();
+        let mut debugger = TraceDebugger::new();
+        assert!(env
+            .eval_with_debugger(proc.into(), &[], &mut debugger)
+            .is_err());
+        assert_eq!(
+            debugger.to_string(),
+            r#"    ({proc fib} 5) => _
+      ({proc fib} 4) => _
+        ({proc fib} 3) => _
+          ({proc fib} 2) => _"#
+        );
     }
 }

@@ -10,9 +10,11 @@ use crate::vm::compiler::Compiler;
 use crate::vm::debugger::TraceDebugger;
 use crate::vm::environment::Environment;
 use crate::vm::types::instruction::Instruction;
-use crate::vm::types::proc::{ByteCodeIter, ByteCodeProc};
-use crate::vm::types::symbol::Symbol;
-use crate::vm::types::Val;
+use crate::vm::types::{
+    proc::bytecode::{ByteCodeIter, ByteCodeProc},
+    symbol::Symbol,
+    Val,
+};
 use crate::vm::Vm;
 
 pub mod command;
@@ -28,7 +30,7 @@ impl Repl {
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         Ok(Repl {
-            env: Vm::with_builtins().build_env(),
+            env: Vm::new().build_env(),
             editor,
             repl_input: String::new(),
             expression_count: 0,
@@ -87,7 +89,10 @@ impl Repl {
             }
             ",bytecode" => analyze_bytecode(&mut self.env, asts),
             ",trace" => eval_asts(asts, &mut self.env, &mut self.expression_count, true),
-            unknown => bail!("unknown command {unknown}"),
+            unknown => bail!(
+                "unknown command {unknown}, expected one if {:?}",
+                [",ast", ",bytecode", ",trace"]
+            ),
         }
         Ok(())
     }
@@ -121,7 +126,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                let _ = env.globals.insert(sym.clone(), v.clone());
+                let _ = env.set_global(sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(errs) => {
@@ -157,7 +162,7 @@ fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeI
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) = env.globals.get(&sym) {
+                if let Some(Val::ByteCodeProc(bc)) = env.get_global(&sym) {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }
