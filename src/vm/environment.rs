@@ -6,6 +6,7 @@ use crate::parser::ast::Ast;
 
 use super::{
     compiler::Compiler,
+    debugger::Debugger,
     types::{
         instruction::Instruction,
         proc::{ByteCodeIter, ByteCodeProc},
@@ -45,9 +46,35 @@ impl Environment {
             .collect()
     }
 
-    /// Evaluate a sequence of bytecode.
     pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
-        self.prepare(proc, args);
+        self.eval_bytecode_impl(proc, args, &mut ())
+    }
+
+    #[cold]
+    pub fn eval_with_debugger(
+        &mut self,
+        proc: Rc<ByteCodeProc>,
+        args: &[Val],
+        debugger: &mut impl Debugger,
+    ) -> Result<Val> {
+        self.eval_bytecode_impl(proc, args, debugger)
+    }
+
+    /// Evaluate a sequence of bytecode.
+    #[inline(always)]
+    fn eval_bytecode_impl(
+        &mut self,
+        proc: Rc<ByteCodeProc>,
+        args: &[Val],
+        debugger: &mut impl Debugger,
+    ) -> Result<Val> {
+        self.frames.clear();
+        self.stack.clear();
+        self.stack.extend_from_slice(args);
+        self.frames.push(Frame {
+            bytecode: ByteCodeIter::from_proc(proc),
+            stack_start_idx: 0,
+        });
         loop {
             let instruction = self
                 .frames
@@ -56,14 +83,14 @@ impl Environment {
                 .unwrap_or(Instruction::Return);
             match instruction {
                 Instruction::PushVal(v) => self.execute_push_val(v.clone()),
-                Instruction::Eval(n) => self.execute_eval_n(n)?,
+                Instruction::Eval(n) => self.execute_eval_n(n, debugger)?,
                 Instruction::JumpIf(n) => self.execute_jump_if(n)?,
                 Instruction::Jump(n) => self.execute_jump(n),
                 Instruction::GetVal(s) => self.execute_get_val(&s)?,
                 Instruction::SetVal(s) => self.execute_set_val(s)?,
                 Instruction::GetArg(n) => self.execute_get_arg(n),
                 Instruction::Return => {
-                    self.pop_frame()?;
+                    self.pop_frame(debugger)?;
                     if self.frames.is_empty() {
                         return Ok(self.stack.pop().unwrap_or_default());
                     }
@@ -72,26 +99,17 @@ impl Environment {
         }
     }
 
-    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) {
-        self.frames.clear();
-        self.stack.clear();
-        self.stack.extend_from_slice(args);
-        self.frames.push(Frame {
-            bytecode: ByteCodeIter::from_proc(proc),
-            stack_start_idx: 0,
-        });
-    }
-
     /// Pop the current frame. This truncates the local stack and replaces the top value of the
     /// stack with the return value. The return value is defined as the value at the top of the
     /// local stack.
-    fn pop_frame(&mut self) -> Result<()> {
+    fn pop_frame(&mut self, debugger: &mut impl Debugger) -> Result<()> {
         let frame = self.frames.pop().unwrap();
         let return_val = if self.stack.len() > frame.stack_start_idx {
             self.stack.pop().unwrap_or_default()
         } else {
             Val::Void
         };
+        debugger.return_value(&return_val);
         self.stack.truncate(frame.stack_start_idx);
         self.stack.pop();
         self.stack.push(return_val);
@@ -127,7 +145,7 @@ impl Environment {
         self.stack.push(v);
     }
 
-    fn execute_eval_n(&mut self, n: usize) -> Result<()> {
+    fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
         let proc_idx = self.stack.len() - n;
         match &self.stack[proc_idx] {
             Val::ByteCodeProc(proc) => {
@@ -139,6 +157,7 @@ impl Environment {
                         name = proc.name
                     );
                 }
+                debugger.start_eval(self, proc, actual_args);
                 self.frames.push(Frame {
                     bytecode: ByteCodeIter::from_proc(proc.clone()),
                     stack_start_idx: proc_idx + 1,

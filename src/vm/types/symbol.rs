@@ -4,6 +4,12 @@ use std::rc::Rc;
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
 pub struct Symbol(pub Rc<String>);
 
+impl Symbol {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 impl<'a> From<&'a str> for Symbol {
     fn from(s: &'a str) -> Symbol {
         Symbol::from(s.to_string())

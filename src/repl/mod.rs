@@ -7,6 +7,7 @@ use rustyline::DefaultEditor;
 
 use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
+use crate::vm::debugger::TraceDebugger;
 use crate::vm::environment::Environment;
 use crate::vm::types::instruction::Instruction;
 use crate::vm::types::proc::{ByteCodeIter, ByteCodeProc};
@@ -78,13 +79,14 @@ impl Repl {
             }
         };
         match cmd {
-            "" => eval_asts(asts, &mut self.env, &mut self.expression_count),
+            "" => eval_asts(asts, &mut self.env, &mut self.expression_count, false),
             ",ast" => {
                 for ast in asts {
                     println!("{}", format!("{ast:#?}").blue());
                 }
             }
             ",bytecode" => analyze_bytecode(&mut self.env, asts),
+            ",trace" => eval_asts(asts, &mut self.env, &mut self.expression_count, true),
             unknown => bail!("unknown command {unknown}"),
         }
         Ok(())
@@ -98,18 +100,29 @@ fn line_is_complete(s: &str) -> bool {
     )
 }
 
-fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize) {
+fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trace: bool) {
     for ast in asts {
+        let mut maybe_trace = if trace {
+            Some(TraceDebugger::default())
+        } else {
+            None
+        };
         let res = Compiler::new(env)
             .compile_and_finalize(&ast)
-            .and_then(|bc| env.eval_bytecode(bc.into(), &[]));
+            .and_then(|bc| match maybe_trace.as_mut() {
+                Some(t) => env.eval_with_debugger(bc.into(), &[], t),
+                None => env.eval_bytecode(bc.into(), &[]),
+            });
+        if let Some(trace) = maybe_trace {
+            println!("{trace}");
+        }
         match res {
             Ok(Val::Void) => (),
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
                 let _ = env.globals.insert(sym.clone(), v.clone());
-                println!("{} = {}", sym.to_string().cyan(), v);
+                println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(err) => println!("{}", err.to_string().red()),
         }

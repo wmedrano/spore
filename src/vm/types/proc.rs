@@ -39,7 +39,7 @@ impl std::fmt::Debug for NativeProc {
 
 impl std::fmt::Display for NativeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<proc {name}>", name = &self.name)
+        write!(f, "{{proc {name}}}", name = &self.name)
     }
 }
 
@@ -70,7 +70,7 @@ impl std::fmt::Debug for ByteCodeProc {
 
 impl std::fmt::Display for ByteCodeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<proc {name}>", name = &self.name)
+        write!(f, "{{proc {name}}}", name = &self.name)
     }
 }
 

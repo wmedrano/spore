@@ -98,7 +98,11 @@ mod tests {
     }
 
     #[test]
-    fn ints_are_equal() {
+    fn numbers_are_equal() {
         assert_eq!(Val::Number(Number::Int(100)), Val::Number(Number::Int(100)));
+        assert_eq!(
+            Val::Number(Number::Float(100.0)),
+            Val::Number(Number::Float(100.0))
+        );
     }
 }

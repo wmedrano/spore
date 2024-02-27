@@ -8,6 +8,7 @@ use self::{
 };
 
 pub mod compiler;
+pub mod debugger;
 pub mod environment;
 pub mod types;
 
