@@ -51,6 +51,12 @@ impl Vm {
 
     /// Create a new environment that can evaluate bytecode.
     pub fn build_env(&self) -> Environment {
-        Environment::new(&self)
+        Environment::new(self)
+    }
+}
+
+impl Default for Vm {
+    fn default() -> Vm {
+        Vm::new()
     }
 }

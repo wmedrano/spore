@@ -34,6 +34,10 @@ pub struct Frame {
     stack_start_idx: usize,
 }
 
+struct StackTrace {
+    trace: Vec<String>,
+}
+
 impl Environment {
     /// Create a new environment.
     pub fn new(vm: &Vm) -> Environment {
@@ -81,7 +85,7 @@ impl Environment {
 
     /// Gets the value of a global symbol or `None` if it is not defined.
     pub fn get_global(&self, sym: &Symbol) -> Option<Val> {
-        self.globals.get(&sym).cloned()
+        self.globals.get(sym).cloned()
     }
 
     /// The values on the current stack frame.
@@ -97,6 +101,11 @@ impl Environment {
         self.frames.len()
     }
 
+    /// Get the current procedure.
+    pub fn current_proc(&self) -> Option<&Rc<ByteCodeProc>> {
+        self.frames.last().map(|f| f.bytecode.inner())
+    }
+
     /// Evaluate a sequence of bytecode.
     fn eval_bytecode_impl(
         &mut self,
@@ -104,23 +113,28 @@ impl Environment {
         args: &[Val],
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
-        self.frames.clear();
-        self.stack.clear();
-        self.stack.extend_from_slice(args);
-        self.frames.push(Frame {
-            bytecode: ByteCodeIter::from_proc(proc),
-            stack_start_idx: 0,
-        });
+        self.prepare(proc, args);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
             match instruction {
                 Instruction::PushVal(v) => {
-                    self.stack.push(v.clone());
+                    let v = v.clone();
+                    self.execute_push_val(v);
                 }
                 Instruction::Eval(n) => {
                     let n = *n;
                     self.execute_eval_n(n, debugger)?
                 }
+                Instruction::GetArg(n) => {
+                    let n = *n;
+                    self.execute_get_arg(n)
+                }
+                Instruction::GetVal(s) => match self.globals.get(s) {
+                    Some(v) => {
+                        self.execute_push_val(v.clone());
+                    }
+                    None => bail!("{s} is not defined"),
+                },
                 Instruction::JumpIf(n) => {
                     let n = *n;
                     self.execute_jump_if(n)?
@@ -129,38 +143,37 @@ impl Environment {
                     let n = *n;
                     self.execute_jump(n)
                 }
-                Instruction::GetVal(s) => match self.globals.get(s) {
-                    Some(v) => {
-                        self.stack.push(v.clone());
-                    }
-                    None => bail!("{s} is not defined"),
-                },
+                Instruction::Return => {
+                    self.pop_frame(debugger)?;
+                }
                 Instruction::SetVal(s) => {
                     let s = s.clone();
                     self.execute_set_val(s, debugger)?
-                }
-                Instruction::GetArg(n) => {
-                    let n = *n;
-                    self.execute_get_arg(n)
-                }
-                Instruction::Return => {
-                    self.pop_frame(debugger)?;
                 }
             }
         }
         Ok(self.stack.pop().unwrap_or_default())
     }
 
-    fn stack_trace(&self) -> String {
-        let trace: Vec<_> = ["Stack Trace:".to_string()]
-            .into_iter()
-            .chain(
-                self.frames
-                    .iter()
-                    .map(|f| format!("  - {}", f.bytecode.inner().name.as_str())),
-            )
-            .collect();
-        trace.join("\n")
+    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) {
+        self.frames.clear();
+        self.stack.clear();
+        self.stack.extend_from_slice(args);
+        self.frames.push(Frame {
+            bytecode: ByteCodeIter::from_proc(proc),
+            stack_start_idx: 0,
+        });
+    }
+
+    #[cold]
+    fn stack_trace(&self) -> StackTrace {
+        StackTrace {
+            trace: self
+                .frames
+                .iter()
+                .map(|f| f.bytecode.inner().name.clone())
+                .collect(),
+        }
     }
 
     /// Pop the current frame. This truncates the local stack and replaces the top value of the
@@ -202,26 +215,29 @@ impl Environment {
 
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
         let proc_idx = self.stack.len() - n;
-        match &self.stack[proc_idx] {
+        let proc_val = std::mem::take(&mut self.stack[proc_idx]);
+        match proc_val {
             Val::ByteCodeProc(proc) => {
                 let expected_args = proc.arg_count;
                 let actual_args = n - 1;
                 self.frames.push(Frame {
-                    bytecode: ByteCodeIter::from_proc(proc.clone()),
+                    bytecode: ByteCodeIter::from_proc(proc),
                     stack_start_idx: proc_idx + 1,
                 });
-                debugger.start_eval(self, proc);
+                debugger.start_eval(self);
                 if expected_args != actual_args {
                     bail!(
                         "{name} expected {expected_args} but found {actual_args}",
-                        name = proc.name
+                        name = self.current_proc().map(|p| p.name.as_str()).unwrap_or("_")
                     );
                 }
             }
             Val::NativeProc(proc) => {
                 let stack_base = proc_idx + 1;
-                let res = proc.eval(&self.stack[stack_base..])?;
-                self.stack.truncate(stack_base);
+                let res = {
+                    let args = self.stack.drain(stack_base..);
+                    proc.eval(args.as_slice())?
+                };
                 *self.stack.last_mut().unwrap() = res;
             }
             v => bail!("expected procedure but found {v}"),
@@ -229,10 +245,24 @@ impl Environment {
         Ok(())
     }
 
+    fn execute_push_val(&mut self, val: Val) {
+        self.stack.push(val);
+    }
+
     fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
         self.globals.insert(s, v);
+        Ok(())
+    }
+}
+
+impl std::fmt::Display for StackTrace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Stack trace:")?;
+        for trace in self.trace.iter() {
+            writeln!(f, "  {}", trace)?;
+        }
         Ok(())
     }
 }

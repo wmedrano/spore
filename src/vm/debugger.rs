@@ -7,7 +7,7 @@ use super::{
 
 pub trait Debugger {
     /// Called when a new procedure will be evaluated.
-    fn start_eval(&mut self, _env: &Environment, _proc: &Rc<ByteCodeProc>) {}
+    fn start_eval(&mut self, _env: &Environment) {}
 
     /// Called when a procedure returns its value.
     fn return_value(&mut self, _val: &Val) {}
@@ -91,14 +91,16 @@ impl std::fmt::Display for TraceCall {
 }
 
 impl Debugger for TraceDebugger {
-    fn start_eval(&mut self, env: &Environment, proc: &Rc<ByteCodeProc>) {
-        let args = env.frame_stack().to_vec();
-        self.traces.push(TraceCall {
-            proc: Proc::ByteCode(proc.clone()),
-            args,
-            return_val: None,
-            depth: env.frame_depth(),
-        })
+    fn start_eval(&mut self, env: &Environment) {
+        if let Some(proc) = env.current_proc() {
+            let args = env.frame_stack().to_vec();
+            self.traces.push(TraceCall {
+                proc: Proc::ByteCode(proc.clone()),
+                args,
+                return_val: None,
+                depth: env.frame_depth(),
+            })
+        }
     }
 
     fn return_value(&mut self, val: &Val) {

@@ -6,17 +6,17 @@ pub enum Instruction {
     PushVal(Val),
     /// Evaluate the top of the stack.
     Eval(usize),
+    /// Get the argument by index. The argument is determined by counting from the stack base.
+    GetArg(usize),
+    /// Get the value of the given symbol from the environment and push it on the stack.
+    GetVal(Symbol),
     /// Jump a number of bytecodes if the result at the top of the stack is false.
     JumpIf(usize),
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
-    /// Get the value of the given symbol from the environment and push it on the stack.
-    GetVal(Symbol),
+    Return,
     /// Set the given symbol to the top value of the stack.
     SetVal(Symbol),
-    /// Get the argument by index. The argument is determined by counting from the stack base.
-    GetArg(usize),
-    Return,
 }
 
 impl Instruction {

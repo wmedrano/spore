@@ -12,14 +12,15 @@ pub mod symbol;
 
 /// Contains a single value.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[repr(u8)]
 pub enum Val {
     #[default]
-    Void,
-    Symbol(Symbol),
-    Bool(bool),
-    Number(Number),
-    ByteCodeProc(Rc<ByteCodeProc>),
-    NativeProc(Rc<NativeProc>),
+    Void = 0x00,
+    Bool(bool) = 0x01,
+    Symbol(Symbol) = 0x10,
+    Number(Number) = 0x20,
+    ByteCodeProc(Rc<ByteCodeProc>) = 0x30,
+    NativeProc(Rc<NativeProc>) = 0x31,
 }
 
 impl Val {
