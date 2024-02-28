@@ -6,10 +6,9 @@ use crate::vm::types::Val;
 
 type NativeProcFn = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
 
-#[derive(Clone)]
 pub struct NativeProc {
     name: &'static str,
-    f: Rc<NativeProcFn>,
+    f: Box<NativeProcFn>,
 }
 
 impl NativeProc {
@@ -18,7 +17,7 @@ impl NativeProc {
         name: &'static str,
         proc: P,
     ) -> Rc<NativeProc> {
-        let f = Rc::new(proc);
+        let f = Box::new(proc);
         Rc::new(NativeProc { name, f })
     }
 
@@ -34,8 +33,10 @@ impl NativeProc {
 }
 
 impl PartialEq for NativeProc {
-    fn eq(&self, _: &Self) -> bool {
-        false
+    fn eq(&self, other: &Self) -> bool {
+        let ptr = self.f.as_ref() as *const _;
+        let other = other.f.as_ref() as *const _;
+        std::ptr::addr_eq(ptr, other)
     }
 }
 
@@ -49,6 +50,6 @@ impl std::fmt::Debug for NativeProc {
 
 impl std::fmt::Display for NativeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{proc {name}}}", name = &self.name)
+        write!(f, "<proc {name}>", name = &self.name)
     }
 }

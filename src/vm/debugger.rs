@@ -22,11 +22,11 @@ impl Debugger for () {}
 /// Example output:
 ///
 /// ```text
-/// ({proc fib} 4) => 3
-///   ({proc fib} 3) => 2
-///     ({proc fib} 2) => 1
-///     ({proc fib} 1) => 1
-///   ({proc fib} 2) => 1
+/// (<proc fib> 4) => 3
+///   (<proc fib> 3) => 2
+///     (<proc fib> 2) => 1
+///     (<proc fib> 1) => 1
+///   (<proc fib> 2) => 1
 /// ```
 #[derive(Default)]
 pub struct TraceDebugger {
@@ -146,15 +146,15 @@ mod tests {
             .unwrap();
         assert_eq!(
             debugger.to_string(),
-            r#"    ({proc fib} 5) => 5
-      ({proc fib} 4) => 3
-        ({proc fib} 3) => 2
-          ({proc fib} 2) => 1
-          ({proc fib} 1) => 1
-        ({proc fib} 2) => 1
-      ({proc fib} 3) => 2
-        ({proc fib} 2) => 1
-        ({proc fib} 1) => 1"#
+            r#"    (<proc fib> 5) => 5
+      (<proc fib> 4) => 3
+        (<proc fib> 3) => 2
+          (<proc fib> 2) => 1
+          (<proc fib> 1) => 1
+        (<proc fib> 2) => 1
+      (<proc fib> 3) => 2
+        (<proc fib> 2) => 1
+        (<proc fib> 1) => 1"#
         );
     }
 
@@ -175,10 +175,10 @@ mod tests {
             .is_err());
         assert_eq!(
             debugger.to_string(),
-            r#"    ({proc fib} 5) => _
-      ({proc fib} 4) => _
-        ({proc fib} 3) => _
-          ({proc fib} 2) => _"#
+            r#"    (<proc fib> 5) => _
+      (<proc fib> 4) => _
+        (<proc fib> 3) => _
+          (<proc fib> 2) => _"#
         );
     }
 }

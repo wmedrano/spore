@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
-    types::{proc::native::NativeProc, Number, Val},
+    types::{proc::native::NativeProc, Val},
     Vm,
 };
 
@@ -25,7 +25,7 @@ pub fn register_all(vm: &mut Vm) {
 fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
     for arg in args {
         match arg {
-            Val::Number(_) => (),
+            Val::Int(_) | Val::Float(_) => (),
             _ => bail!("{op} expected number but got {arg}",),
         }
     }
@@ -41,7 +41,7 @@ fn no_op_fn(args: &[Val]) -> Result<Val> {
 fn add_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers("+", args)?;
     let res = match args {
-        [] => Number::Int(0).into(),
+        [] => 0.into(),
         [x] => x.clone(),
         [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
@@ -87,13 +87,11 @@ fn divide_fn(args: &[Val]) -> Result<Val> {
 fn less_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers("<", args)?;
     let res = match args {
-        [Val::Number(x), Val::Number(y)] => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => x < y,
-            (Number::Int(x), Number::Float(y)) => (*x as f64) < *y,
-            (Number::Float(x), Number::Int(y)) => *x < *y as f64,
-            (Number::Float(x), Number::Float(y)) => x < y,
-        },
-        _ => bail!("< requires 2 args but found {}", args.len()),
+        [Val::Int(x), Val::Int(y)] => x < y,
+        [Val::Float(x), Val::Float(y)] => x < y,
+        [Val::Int(x), Val::Float(y)] => (*x as f64) < *y,
+        [Val::Float(x), Val::Int(y)] => *x < (*y as f64),
+        _ => bail!("< requires 2 numbers but found {:?}", args),
     };
     Ok(res.into())
 }
@@ -101,13 +99,11 @@ fn less_fn(args: &[Val]) -> Result<Val> {
 fn less_eq_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers("<=", args)?;
     let res = match args {
-        [Val::Number(x), Val::Number(y)] => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => x <= y,
-            (Number::Int(x), Number::Float(y)) => (*x as f64) <= *y,
-            (Number::Float(x), Number::Int(y)) => *x <= *y as f64,
-            (Number::Float(x), Number::Float(y)) => x <= y,
-        },
-        _ => bail!("< requires 2 args but found {}", args.len()),
+        [Val::Int(x), Val::Int(y)] => x <= y,
+        [Val::Float(x), Val::Float(y)] => x <= y,
+        [Val::Int(x), Val::Float(y)] => (*x as f64) <= *y,
+        [Val::Float(x), Val::Int(y)] => *x <= (*y as f64),
+        _ => bail!("< requires 2 numbers but found {:?}", args),
     };
     Ok(res.into())
 }
@@ -115,12 +111,10 @@ fn less_eq_fn(args: &[Val]) -> Result<Val> {
 fn greater_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers(">", args)?;
     let res = match args {
-        [Val::Number(x), Val::Number(y)] => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => x > y,
-            (Number::Int(x), Number::Float(y)) => (*x as f64) > *y,
-            (Number::Float(x), Number::Int(y)) => *x > *y as f64,
-            (Number::Float(x), Number::Float(y)) => x > y,
-        },
+        [Val::Int(x), Val::Int(y)] => x > y,
+        [Val::Float(x), Val::Float(y)] => x > y,
+        [Val::Int(x), Val::Float(y)] => (*x as f64) > *y,
+        [Val::Float(x), Val::Int(y)] => *x > (*y as f64),
         _ => bail!("> requires 2 args but found {}", args.len()),
     };
     Ok(res.into())
@@ -129,12 +123,10 @@ fn greater_fn(args: &[Val]) -> Result<Val> {
 fn greater_eq_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers(">=", args)?;
     let res = match args {
-        [Val::Number(x), Val::Number(y)] => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => x >= y,
-            (Number::Int(x), Number::Float(y)) => (*x as f64) >= *y,
-            (Number::Float(x), Number::Int(y)) => *x >= *y as f64,
-            (Number::Float(x), Number::Float(y)) => x >= y,
-        },
+        [Val::Int(x), Val::Int(y)] => x >= y,
+        [Val::Float(x), Val::Float(y)] => x >= y,
+        [Val::Int(x), Val::Float(y)] => (*x as f64) >= *y,
+        [Val::Float(x), Val::Int(y)] => *x >= (*y as f64),
         _ => bail!("> requires 2 args but found {}", args.len()),
     };
     Ok(res.into())
@@ -144,7 +136,7 @@ fn greater_eq_fn(args: &[Val]) -> Result<Val> {
 fn multiply_fn(args: &[Val]) -> Result<Val> {
     ensure_numbers("*", args)?;
     let res = match args {
-        [] => Number::Int(1).into(),
+        [] => 1.into(),
         [x] => x.clone(),
         [x, y] => multiply_two(x, y),
         [x, y, zs @ ..] => {
@@ -170,43 +162,36 @@ fn equalp_fn(args: &[Val]) -> Result<Val> {
 
 fn negate(x: &Val) -> Val {
     match x {
-        Val::Number(x) => match x {
-            Number::Int(x) => Number::Int(-x).into(),
-            Number::Float(x) => Number::Float(-x).into(),
-        },
+        Val::Int(x) => (-*x).into(),
+        Val::Float(x) => (-*x).into(),
         _ => unreachable!(),
     }
 }
 
 fn reciprocal(x: &Val) -> Val {
     match x {
-        Val::Number(Number::Float(x)) => Number::Float(x.recip()).into(),
+        Val::Int(x) => ((*x as f64).recip()).into(),
+        Val::Float(x) => x.recip().into(),
         _ => unreachable!(),
     }
 }
 
 fn add_two(x: &Val, y: &Val) -> Val {
     match (x, y) {
-        (Val::Number(x), Val::Number(y)) => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => Number::Int(x + y).into(),
-            (Number::Float(x), Number::Float(y)) => Number::Float(x + y).into(),
-            (Number::Int(x), Number::Float(y)) | (Number::Float(y), Number::Int(x)) => {
-                Number::Float(*x as f64 + y).into()
-            }
-        },
+        (Val::Int(x), Val::Int(y)) => (x + y).into(),
+        (Val::Float(x), Val::Float(y)) => (x + y).into(),
+        (Val::Int(x), Val::Float(y)) => ((*x as f64) + *y).into(),
+        (Val::Float(x), Val::Int(y)) => (*x + (*y as f64)).into(),
         (a, b) => unreachable!("tried to add {a} and {b}"),
     }
 }
 
 fn multiply_two(x: &Val, y: &Val) -> Val {
     match (x, y) {
-        (Val::Number(x), Val::Number(y)) => match (x, y) {
-            (Number::Int(x), Number::Int(y)) => Number::Int(x * y).into(),
-            (Number::Float(x), Number::Float(y)) => Number::Float(x * y).into(),
-            (Number::Int(x), Number::Float(y)) | (Number::Float(y), Number::Int(x)) => {
-                Number::Float(*x as f64 * y).into()
-            }
-        },
+        (Val::Int(x), Val::Int(y)) => (x * y).into(),
+        (Val::Float(x), Val::Float(y)) => (x * y).into(),
+        (Val::Int(x), Val::Float(y)) => ((*x as f64) * *y).into(),
+        (Val::Float(x), Val::Int(y)) => (*x * (*y as f64)).into(),
         _ => unreachable!(),
     }
 }

@@ -14,8 +14,8 @@ pub struct ByteCodeProc {
 }
 
 impl PartialEq for ByteCodeProc {
-    fn eq(&self, _: &Self) -> bool {
-        false
+    fn eq(&self, other: &Self) -> bool {
+        self.bytecode.as_ptr() == other.bytecode.as_ptr()
     }
 }
 
@@ -29,7 +29,7 @@ impl std::fmt::Debug for ByteCodeProc {
 
 impl std::fmt::Display for ByteCodeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{{proc {name}}}", name = &self.name)
+        write!(f, "<proc {name}>", name = &self.name)
     }
 }
 
@@ -92,7 +92,7 @@ impl Iterator for ByteCodeIter {
 
 #[cfg(test)]
 mod tests {
-    use crate::vm::types::{Number, Val};
+    use crate::vm::types::Val;
 
     use super::*;
 
@@ -123,11 +123,11 @@ mod tests {
             name: "".to_string(),
             arg_count: 0,
             bytecode: vec![
-                Instruction::PushVal(Val::Number(Number::Int(0))),
-                Instruction::PushVal(Val::Number(Number::Int(1))),
-                Instruction::PushVal(Val::Number(Number::Int(2))),
-                Instruction::PushVal(Val::Number(Number::Int(3))),
-                Instruction::PushVal(Val::Number(Number::Int(4))),
+                Instruction::PushVal(0.into()),
+                Instruction::PushVal(1.into()),
+                Instruction::PushVal(2.into()),
+                Instruction::PushVal(3.into()),
+                Instruction::PushVal(4.into()),
             ],
         };
         let mut iter = ByteCodeIter::from_proc(proc.into());
@@ -135,9 +135,9 @@ mod tests {
         assert_eq!(
             iter.collect::<Vec<_>>(),
             vec![
-                Instruction::PushVal(Val::Number(Number::Int(2))),
-                Instruction::PushVal(Val::Number(Number::Int(3))),
-                Instruction::PushVal(Val::Number(Number::Int(4))),
+                Instruction::PushVal(2.into()),
+                Instruction::PushVal(3.into()),
+                Instruction::PushVal(4.into()),
             ]
         );
     }

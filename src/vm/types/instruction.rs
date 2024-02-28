@@ -14,18 +14,10 @@ pub enum Instruction {
     JumpIf(usize),
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
+    /// Pops the current frame and returns the value at the top of the current frame stack.
     Return,
     /// Set the given symbol to the top value of the stack.
     SetVal(Symbol),
-}
-
-impl Instruction {
-    pub fn map_push_val(self, f: impl Fn(Val) -> Val) -> Instruction {
-        match self {
-            Instruction::PushVal(v) => Instruction::PushVal(f(v)),
-            i => i,
-        }
-    }
 }
 
 impl std::fmt::Display for Instruction {

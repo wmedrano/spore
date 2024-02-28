@@ -12,15 +12,15 @@ pub mod symbol;
 
 /// Contains a single value.
 #[derive(Clone, Debug, Default, PartialEq)]
-#[repr(u8)]
 pub enum Val {
     #[default]
-    Void = 0x00,
-    Bool(bool) = 0x01,
-    Symbol(Symbol) = 0x10,
-    Number(Number) = 0x20,
-    ByteCodeProc(Rc<ByteCodeProc>) = 0x30,
-    NativeProc(Rc<NativeProc>) = 0x31,
+    Void,
+    Bool(bool),
+    Int(isize),
+    Float(f64),
+    ByteCodeProc(Rc<ByteCodeProc>),
+    NativeProc(Rc<NativeProc>),
+    Symbol(Symbol),
 }
 
 impl Val {
@@ -43,14 +43,12 @@ impl std::fmt::Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Val::Void => write!(f, "<void>"),
-            Val::Symbol(x) => write!(f, "{}", x),
             Val::Bool(x) => write!(f, "{x}"),
-            Val::Number(x) => match x {
-                Number::Int(x) => write!(f, "{x}"),
-                Number::Float(x) => write!(f, "{x}"),
-            },
+            Val::Int(x) => write!(f, "{x}"),
+            Val::Float(x) => write!(f, "{x}"),
             Val::ByteCodeProc(x) => write!(f, "{}", x),
             Val::NativeProc(x) => write!(f, "{}", x),
+            Val::Symbol(x) => write!(f, "{}", x),
         }
     }
 }
@@ -65,23 +63,12 @@ macro_rules! impl_enum_from {
     };
 }
 
-impl_enum_from!(Val, Symbol => Symbol);
-impl_enum_from!(Val, Number => Number);
 impl_enum_from!(Val, bool => Bool);
+impl_enum_from!(Val, isize => Int);
+impl_enum_from!(Val, f64 => Float);
 impl_enum_from!(Val, ByteCodeProc => ByteCodeProc);
 impl_enum_from!(Val, NativeProc => NativeProc);
-
-/// A number value.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum Number {
-    /// Holds an integer.
-    Int(isize),
-    /// Holds a floating point number.
-    Float(f64),
-}
-
-impl_enum_from!(Number, isize => Int);
-impl_enum_from!(Number, f64 => Float);
+impl_enum_from!(Val, Symbol => Symbol);
 
 #[cfg(test)]
 mod tests {
@@ -95,18 +82,12 @@ mod tests {
 
     #[test]
     fn int_and_float_are_not_equal() {
-        assert_ne!(
-            Val::Number(Number::Float(100.0)),
-            Val::Number(Number::Int(100))
-        );
+        assert_ne!(Val::from(100.0), Val::from(100));
     }
 
     #[test]
     fn numbers_are_equal() {
-        assert_eq!(Val::Number(Number::Int(100)), Val::Number(Number::Int(100)));
-        assert_eq!(
-            Val::Number(Number::Float(100.0)),
-            Val::Number(Number::Float(100.0))
-        );
+        assert_eq!(Val::from(100), Val::from(100));
+        assert_eq!(Val::from(100.0), Val::from(100.0));
     }
 }

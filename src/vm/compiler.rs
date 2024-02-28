@@ -9,7 +9,7 @@ use crate::parser::{
 
 use super::{
     environment::Environment,
-    types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Number, Val},
+    types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Val},
 };
 
 /// Compiles Asts into `ByteCodeProc` objects.
@@ -133,12 +133,8 @@ impl<'a> Compiler<'a> {
                 .opcodes
                 .push(Instruction::PushVal(Symbol::from(x.clone()).into())),
             AstLeaf::String(_) => unimplemented!("Strings are not yet supported."),
-            AstLeaf::Float(x) => self
-                .opcodes
-                .push(Instruction::PushVal(Number::Float(*x).into())),
-            AstLeaf::Int(x) => self
-                .opcodes
-                .push(Instruction::PushVal(Number::Int(*x).into())),
+            AstLeaf::Float(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
+            AstLeaf::Int(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
             AstLeaf::Bool(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
         }
         Ok(())
@@ -252,7 +248,7 @@ mod tests {
                 [
                     Instruction::PushVal(Val::NativeProc(_)),
                     Instruction::GetArg(0),
-                    Instruction::PushVal(Val::Number(Number::Int(1))),
+                    Instruction::PushVal(Val::Int(1)),
                     Instruction::Eval(3),
                 ]
             ),

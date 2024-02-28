@@ -271,7 +271,7 @@ impl std::fmt::Display for StackTrace {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::vm::{types::Number, Vm};
+    use crate::vm::Vm;
 
     use super::*;
 
@@ -279,7 +279,7 @@ mod tests {
     fn can_execute_ast() {
         assert_eq!(
             Vm::new().build_env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
-            vec![Val::Number(Number::Int(2))]
+            vec![2.into()]
         );
     }
 
@@ -290,7 +290,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
-            vec![Val::Number(Number::Int(20))],
+            vec![20.into()],
         );
     }
 
@@ -301,7 +301,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
-            vec![Val::Number(Number::Int(12))],
+            vec![12.into()],
         )
     }
 
@@ -312,7 +312,7 @@ mod tests {
                 .build_env()
                 .eval_str("(if true (* 10 2))")
                 .unwrap(),
-            vec![Val::Number(Number::Int(20))],
+            vec![20.into()],
         )
     }
 
@@ -338,7 +338,7 @@ mod tests {
 "#
             )
             .unwrap(),
-            vec![Val::Void, Val::Number(Number::Int(55))],
+            vec![Val::Void, 55.into()],
         );
     }
 }

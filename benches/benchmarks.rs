@@ -52,6 +52,21 @@ pub fn eval_microbenchmarks(c: &mut Criterion) {
             count
         })
     });
+    c.bench_function("iter_bytecode_and_clone", |b| {
+        let iter = ByteCodeIter::from_proc(proc.clone());
+        let len = proc.bytecode.len();
+        b.iter(|| {
+            let mut ret = Vec::with_capacity(len);
+            let mut iter = black_box(iter.clone());
+            loop {
+                let instruction = iter.next_instruction();
+                if instruction == &Instruction::Return {
+                    return ret;
+                }
+                ret.push(instruction.clone());
+            }
+        })
+    });
 }
 
 pub fn compile_benchmarks(c: &mut Criterion) {
