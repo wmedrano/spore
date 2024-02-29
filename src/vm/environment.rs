@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(
             env.eval_str(
                 r#"
-(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))
+(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
 (fib 10)
 "#
             )

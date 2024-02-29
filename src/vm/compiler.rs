@@ -145,45 +145,76 @@ impl<'a> Compiler<'a> {
             [] => bail!("found (lambda) but lambda must have form (lambda (..args) exprs)"),
             [lambda_args, exprs @ ..] => {
                 // Validate
-                let symbol_to_idx = match lambda_args {
+                let args = match lambda_args {
                     Ast::Leaf(_) => bail!("first argument to lambda must be a list of arguments"),
-                    Ast::Tree(args) => symbol_to_idx(args.as_slice())?,
+                    Ast::Tree(args) => args,
                 };
-                // Build bytecode
-                let mut lambda_compiler = Compiler {
-                    env: self.env,
-                    name: self.name.clone(),
-                    symbol_to_idx,
-                    opcodes: Vec::new(),
-                };
-                for expr in exprs {
-                    lambda_compiler.compile(expr)?;
-                }
-                let bytecode = lambda_compiler.finalize();
-                self.opcodes.push(Instruction::PushVal(bytecode.into()));
+                self.lambda_to_bytecode_impl(args, exprs)?;
             }
         };
         Ok(())
     }
 
+    fn lambda_to_bytecode_impl<'b>(&mut self, args: &[Ast], exprs: &[Ast]) -> Result<()> {
+        let symbol_to_idx = symbol_to_idx(args)?;
+        let mut lambda_compiler = Compiler {
+            env: self.env,
+            name: self.name.clone(),
+            symbol_to_idx,
+            opcodes: Vec::new(),
+        };
+        for expr in exprs {
+            lambda_compiler.compile(expr)?;
+        }
+        let bytecode = lambda_compiler.finalize();
+        self.opcodes.push(Instruction::PushVal(bytecode.into()));
+        Ok(())
+    }
+
     fn define_to_bytecode(&mut self, args: &[Ast]) -> Result<()> {
         match args {
-            [sym, expr] => {
-                let sym = match sym {
-                    Ast::Leaf(Token {
-                        item: AstLeaf::Identifier(ident),
-                        ..
-                    }) => Symbol::from(ident.as_str()),
-                    ast => bail!("define must be bound to an identifier but found {:?}", ast),
-                };
-                let mut tmp_name = sym.0.to_string();
-                std::mem::swap(&mut tmp_name, &mut self.name);
-                self.compile(expr)?;
-                std::mem::swap(&mut tmp_name, &mut self.name);
-                self.opcodes.push(Instruction::SetVal(sym));
+            [Ast::Leaf(Token {
+                item: AstLeaf::Identifier(ident),
+                ..
+            }), expr] => {
+                let symbol = Symbol::from(ident.as_str());
+                self.define_with_symbol_to_bytecode(symbol, expr)?
             }
+            [Ast::Tree(name_and_args), exprs @ ..] => match name_and_args.as_slice() {
+                [Ast::Leaf(Token {
+                    item: AstLeaf::Identifier(ident),
+                    ..
+                }), proc_args @ ..] => {
+                    let symbol = Symbol::from(ident.as_str());
+                    self.define_proc_to_bytecode(symbol, proc_args, exprs)?
+                }
+                _ => bail!("bad"),
+            },
             _ => bail!("define requires 2 args but found {}", args.len()),
         };
+        Ok(())
+    }
+
+    fn define_with_symbol_to_bytecode(&mut self, symbol: Symbol, expr: &Ast) -> Result<()> {
+        let mut tmp_name = symbol.as_str().to_string();
+        std::mem::swap(&mut tmp_name, &mut self.name);
+        self.compile(expr)?;
+        std::mem::swap(&mut tmp_name, &mut self.name);
+        self.opcodes.push(Instruction::SetVal(symbol));
+        Ok(())
+    }
+
+    fn define_proc_to_bytecode(
+        &mut self,
+        symbol: Symbol,
+        args: &[Ast],
+        exprs: &[Ast],
+    ) -> Result<()> {
+        let mut tmp_name = symbol.as_str().to_string();
+        std::mem::swap(&mut tmp_name, &mut self.name);
+        self.lambda_to_bytecode_impl(args, exprs)?;
+        std::mem::swap(&mut tmp_name, &mut self.name);
+        self.opcodes.push(Instruction::SetVal(symbol));
         Ok(())
     }
 

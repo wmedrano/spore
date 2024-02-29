@@ -7,7 +7,7 @@ use spore::vm::types::instruction::Instruction;
 use spore::vm::types::proc::bytecode::ByteCodeIter;
 use spore::vm::Vm;
 
-const FIB_SRC: &str = "(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))";
+const FIB_SRC: &str = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))";
 
 pub fn eval_benchmarks(c: &mut Criterion) {
     let mut env = spore::vm::Vm::new().build_env();

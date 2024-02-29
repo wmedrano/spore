@@ -136,7 +136,7 @@ mod tests {
     #[test]
     fn trace_prints_out_entire_trace() {
         let mut env = Vm::new().build_env();
-        env.eval_str("(define fib (lambda (n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2))))))")
+        env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
         let proc = Compiler::new("test-proc", &mut env)
             .compile_and_finalize(&Ast::from_sexp_str("(fib 5)").unwrap().get(0).unwrap())
@@ -162,10 +162,8 @@ mod tests {
     fn error_encountered_in_stack_returns_trace_up_to_that_point() {
         let mut env = Vm::new().build_env();
         // This version of fib has a runtime error in its base case (when n <= 2).
-        env.eval_str(
-            "(define fib (lambda (n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2))))))",
-        )
-        .unwrap();
+        env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
+            .unwrap();
         let proc = Compiler::new("test-proc", &mut env)
             .compile_and_finalize(&Ast::from_sexp_str("(fib 5)").unwrap().get(0).unwrap())
             .unwrap();
