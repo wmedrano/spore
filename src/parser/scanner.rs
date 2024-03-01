@@ -21,6 +21,14 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
             CharType::Quote => MatchType::Quote,
             CharType::IdentifierQuote => MatchType::IdentifierQuote,
             CharType::Other(_) => MatchType::None,
+            CharType::Hashtag => match chars.peek().cloned() {
+                Some((_, '|')) => {
+                    scan_until_end_block_comment(&mut chars);
+                    let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(text.len());
+                    return Some(Token::new_from_source(text, start..end));
+                }
+                _ => MatchType::None,
+            },
             CharType::Comment => {
                 let mut end = start + 1;
                 while let Some((_, ch)) = chars.next() {
@@ -74,6 +82,12 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
                         break;
                     }
                 }
+                CharType::Hashtag => {
+                    chars.next().unwrap();
+                    if text.get(idx - 1..idx) == Some("|") {
+                        break;
+                    }
+                }
                 CharType::Other(_) => {
                     chars.next().unwrap();
                 }
@@ -93,6 +107,7 @@ enum CharType {
     Quote,
     IdentifierQuote,
     Comment,
+    Hashtag,
     Other(char),
 }
 
@@ -104,8 +119,19 @@ fn classify_char(ch: char) -> CharType {
         '"' => CharType::Quote,
         '|' => CharType::IdentifierQuote,
         ';' => CharType::Comment,
+        '#' => CharType::Hashtag,
         ch if ch.is_whitespace() => CharType::Whitespace,
         ch => CharType::Other(ch),
+    }
+}
+
+fn scan_until_end_block_comment(chs: &mut impl Iterator<Item = (usize, char)>) {
+    let mut previous = ' ';
+    while let Some((_, ch)) = chs.next() {
+        if previous == '|' && ch == '#' {
+            return;
+        }
+        previous = ch;
     }
 }
 
@@ -275,5 +301,38 @@ mod tests {
                     item: "; not before here",
                     range: 73..90,
                 }]);
+    }
+
+    #[test]
+    fn block_comment_is_parsed() {
+        assert_eq!(
+            scan_to_vec("(def hello #|world\ndoes\nnot\nyet\nexist|#42)"),
+            vec![
+                Token {
+                    item: "(",
+                    range: 0..1,
+                },
+                Token {
+                    item: "def",
+                    range: 1..4,
+                },
+                Token {
+                    item: "hello",
+                    range: 5..10,
+                },
+                Token {
+                    item: "#|world\ndoes\nnot\nyet\nexist|#",
+                    range: 11..39,
+                },
+                Token {
+                    item: "42",
+                    range: 39..41,
+                },
+                Token {
+                    item: ")",
+                    range: 41..42,
+                },
+            ]
+        );
     }
 }

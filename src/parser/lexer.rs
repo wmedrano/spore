@@ -17,6 +17,7 @@ fn classify_tokens<'a, T: 'a + AsRef<str>>(
             ")" => TokenType::RightParen,
             s if is_string_literal(s) => TokenType::String(s[1..s.len() - 1].to_string()),
             s if s.starts_with(';') => TokenType::Comment(s.to_string()),
+            s if s.starts_with("#|") && s.ends_with("|#") => TokenType::Comment(s.to_string()),
             s => {
                 if let Ok(i) = s.parse() {
                     return TokenType::Int(i);
@@ -71,6 +72,36 @@ mod tests {
                 Token {
                     item: RightParen,
                     range: 28..29,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenize_block_comment() {
+        use TokenType::*;
+        assert_eq!(
+            tokenize("(def var #|comment here between #| and .. | and #|# 42"),
+            vec![
+                Token {
+                    item: LeftParen,
+                    range: 0..1,
+                },
+                Token {
+                    item: Identifier("def".to_string()),
+                    range: 1..4,
+                },
+                Token {
+                    item: Identifier("var".to_string()),
+                    range: 5..8,
+                },
+                Token {
+                    item: Comment("#|comment here between #| and .. | and #|#".to_string()),
+                    range: 9..51,
+                },
+                Token {
+                    item: Int(42),
+                    range: 52..54,
                 },
             ]
         );
