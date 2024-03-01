@@ -39,9 +39,11 @@ impl Repl {
 
     /// Run the REPL.
     pub fn run(&mut self) -> Result<()> {
-        println!("{}", "Welcome to Spore!".cyan());
-        println!("{}", "  https://github.com/wmedrano/spore".cyan());
-        println!();
+        println!(
+            "{welcome}\n  {repo_link}\n",
+            welcome = "Welcome to Spore!".cyan(),
+            repo_link = "https://github.com/wmedrano/spore".cyan()
+        );
         loop {
             let readline = self.editor.readline(if self.repl_input.is_empty() {
                 ">> "

@@ -100,6 +100,11 @@ impl Ast {
                 TokenType::Float(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
                 TokenType::Bool(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
                 TokenType::Comment(_) => (),
+                TokenType::CommentDatum => {
+                    return Err(ParseAstError::CommentDatumNotSupported {
+                        idx: token.range.start.clone(),
+                    })
+                }
             };
         }
         match opening_paren {
@@ -118,6 +123,8 @@ pub enum ParseAstError {
     UnexpectedClosingParen { idx: usize },
     /// The identifier is not valid.
     InvalidIdentifier(Token<String>),
+    /// Comment datums are not supported.
+    CommentDatumNotSupported { idx: usize },
 }
 
 impl std::fmt::Display for ParseAstError {
@@ -145,6 +152,12 @@ impl ParseAstError {
             ParseAstError::InvalidIdentifier(ident) => {
                 let context = ident.item.as_str();
                 format!("{context}\n^ Invalid identifier.")
+            }
+            ParseAstError::CommentDatumNotSupported { idx } => {
+                let start = *idx;
+                let end = (start + 10).clamp(0, src.len());
+                let context = &src[start..end];
+                format!("{context}\n^ Datum comments (#;) are not yet supported")
             }
         }
     }

@@ -15,6 +15,7 @@ pub enum TokenType {
     RightParen,
     Identifier(String),
     Comment(String),
+    CommentDatum,
     String(String),
     Int(isize),
     Float(f64),

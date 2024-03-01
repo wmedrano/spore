@@ -27,6 +27,11 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
                     let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(text.len());
                     return Some(Token::new_from_source(text, start..end));
                 }
+                Some((_, ';')) => {
+                    chars.next();
+                    let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(text.len());
+                    return Some(Token::new_from_source(text, start..end));
+                }
                 _ => MatchType::None,
             },
             CharType::Comment => {
@@ -331,6 +336,39 @@ mod tests {
                 Token {
                     item: ")",
                     range: 41..42,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn datum_comment() {
+        assert_eq!(
+            scan_to_vec("1 #;2 #; 3 4"),
+            vec![
+                Token {
+                    item: "1",
+                    range: 0..1,
+                },
+                Token {
+                    item: "#;",
+                    range: 2..4,
+                },
+                Token {
+                    item: "2",
+                    range: 4..5,
+                },
+                Token {
+                    item: "#;",
+                    range: 6..8,
+                },
+                Token {
+                    item: "3",
+                    range: 9..10,
+                },
+                Token {
+                    item: "4",
+                    range: 11..12,
                 },
             ]
         );
