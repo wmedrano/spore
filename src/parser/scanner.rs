@@ -8,31 +8,49 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
         while chars.next_if(|(_, ch)| ch.is_whitespace()).is_some() {}
         // 2. Get the start position or return immediately if it is paren.
         let (start, initial_char) = chars.next()?;
-        let is_string = match classify_char(initial_char) {
+        #[derive(Copy, Clone, PartialEq)]
+        enum MatchType {
+            None,
+            Quote,
+            IdentifierQuote,
+        }
+        let initial_char_type = match classify_char(initial_char) {
             CharType::LeftParen | CharType::RightParen => {
                 return Some(Token::new_from_source(text, start..start + 1))
             }
-            CharType::Quote => true,
-            CharType::Other(_) => false,
+            CharType::Quote => MatchType::Quote,
+            CharType::IdentifierQuote => MatchType::IdentifierQuote,
+            CharType::Other(_) => MatchType::None,
             CharType::Whitespace => unreachable!(),
         };
         // 3. Eat until a whitespace or special character.
         while let Some((idx, ch)) = chars.peek().copied() {
             match classify_char(ch) {
                 CharType::Whitespace | CharType::LeftParen | CharType::RightParen => {
-                    if is_string {
+                    if matches!(
+                        initial_char_type,
+                        MatchType::Quote | MatchType::IdentifierQuote
+                    ) {
                         chars.next().unwrap();
                     } else {
                         break;
                     }
                 }
                 CharType::Quote => {
-                    if &text[idx - 1..idx] == "\\" {
+                    if &text[idx - 1..idx] == "\\"
+                        || initial_char_type == MatchType::IdentifierQuote
+                    {
                         chars.next().unwrap();
                     } else {
-                        if is_string {
+                        if matches!(initial_char_type, MatchType::Quote) {
                             chars.next().unwrap();
                         }
+                        break;
+                    }
+                }
+                CharType::IdentifierQuote => {
+                    chars.next().unwrap();
+                    if initial_char_type == MatchType::IdentifierQuote {
                         break;
                     }
                 }
@@ -53,6 +71,7 @@ enum CharType {
     LeftParen,
     RightParen,
     Quote,
+    IdentifierQuote,
     Other(char),
 }
 
@@ -62,6 +81,7 @@ fn classify_char(ch: char) -> CharType {
         '(' => CharType::LeftParen,
         ')' => CharType::RightParen,
         '"' => CharType::Quote,
+        '|' => CharType::IdentifierQuote,
         ch if ch.is_whitespace() => CharType::Whitespace,
         ch => CharType::Other(ch),
     }
@@ -152,6 +172,35 @@ mod tests {
                 item: "\"this is a string\"",
                 range: 0..18
             },]
+        );
+    }
+
+    #[test]
+    fn vertical_bars_contain_identifiers() {
+        assert_eq!(
+            scan_to_vec("(define |identifier with \"spaces\"| 4)"),
+            vec![
+                Token {
+                    item: "(",
+                    range: 0..1,
+                },
+                Token {
+                    item: "define",
+                    range: 1..7,
+                },
+                Token {
+                    item: "|identifier with \"spaces\"|",
+                    range: 8..34,
+                },
+                Token {
+                    item: "4",
+                    range: 35..36,
+                },
+                Token {
+                    item: ")",
+                    range: 36..37,
+                },
+            ]
         );
     }
 }
