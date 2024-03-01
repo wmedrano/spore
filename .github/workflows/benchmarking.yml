@@ -12,17 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
+      - name: Install toolchain
+        run: rustup component add llvm-tools-preview
       - name: Checkout Repository
         uses: actions/checkout@v2
       - name: Rust Cache
         uses: Swatinem/rust-cache@v1
-      - name: Instrumented Build
-        run: RUSTFLAGS="-Cprofile-generate=/tmp/pgo-data" cargo build --release --example spore
-      - name: Collect profiles
-        run: ./target/release/examples/spore <examples/fib.spore
-      - name: Coalesce profiles
-        run: llvm-profdata merge -o /tmp/pgo-data/merged.profdata /tmp/pgo-data
       - name: Benchmark
-        run: RUSTFLAGS="-Cprofile-use=/tmp/pgo-data/merged.profdata" cargo bench
+        run: cargo bench

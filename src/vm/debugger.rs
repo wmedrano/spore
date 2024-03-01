@@ -12,6 +12,7 @@ pub trait Debugger {
     /// Called when a procedure returns its value.
     fn return_value(&mut self, _val: &Val) {}
 
+    /// Called when a new symbol is defined.
     fn define(&mut self, _env: &Environment, _sym: &Symbol, _val: &Val) {}
 }
 
@@ -72,7 +73,7 @@ impl std::fmt::Display for TraceDebugger {
 
 impl std::fmt::Display for TraceCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for _ in 0..self.depth {
+        for _ in 1..self.depth {
             write!(f, "  ")?;
         }
         match &self.proc {
@@ -146,15 +147,16 @@ mod tests {
             .unwrap();
         assert_eq!(
             debugger.to_string(),
-            r#"    (<proc fib> 5) => 5
-      (<proc fib> 4) => 3
-        (<proc fib> 3) => 2
-          (<proc fib> 2) => 1
-          (<proc fib> 1) => 1
-        (<proc fib> 2) => 1
+            r#"(<proc test-proc>) => 5
+  (<proc fib> 5) => 5
+    (<proc fib> 4) => 3
       (<proc fib> 3) => 2
         (<proc fib> 2) => 1
-        (<proc fib> 1) => 1"#
+        (<proc fib> 1) => 1
+      (<proc fib> 2) => 1
+    (<proc fib> 3) => 2
+      (<proc fib> 2) => 1
+      (<proc fib> 1) => 1"#
         );
     }
 
@@ -173,10 +175,11 @@ mod tests {
             .is_err());
         assert_eq!(
             debugger.to_string(),
-            r#"    (<proc fib> 5) => _
-      (<proc fib> 4) => _
-        (<proc fib> 3) => _
-          (<proc fib> 2) => _"#
+            r#"(<proc test-proc>) => _
+  (<proc fib> 5) => _
+    (<proc fib> 4) => _
+      (<proc fib> 3) => _
+        (<proc fib> 2) => _"#
         );
     }
 }

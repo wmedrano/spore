@@ -114,6 +114,7 @@ impl Environment {
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
         self.prepare(proc, args);
+        debugger.start_eval(self);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
             match instruction {
@@ -152,7 +153,9 @@ impl Environment {
                 }
             }
         }
-        Ok(self.stack.pop().unwrap_or_default())
+        let ret = self.stack.pop().unwrap_or_default();
+        debugger.return_value(&ret);
+        Ok(ret)
     }
 
     fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) {

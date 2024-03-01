@@ -129,13 +129,13 @@ impl<'a> Compiler<'a> {
                     self.opcodes.push(Instruction::GetVal(x.as_str().into()));
                 }
             },
+            AstLeaf::Bool(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
+            AstLeaf::Int(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
+            AstLeaf::Float(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
+            AstLeaf::String(x) => self.opcodes.push(Instruction::PushVal(x.clone().into())),
             AstLeaf::Symbol(x) => self
                 .opcodes
                 .push(Instruction::PushVal(Symbol::from(x.clone()).into())),
-            AstLeaf::String(_) => unimplemented!("Strings are not yet supported."),
-            AstLeaf::Float(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
-            AstLeaf::Int(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
-            AstLeaf::Bool(x) => self.opcodes.push(Instruction::PushVal((*x).into())),
         }
         Ok(())
     }

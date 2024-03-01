@@ -20,6 +20,7 @@ pub enum Val {
     Float(f64),
     ByteCodeProc(Rc<ByteCodeProc>),
     NativeProc(Rc<NativeProc>),
+    String(Rc<String>),
     Symbol(Symbol),
 }
 
@@ -48,6 +49,7 @@ impl std::fmt::Display for Val {
             Val::Float(x) => write!(f, "{x}"),
             Val::ByteCodeProc(x) => write!(f, "{}", x),
             Val::NativeProc(x) => write!(f, "{}", x),
+            Val::String(x) => write!(f, "{:?}", x),
             Val::Symbol(x) => write!(f, "{}", x),
         }
     }
@@ -69,6 +71,13 @@ impl_enum_from!(Val, f64 => Float);
 impl_enum_from!(Val, ByteCodeProc => ByteCodeProc);
 impl_enum_from!(Val, NativeProc => NativeProc);
 impl_enum_from!(Val, Symbol => Symbol);
+impl_enum_from!(Val, String => String);
+
+impl From<&str> for Val {
+    fn from(s: &str) -> Val {
+        Val::from(s.to_string())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -89,5 +98,12 @@ mod tests {
     fn numbers_are_equal() {
         assert_eq!(Val::from(100), Val::from(100));
         assert_eq!(Val::from(100.0), Val::from(100.0));
+    }
+
+    #[test]
+    fn string_equality() {
+        assert_eq!(Val::from("value"), Val::from("value"));
+        assert_ne!(Val::from("value1"), Val::from("value2"));
+        assert_eq!(Val::from(""), Val::from(""));
     }
 }

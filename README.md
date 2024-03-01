@@ -15,11 +15,13 @@ The REPL can be started by running:
 cargo run --example spore
 ```
 
-| Command      | Example             | Output                                                   |
-|--------------|---------------------|----------------------------------------------------------|
-|              | `(+ 1 2)`           | `3`                                                      |
-| `,ast `      | `,ast (+ 1 2)`      | `Tree([Leaf(Token{ ...`                                  |
-| `,bytecode ` | `,bytecode (+ 1 2)` | `01 - push value <proc +>`<br>`02 - push value 1`<br>... |
+| Command      | Example                   | Output                                                                                                                                |
+|--------------|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+|              | `(+ 1 2)`                 | `3`                                                                                                                                   |
+| `,ast `      | `,ast (+ 1 2)`            | `Tree([Leaf(Token{ ...`                                                                                                               |
+| `,bytecode ` | `,bytecode (+ 1 2)`       | `01 - push value <proc <=>`<br>`02 - get arg 0`<br>...                                                                                |
+| `,bytecode ` | `...`<br>`,bytecode fib`  | `02 - push value <proc +>`<br>`02 - push value 1`<br>...                                                                              |
+| `,trace `    | `...`<br>`,trace (fib 4)` | `(<proc fib> 4) => 3`<br>`  (<proc fib> 3) => 2`<br>`    (<proc fib> 2) => 1`<br>`    (<proc fib> 1) => 1`<br>`  (<proc fib> 2) => 1` |
 
 
 ## FAQ

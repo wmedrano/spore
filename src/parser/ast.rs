@@ -270,6 +270,33 @@ mod tests {
     }
 
     #[test]
+    fn can_parse_string() {
+        use Ast::*;
+        use AstLeaf::*;
+        assert_eq!(
+            Ast::from_sexp_str("'hello \"to\" 'the 'world").unwrap(),
+            vec![
+                Leaf(Token {
+                    item: Symbol("hello".to_string()),
+                    range: 0..6,
+                },),
+                Leaf(Token {
+                    item: String("to".to_string()),
+                    range: 7..11,
+                },),
+                Leaf(Token {
+                    item: Symbol("the".to_string()),
+                    range: 12..16,
+                },),
+                Leaf(Token {
+                    item: Symbol("world".to_string()),
+                    range: 17..23,
+                },),
+            ],
+        )
+    }
+
+    #[test]
     fn can_parse_symbol() {
         use Ast::*;
         use AstLeaf::*;
