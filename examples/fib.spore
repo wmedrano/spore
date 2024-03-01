@@ -1,3 +1,4 @@
+;; Computes the fibonacci of n.
 (define (fib n)
   (if (<= n 2)
       1

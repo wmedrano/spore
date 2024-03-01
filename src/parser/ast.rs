@@ -99,6 +99,7 @@ impl Ast {
                 TokenType::Int(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
                 TokenType::Float(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
                 TokenType::Bool(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
+                TokenType::Comment(_) => (),
             };
         }
         match opening_paren {
@@ -283,6 +284,33 @@ mod tests {
                     item: Symbol("world".to_string()),
                     range: 7..13,
                 })
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_are_ignored() {
+        use Ast::*;
+        use AstLeaf::*;
+        assert_eq!(
+            Ast::from_sexp_str("symbol 1 2 3 ; ignored").unwrap(),
+            vec![
+                Leaf(Token {
+                    item: Identifier("symbol".to_string()),
+                    range: 0..6,
+                },),
+                Leaf(Token {
+                    item: Int(1),
+                    range: 7..8,
+                },),
+                Leaf(Token {
+                    item: Int(2),
+                    range: 9..10,
+                },),
+                Leaf(Token {
+                    item: Int(3),
+                    range: 11..12,
+                },),
             ]
         );
     }

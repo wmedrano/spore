@@ -21,6 +21,16 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
             CharType::Quote => MatchType::Quote,
             CharType::IdentifierQuote => MatchType::IdentifierQuote,
             CharType::Other(_) => MatchType::None,
+            CharType::Comment => {
+                let mut end = start + 1;
+                while let Some((_, ch)) = chars.next() {
+                    end += 1;
+                    if ch == '\n' {
+                        break;
+                    }
+                }
+                return Some(Token::new_from_source(text, start..end));
+            }
             CharType::Whitespace => unreachable!(),
         };
         // 3. Eat until a whitespace or special character.
@@ -54,6 +64,16 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
                         break;
                     }
                 }
+                CharType::Comment => {
+                    if matches!(
+                        initial_char_type,
+                        MatchType::Quote | MatchType::IdentifierQuote
+                    ) {
+                        chars.next().unwrap();
+                    } else {
+                        break;
+                    }
+                }
                 CharType::Other(_) => {
                     chars.next().unwrap();
                 }
@@ -72,6 +92,7 @@ enum CharType {
     RightParen,
     Quote,
     IdentifierQuote,
+    Comment,
     Other(char),
 }
 
@@ -82,6 +103,7 @@ fn classify_char(ch: char) -> CharType {
         ')' => CharType::RightParen,
         '"' => CharType::Quote,
         '|' => CharType::IdentifierQuote,
+        ';' => CharType::Comment,
         ch if ch.is_whitespace() => CharType::Whitespace,
         ch => CharType::Other(ch),
     }
@@ -202,5 +224,56 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn comments() {
+        assert_eq!(
+            scan_to_vec("(define x 12) ; Everything \"here\" is a comment.\n ; And here \n (not-here) ; not before here"),
+            vec![
+                Token {
+                    item: "(",
+                    range: 0..1,
+                },
+                Token {
+                    item: "define",
+                    range: 1..7,
+                },
+                Token {
+                    item: "x",
+                    range: 8..9,
+                },
+                Token {
+                    item: "12",
+                    range: 10..12,
+                },
+                Token {
+                    item: ")",
+                    range: 12..13,
+                },
+                Token {
+                    item: "; Everything \"here\" is a comment.\n",
+                    range: 14..48,
+                },
+                Token {
+                    item: "; And here \n",
+                    range: 49..61,
+                },
+                Token {
+                    item: "(",
+                    range: 62..63,
+                },
+                Token {
+                    item: "not-here",
+                    range: 63..71,
+                },
+                Token {
+                    item: ")",
+                    range: 71..72,
+                },
+                Token {
+                    item: "; not before here",
+                    range: 73..90,
+                }]);
     }
 }

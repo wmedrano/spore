@@ -16,6 +16,7 @@ fn classify_tokens<'a, T: 'a + AsRef<str>>(
             "(" => TokenType::LeftParen,
             ")" => TokenType::RightParen,
             s if is_string_literal(s) => TokenType::String(s[1..s.len() - 1].to_string()),
+            s if s.starts_with(';') => TokenType::Comment(s.to_string()),
             s => {
                 if let Ok(i) = s.parse() {
                     return TokenType::Int(i);
