@@ -52,11 +52,7 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compile `ast` onto the current context and return the callable `ByteCodeProc`.
-    pub fn compile(self, ast: Ast) -> Result<ByteCodeProc> {
-        self.compile_pruned(&ast)
-    }
-
-    fn compile_pruned(self, ast: &Ast) -> Result<ByteCodeProc> {
+    pub fn compile(self, ast: &Ast) -> Result<ByteCodeProc> {
         let mut c = self;
         c.compile_impl(ast)?;
         Ok(c.finalize())
@@ -92,7 +88,7 @@ impl<'a> Compiler<'a> {
         match ast {
             Ast::Leaf(l) => self.leaf_to_bytecode(&l.item)?,
             Ast::Tree(children) => {
-                let mut children = iter_no_comments(&children);
+                let mut children = children.iter();
                 let first_child = match children.next() {
                     Some(child) => child,
                     None => bail!("found empty expression"),
@@ -117,6 +113,7 @@ impl<'a> Compiler<'a> {
                         | AstLeaf::Int(_)
                         | AstLeaf::Bool(_) => bail!("cannot evaluate object {:?}", first_child),
                         AstLeaf::Comment(_) => unreachable!(),
+                        AstLeaf::CommentDatum => unreachable!(),
                     },
                     Ast::Tree(_) => {
                         self.compile_impl(first_child)?;
@@ -152,6 +149,7 @@ impl<'a> Compiler<'a> {
                 .opcodes
                 .push(Instruction::PushVal(Symbol::from(x.clone()).into())),
             AstLeaf::Comment(_) => (),
+            AstLeaf::CommentDatum => (),
         }
         Ok(())
     }
@@ -166,7 +164,7 @@ impl<'a> Compiler<'a> {
             Ast::Leaf(_) => bail!("first argument to lambda must be a list of arguments"),
             Ast::Tree(args) => args,
         };
-        self.lambda_to_bytecode_impl(iter_no_comments(&args), expr)?;
+        self.lambda_to_bytecode_impl(args.iter(), expr)?;
         Ok(())
     }
 
@@ -209,16 +207,23 @@ impl<'a> Compiler<'a> {
                 }
                 self.define_with_symbol_to_bytecode(symbol, expr)?;
             }
-            Some(Ast::Tree(name_and_args)) => match name_and_args.as_slice() {
-                [Ast::Leaf(Token {
-                    item: AstLeaf::Identifier(ident),
-                    ..
-                }), proc_args @ ..] => {
-                    let symbol = Symbol::from(ident.as_str());
-                    self.define_proc_to_bytecode(symbol, iter_no_comments(proc_args), args)?
-                }
-                _ => bail!("bad"),
-            },
+            Some(Ast::Tree(name_and_args)) => {
+                let mut name_and_args = name_and_args.iter();
+                let symbol = match name_and_args.next() {
+                    Some(Ast::Leaf(Token {
+                        item: AstLeaf::Identifier(ident),
+                        ..
+                    })) => Symbol::from(ident.as_str()),
+                    Some(Ast::Tree(_)) => {
+                        bail!("expected a list of identifiers but found subexpression")
+                    }
+                    Some(Ast::Leaf(l)) => {
+                        bail!("expected a list of identifiers but found {l:?}")
+                    }
+                    None => bail!("expected identifiers in expression but was empty"),
+                };
+                self.define_proc_to_bytecode(symbol, name_and_args, args)?;
+            }
         };
         Ok(())
     }
@@ -256,12 +261,12 @@ impl<'a> Compiler<'a> {
         }
         self.compile_impl(pred)?;
         let t_bytecode = Compiler::with_symbols("", self.env, self.symbol_to_idx.clone())
-            .compile_pruned(t_val)?
+            .compile(t_val)?
             .bytecode;
         let f_bytecode = match maybe_f_val {
             None => vec![Instruction::PushVal(Val::Void)],
             Some(f_val) => Compiler::with_symbols("", self.env, self.symbol_to_idx.clone())
-                .compile_pruned(f_val)?
+                .compile(f_val)?
                 .bytecode
                 .to_vec(),
         };
@@ -287,19 +292,6 @@ fn symbol_to_idx<'a>(list: impl Iterator<Item = &'a Ast>) -> Result<HashMap<Stri
     Ok(res)
 }
 
-/// Iterate over the asts, skipping any comment nodes.
-fn iter_no_comments<'a>(asts: &'a [Ast]) -> impl Iterator<Item = &'a Ast> {
-    asts.iter().filter(|ast| {
-        !matches!(
-            ast,
-            Ast::Leaf(Token {
-                item: AstLeaf::Comment(_),
-                ..
-            })
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use crate::vm::Vm;
@@ -311,7 +303,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         let ast = Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap();
         let instructions = Compiler::new("", &mut env)
-            .compile(ast[0].clone())
+            .compile(&ast[0])
             .unwrap()
             .bytecode
             .into_iter()
@@ -328,6 +320,26 @@ mod tests {
                     Instruction::PushVal(Val::NativeProc(_)),
                     Instruction::GetArg(0),
                     Instruction::PushVal(Val::Int(1)),
+                    Instruction::Eval(3),
+                ]
+            ),
+            "Found {:?}",
+            bytecode.bytecode
+        );
+    }
+
+    #[test]
+    fn comment_next_datum_skips_datum() {
+        let mut env = Vm::new().build_env();
+        let ast = Ast::from_sexp_str("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
+        let bytecode = Compiler::new("", &mut env).compile(&ast[0]).unwrap();
+        assert!(
+            matches!(
+                bytecode.bytecode.as_slice(),
+                [
+                    Instruction::PushVal(Val::NativeProc(_)),
+                    Instruction::PushVal(Val::Int(1)),
+                    Instruction::PushVal(Val::Int(3)),
                     Instruction::Eval(3),
                 ]
             ),

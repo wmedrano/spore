@@ -6,7 +6,7 @@ pub enum Ast {
     /// Signifies this is a root node.
     Leaf(Token<AstLeaf>),
     /// Signifies that this is a tree with the given children.
-    Tree(Vec<Ast>),
+    Tree(AstTree),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +21,42 @@ pub enum AstLeaf {
     Int(isize),
     Bool(bool),
     Comment(String),
+    CommentDatum,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AstTree(Vec<Ast>);
+
+impl From<Vec<Ast>> for AstTree {
+    fn from(v: Vec<Ast>) -> Self {
+        AstTree(v)
+    }
+}
+
+impl AstTree {
+    /// Iterate over the AST children. This includes comment nodes, unlike `iter`.
+    pub fn iter_with_comments<'a>(&'a self) -> impl Iterator<Item = &'a Ast> {
+        self.0.iter()
+    }
+
+    /// Iterate over the AST children. This skips any comments.
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Ast> {
+        let mut keep_next_datum = std::iter::once(true);
+        self.0.iter().filter(move |ast| match ast {
+            Ast::Leaf(Token {
+                item: AstLeaf::Comment(_),
+                ..
+            }) => false,
+            Ast::Leaf(Token {
+                item: AstLeaf::CommentDatum,
+                ..
+            }) => {
+                keep_next_datum = std::iter::once(false);
+                false
+            }
+            _ => keep_next_datum.next().unwrap_or(true),
+        })
+    }
 }
 
 impl Default for Ast {
@@ -69,7 +105,7 @@ impl Ast {
                 TokenType::LeftParen => {
                     let sub_ast =
                         Self::from_tokens_impl(tokens, Some(token.range.start), token.range.start)?;
-                    exps.push(Ast::Tree(sub_ast));
+                    exps.push(Ast::Tree(AstTree(sub_ast)));
                 }
                 TokenType::RightParen => match opening_paren {
                     Some(_) => return Ok(exps),
@@ -113,9 +149,7 @@ impl Ast {
                     exps.push(Ast::Leaf(token.with_item(AstLeaf::Comment(c.clone()))))
                 }
                 TokenType::CommentDatum => {
-                    return Err(ParseAstError::CommentDatumNotSupported {
-                        idx: token.range.start.clone(),
-                    })
+                    exps.push(Ast::Leaf(token.with_item(AstLeaf::CommentDatum)));
                 }
             };
         }
@@ -135,8 +169,6 @@ pub enum ParseAstError {
     UnexpectedClosingParen { idx: usize },
     /// The identifier is not valid.
     InvalidIdentifier(Token<String>),
-    /// Comment datums are not supported.
-    CommentDatumNotSupported { idx: usize },
 }
 
 impl std::fmt::Display for ParseAstError {
@@ -164,12 +196,6 @@ impl ParseAstError {
             ParseAstError::InvalidIdentifier(ident) => {
                 let context = ident.item.as_str();
                 format!("{context}\n^ Invalid identifier.")
-            }
-            ParseAstError::CommentDatumNotSupported { idx } => {
-                let start = *idx;
-                let end = (start + 10).clamp(0, src.len());
-                let context = &src[start..end];
-                format!("{context}\n^ Datum comments (#;) are not yet supported")
             }
         }
     }
@@ -209,26 +235,32 @@ mod tests {
         use AstLeaf::*;
         assert_eq!(
             Ast::from_sexp_str("(1 2 3)").unwrap(),
-            vec![Tree(vec![
-                Leaf(Token {
-                    item: Int(1,),
-                    range: 1..2,
-                }),
-                Leaf(Token {
-                    item: Int(2,),
-                    range: 3..4,
-                }),
-                Leaf(Token {
-                    item: Int(3,),
-                    range: 5..6,
-                }),
-            ])]
+            vec![Tree(
+                vec![
+                    Leaf(Token {
+                        item: Int(1,),
+                        range: 1..2,
+                    }),
+                    Leaf(Token {
+                        item: Int(2,),
+                        range: 3..4,
+                    }),
+                    Leaf(Token {
+                        item: Int(3,),
+                        range: 5..6,
+                    }),
+                ]
+                .into()
+            )]
         )
     }
 
     #[test]
     fn empty_list() {
-        assert_eq!(Ast::from_sexp_str("()").unwrap(), vec![Ast::Tree(vec![])])
+        assert_eq!(
+            Ast::from_sexp_str("()").unwrap(),
+            vec![Ast::Tree(vec![].into())]
+        )
     }
 
     #[test]
@@ -237,30 +269,39 @@ mod tests {
         use AstLeaf::*;
         assert_eq!(
             Ast::from_sexp_str("(1 2 (3 4) (5))").unwrap(),
-            vec![Tree(vec![
-                Leaf(Token {
-                    item: Int(1),
-                    range: 1..2
-                }),
-                Leaf(Token {
-                    item: Int(2),
-                    range: 3..4,
-                }),
-                Tree(vec![
+            vec![Tree(
+                vec![
                     Leaf(Token {
-                        item: Int(3),
-                        range: 6..7,
+                        item: Int(1),
+                        range: 1..2
                     }),
                     Leaf(Token {
-                        item: Int(4),
-                        range: 8..9,
+                        item: Int(2),
+                        range: 3..4,
                     }),
-                ]),
-                Tree(vec![Leaf(Token {
-                    item: Int(5),
-                    range: 12..13,
-                }),]),
-            ])]
+                    Tree(
+                        vec![
+                            Leaf(Token {
+                                item: Int(3),
+                                range: 6..7,
+                            }),
+                            Leaf(Token {
+                                item: Int(4),
+                                range: 8..9,
+                            }),
+                        ]
+                        .into()
+                    ),
+                    Tree(
+                        vec![Leaf(Token {
+                            item: Int(5),
+                            range: 12..13,
+                        })]
+                        .into()
+                    ),
+                ]
+                .into()
+            )]
         )
     }
 

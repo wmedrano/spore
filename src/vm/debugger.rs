@@ -140,9 +140,7 @@ mod tests {
         env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
         let proc = Compiler::new("test-proc", &mut env)
-            .compile(std::mem::take(
-                &mut Ast::from_sexp_str("(fib 5)").unwrap()[0],
-            ))
+            .compile(&Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
         env.eval_with_debugger(proc.into(), &[], &mut debugger)
@@ -169,9 +167,7 @@ mod tests {
         env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
         let proc = Compiler::new("test-proc", &mut env)
-            .compile(std::mem::take(
-                &mut Ast::from_sexp_str("(fib 5)").unwrap()[0],
-            ))
+            .compile(&Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
         assert!(env
