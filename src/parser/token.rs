@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 /// A token that holds the type and the place in the text where it occurred.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Token<T> {
     /// The item.
     pub item: T,

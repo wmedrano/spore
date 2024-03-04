@@ -15,7 +15,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
         env.eval_str(FIB_SRC).unwrap();
         let bytecode = Rc::new(
             Compiler::new("run-fib", &mut env)
-                .compile_and_finalize(&Ast::from_sexp_str("(fib 20)").unwrap()[0])
+                .compile(&Ast::from_sexp_str("(fib 20)").unwrap()[0])
                 .unwrap(),
         );
         b.iter(|| env.eval_bytecode(black_box(bytecode.clone()), &[]).unwrap())
@@ -23,7 +23,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     .bench_function("eval_add_20_elements", |b| {
         let bytecode = Rc::new(
             Compiler::new("add-20", &mut env)
-                .compile_and_finalize(
+                .compile(
                     &Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)")
                         .unwrap()[0],
                 )
@@ -38,7 +38,7 @@ pub fn eval_microbenchmarks(c: &mut Criterion) {
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
     let proc = Rc::new(
         Compiler::new("eval-microbenchmarks", &mut env)
-            .compile_and_finalize(&ast)
+            .compile(&ast)
             .unwrap(),
     );
     c.bench_function("iter_bytecode", |b| {
@@ -82,7 +82,7 @@ pub fn compile_benchmarks(c: &mut Criterion) {
         let mut env = Vm::new().build_env();
         b.iter(|| {
             Compiler::new("compile-fib", &mut env)
-                .compile_and_finalize(fib_ast)
+                .compile(fib_ast)
                 .unwrap()
         })
     });

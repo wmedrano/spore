@@ -52,9 +52,9 @@ impl Environment {
     /// `Val::Void` is returned.
     pub fn eval_str(&mut self, s: &str) -> Result<Vec<Val>> {
         Ast::from_sexp_str(s)?
-            .iter()
+            .into_iter()
             .map(|ast| {
-                let proc = Compiler::new("eval", self).compile_and_finalize(ast)?;
+                let proc = Compiler::new("eval", self).compile(ast)?;
                 self.eval_bytecode(proc.into(), &[])
             })
             .collect()

@@ -1,7 +1,7 @@
 use super::token::{Token, TokenType};
 
 /// The abstract syntax tree.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Ast {
     /// Signifies this is a root node.
     Leaf(Token<AstLeaf>),
@@ -9,7 +9,7 @@ pub enum Ast {
     Tree(Vec<Ast>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AstLeaf {
     If,
     Lambda,
@@ -20,6 +20,16 @@ pub enum AstLeaf {
     Float(f64),
     Int(isize),
     Bool(bool),
+    Comment(String),
+}
+
+impl Default for Ast {
+    fn default() -> Ast {
+        Ast::Leaf(Token {
+            item: AstLeaf::Comment("".to_string()),
+            range: 0..0,
+        })
+    }
 }
 
 impl Ast {
@@ -99,7 +109,9 @@ impl Ast {
                 TokenType::Int(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Int(*v)))),
                 TokenType::Float(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Float(*v)))),
                 TokenType::Bool(v) => exps.push(Ast::Leaf(token.with_item(AstLeaf::Bool(*v)))),
-                TokenType::Comment(_) => (),
+                TokenType::Comment(c) => {
+                    exps.push(Ast::Leaf(token.with_item(AstLeaf::Comment(c.clone()))))
+                }
                 TokenType::CommentDatum => {
                     return Err(ParseAstError::CommentDatumNotSupported {
                         idx: token.range.start.clone(),
@@ -329,28 +341,32 @@ mod tests {
     }
 
     #[test]
-    fn comments_are_ignored() {
+    fn comments_are_left_in_ast() {
         use Ast::*;
         use AstLeaf::*;
         assert_eq!(
-            Ast::from_sexp_str("symbol 1 2 3 ; ignored").unwrap(),
+            Ast::from_sexp_str("symbol 1 2 3 ; comment").unwrap(),
             vec![
                 Leaf(Token {
                     item: Identifier("symbol".to_string()),
                     range: 0..6,
-                },),
+                }),
                 Leaf(Token {
                     item: Int(1),
                     range: 7..8,
-                },),
+                }),
                 Leaf(Token {
                     item: Int(2),
                     range: 9..10,
-                },),
+                }),
                 Leaf(Token {
                     item: Int(3),
                     range: 11..12,
-                },),
+                }),
+                Leaf(Token {
+                    item: Comment("; comment".to_string()),
+                    range: 13..22,
+                }),
             ]
         );
     }
