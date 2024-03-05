@@ -41,20 +41,26 @@ impl AstTree {
 
     /// Iterate over the AST children. This skips any comments.
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Ast> {
-        let mut keep_next_datum = std::iter::once(true);
-        self.0.iter().filter(move |ast| match ast {
-            Ast::Leaf(Token {
-                item: AstLeaf::Comment(_),
-                ..
-            }) => false,
-            Ast::Leaf(Token {
-                item: AstLeaf::CommentDatum,
-                ..
-            }) => {
-                keep_next_datum = std::iter::once(false);
-                false
+        let mut skip_next = false;
+        self.0.iter().filter(move |ast| {
+            if skip_next {
+                skip_next = false;
+                return false;
             }
-            _ => keep_next_datum.next().unwrap_or(true),
+            match ast {
+                Ast::Leaf(Token {
+                    item: AstLeaf::Comment(_),
+                    ..
+                }) => false,
+                Ast::Leaf(Token {
+                    item: AstLeaf::CommentDatum,
+                    ..
+                }) => {
+                    skip_next = true;
+                    false
+                }
+                _ => true,
+            }
         })
     }
 }
@@ -156,6 +162,51 @@ impl Ast {
         match opening_paren {
             Some(open_idx) => Err(ParseAstError::MissingClosingParen { open_idx, end_idx }),
             None => Ok(exps),
+        }
+    }
+
+    fn display_with_depth(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        depth: usize,
+    ) -> std::fmt::Result {
+        match self {
+            Ast::Leaf(l) => {
+                for _ in 0..depth {
+                    write!(f, "  ")?;
+                }
+                write!(f, "{}\n", l.item)
+            }
+            Ast::Tree(children) => {
+                for child in children.iter_with_comments() {
+                    child.display_with_depth(f, depth + 1)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Ast {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display_with_depth(f, 0)
+    }
+}
+
+impl std::fmt::Display for AstLeaf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AstLeaf::If => write!(f, "<if>"),
+            AstLeaf::Lambda => write!(f, "<lambda>"),
+            AstLeaf::Define => write!(f, "<define>"),
+            AstLeaf::Identifier(ident) => write!(f, "<identifier {ident}>"),
+            AstLeaf::Symbol(sym) => write!(f, "<symbol {sym}"),
+            AstLeaf::String(s) => write!(f, "<string {s}>"),
+            AstLeaf::Float(x) => write!(f, "<float {x}>"),
+            AstLeaf::Int(x) => write!(f, "<int {x}>"),
+            AstLeaf::Bool(x) => write!(f, "<bool {x}>"),
+            AstLeaf::Comment(_) => write!(f, "<comment ...>"),
+            AstLeaf::CommentDatum => write!(f, "<comment-datum>"),
         }
     }
 }

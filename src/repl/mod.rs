@@ -86,7 +86,7 @@ impl Repl {
             "" => eval_asts(asts, &mut self.env, &mut self.expression_count, false),
             ",ast" => {
                 for ast in asts {
-                    println!("{}", format!("{ast:#?}").blue());
+                    println!("{}", format!("{ast}").blue());
                 }
             }
             ",bytecode" => analyze_bytecode(&mut self.env, asts),
