@@ -108,6 +108,17 @@ quote character within a string, use the escape sequence ~\"~.
 :CUSTOM_ID: StringsOperations-lrw2ltc0e7k0
 :END:
 
+*** equal?
+:PROPERTIES:
+:CUSTOM_ID: StringsOperationsequal-y8m04yc0e7k0
+:END:
+
+~equal?~ compares two strings for equality.
+
+#+BEGIN_SRC lisp
+  (equal "bat" "bat")      ;; true
+#+END_SRC
+
 *** len
 :PROPERTIES:
 :CUSTOM_ID: StringsOperationslen-huy2ltc0e7k0
@@ -134,15 +145,16 @@ index 0, and the last character has index ~(- (len <string>) 1)~.
   (substring "string" 0 (len "string")) ;; "string"
 #+END_SRC
 
-*** equal?
+*** string-concat
 :PROPERTIES:
-:CUSTOM_ID: StringsOperationsequal-y8m04yc0e7k0
+:CUSTOM_ID: StringsOperationsstringconcat-zwg3n9k0e7k0
 :END:
 
-~equal?~ compares two strings for equality.
+~string-concat~ combines (concatenates) strings into a new string.
 
 #+BEGIN_SRC lisp
-  (equal "bat" "bat")      ;; true
+  (string-concat)                      ;; ""
+  (string-concat "Hello" " " "World!") ;; "Hello World!"
 #+END_SRC
 
 * Lists

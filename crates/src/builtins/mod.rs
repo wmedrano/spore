@@ -14,6 +14,7 @@ pub fn register_all(vm: &mut Vm) {
         NativeProc::new("list", list_fn),
         NativeProc::new("len", len_fn),
         NativeProc::new("substring", substring_fn),
+        NativeProc::new("string-concat", string_concat_fn),
         NativeProc::new("+", add_fn),
         NativeProc::new("-", sub_fn),
         NativeProc::new("*", multiply_fn),
@@ -76,6 +77,12 @@ fn substring_fn(args: &[Val]) -> Result<Val> {
             n = args.len()
         ),
     }
+}
+
+fn string_concat_fn(args: &[Val]) -> Result<Val> {
+    let strs: Result<Vec<_>> = args.iter().map(|v| v.try_str()).collect();
+    let res = strs?.join("");
+    Ok(Val::String(Rc::new(res)))
 }
 
 fn no_op_fn(args: &[Val]) -> Result<Val> {
