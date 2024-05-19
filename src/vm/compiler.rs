@@ -22,8 +22,8 @@ impl<'a> Compiler<'a> {
     }
 
     /// Compile `ast` onto the current context and return the callable `ByteCodeProc`.
-    pub fn compile(self, ast: &Ast) -> Result<ByteCodeProc> {
-        let mut ir = CodeBlock::with_ast(None, HashMap::new(), std::iter::once(ast))?;
+    pub fn compile(self, name: impl Into<Option<String>>, ast: &Ast) -> Result<ByteCodeProc> {
+        let mut ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
         for instruction in ir.instructions.iter_mut() {
             self.inline_deref(instruction);
         }
@@ -32,17 +32,17 @@ impl<'a> Compiler<'a> {
 
     fn inline_deref(&self, instruction: &mut IrInstruction) {
         match instruction {
-            IrInstruction::Procedure(cb) => {
+            IrInstruction::PushProc(cb) => {
                 for instruction in cb.instructions.iter_mut() {
                     self.inline_deref(instruction);
                 }
             }
             IrInstruction::DerefIdentifier(ident) => {
                 if let Some(v) = self.env.get_global(&Symbol::from(ident.as_str())) {
-                    *instruction = IrInstruction::Constant(v);
+                    *instruction = IrInstruction::PushConst(v);
                 }
             }
-            IrInstruction::Constant(_) => (),
+            IrInstruction::PushConst(_) => (),
             IrInstruction::CallProc { proc, args } => {
                 self.inline_deref(proc);
                 args.iter_mut().for_each(|arg| self.inline_deref(arg));
@@ -79,7 +79,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         let ast = Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap();
         let instructions = Compiler::new(&mut env)
-            .compile(&ast[0])
+            .compile(None, &ast[0])
             .unwrap()
             .bytecode
             .into_iter()
@@ -108,7 +108,7 @@ mod tests {
     fn comment_next_datum_skips_datum() {
         let mut env = Vm::new().build_env();
         let ast = Ast::from_sexp_str("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
-        let bytecode = Compiler::new(&mut env).compile(&ast[0]).unwrap();
+        let bytecode = Compiler::new(&mut env).compile(None, &ast[0]).unwrap();
         assert!(
             matches!(
                 bytecode.bytecode.as_slice(),

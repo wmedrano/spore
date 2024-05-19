@@ -6,27 +6,38 @@ use crate::parser::ast::{Ast, AstLeaf};
 
 use super::types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Val};
 
+/// Contains a set of high level instructions to execute. Can be converted to lower level
+/// instructions.
 #[derive(Debug, PartialEq)]
 pub struct CodeBlock {
+    /// The name of the code block or `None` if it has no name.
     pub name: Option<String>,
+    /// A map from a symbol name to its index at the frame stack.
     pub arg_to_idx: HashMap<String, usize>,
+    /// The IR instructions for the codeblock.
     pub instructions: Vec<IrInstruction>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum IrInstruction {
-    Constant(Val),
-    Procedure(CodeBlock),
+    /// Push a constant value to the stack.
+    PushConst(Val),
+    /// Push a procedure value to the stack.
+    PushProc(CodeBlock),
+    /// Dereference an identifier and push it to the stack.
     DerefIdentifier(String),
+    /// Call a procedure with the given arguments.
     CallProc {
         proc: Box<IrInstruction>,
         args: Vec<IrInstruction>,
     },
+    /// Execute either `true_expr` or `false_expr` depending on the value of `pred`.
     If {
         pred: Box<IrInstruction>,
         true_expr: Box<IrInstruction>,
         false_expr: Option<Box<IrInstruction>>,
     },
+    /// Set `sym` to `value` globally.
     SetGlobal {
         sym: Symbol,
         value: Box<IrInstruction>,
@@ -34,6 +45,7 @@ pub enum IrInstruction {
 }
 
 impl CodeBlock {
+    /// Create a new code block with `asts`.
     pub fn with_ast<'a>(
         name: Option<String>,
         arg_to_idx: HashMap<String, usize>,
@@ -54,7 +66,7 @@ impl CodeBlock {
         }
     }
 
-    pub fn add_ast(&mut self, ast: &Ast) -> Result<()> {
+    fn add_ast(&mut self, ast: &Ast) -> Result<()> {
         self.instructions.push(self.make_instruction(ast)?);
         Ok(())
     }
@@ -74,13 +86,13 @@ impl CodeBlock {
                     bail!("unexpected keyword define, did you mean (define <symbol> <value-expr>)?")
                 }
                 AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier(ident.clone()),
-                AstLeaf::Symbol(sym) => IrInstruction::Constant(Symbol::from(sym.clone()).into()),
-                AstLeaf::String(s) => IrInstruction::Constant(Val::String(Rc::new(s.clone()))),
-                AstLeaf::Float(f) => IrInstruction::Constant(Val::Float(*f)),
-                AstLeaf::Int(i) => IrInstruction::Constant(Val::Int(*i)),
-                AstLeaf::Bool(b) => IrInstruction::Constant(Val::Bool(*b)),
-                AstLeaf::Comment(_) => IrInstruction::Constant(Val::Void),
-                AstLeaf::CommentDatum => IrInstruction::Constant(Val::Void),
+                AstLeaf::Symbol(sym) => IrInstruction::PushConst(Symbol::from(sym.clone()).into()),
+                AstLeaf::String(s) => IrInstruction::PushConst(Val::String(Rc::new(s.clone()))),
+                AstLeaf::Float(f) => IrInstruction::PushConst(Val::Float(*f)),
+                AstLeaf::Int(i) => IrInstruction::PushConst(Val::Int(*i)),
+                AstLeaf::Bool(b) => IrInstruction::PushConst(Val::Bool(*b)),
+                AstLeaf::Comment(_) => IrInstruction::PushConst(Val::Void),
+                AstLeaf::CommentDatum => IrInstruction::PushConst(Val::Void),
             },
             Ast::Tree(tree) => {
                 let mut children = tree.iter();
@@ -207,7 +219,7 @@ impl CodeBlock {
         if body.instructions.is_empty() {
             bail!("lambda definition requires at least one <expr>.");
         }
-        Ok(IrInstruction::Procedure(body))
+        Ok(IrInstruction::PushProc(body))
     }
 
     fn make_proc_call<'a>(
@@ -240,8 +252,8 @@ impl CodeBlock {
         let mut res: Vec<Instruction> = Vec::new();
         for ir in irs {
             match ir {
-                IrInstruction::Constant(val) => res.push(Instruction::PushVal(val.clone())),
-                IrInstruction::Procedure(codeblock) => {
+                IrInstruction::PushConst(val) => res.push(Instruction::PushVal(val.clone())),
+                IrInstruction::PushProc(codeblock) => {
                     let bytecode = codeblock.to_bytecode()?;
                     res.push(Instruction::PushVal(Val::ByteCodeProc(Rc::new(bytecode))));
                 }

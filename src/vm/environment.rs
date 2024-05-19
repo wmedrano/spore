@@ -54,7 +54,7 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = Compiler::new(self).compile(&ast)?;
+                let proc = Compiler::new(self).compile("eval-str".to_string(), &ast)?;
                 self.eval_bytecode(proc.into(), &[])
             })
             .collect()
