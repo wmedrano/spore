@@ -54,7 +54,7 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = Compiler::new("eval", self).compile(&ast)?;
+                let proc = Compiler::new(self).compile(&ast)?;
                 self.eval_bytecode(proc.into(), &[])
             })
             .collect()
@@ -62,8 +62,7 @@ impl Environment {
 
     /// Evaluate a bytecode procedure with the given arguments.
     pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
-        self.eval_bytecode_impl(proc, args, &mut ())
-            .with_context(|| self.stack_trace())
+        self.eval_with_debugger(proc, args, &mut ())
     }
 
     /// Evaluate a bytecode procedure with the given arguments and the given debugger.
@@ -243,7 +242,10 @@ impl Environment {
                 };
                 *self.stack.last_mut().unwrap() = res;
             }
-            v => bail!("expected procedure but found {v}"),
+            v => bail!(
+                "expected procedure but found {v}\nStack: {stack:?}",
+                stack = self.stack
+            ),
         };
         Ok(())
     }

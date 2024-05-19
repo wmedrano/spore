@@ -139,7 +139,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new("test-proc", &mut env)
+        let proc = Compiler::new(&mut env)
             .compile(&Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -147,7 +147,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             debugger.to_string(),
-            r#"(<proc test-proc>) => 5
+            r#"(<proc _>) => 5
   (<proc fib> 5) => 5
     (<proc fib> 4) => 3
       (<proc fib> 3) => 2
@@ -166,7 +166,7 @@ mod tests {
         // This version of fib has a runtime error in its base case (when n <= 2).
         env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new("test-proc", &mut env)
+        let proc = Compiler::new(&mut env)
             .compile(&Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -175,7 +175,7 @@ mod tests {
             .is_err());
         assert_eq!(
             debugger.to_string(),
-            r#"(<proc test-proc>) => _
+            r#"(<proc _>) => _
   (<proc fib> 5) => _
     (<proc fib> 4) => _
       (<proc fib> 3) => _

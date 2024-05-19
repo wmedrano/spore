@@ -4,7 +4,7 @@ use super::{symbol::Symbol, Val};
 pub enum Instruction {
     /// Push a new value to the stack.
     PushVal(Val),
-    /// Evaluate the top of the stack.
+    /// Evaluate the top of the stack. The `usize` is the number of arguments + 1 for the procedure.
     Eval(usize),
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
@@ -16,7 +16,7 @@ pub enum Instruction {
     Jump(usize),
     /// Pops the current frame and returns the value at the top of the current frame stack.
     Return,
-    /// Set the given symbol to the top value of the stack.
+    /// Set the value of Symbol to be what is at the top of the stack.
     SetVal(Symbol),
 }
 

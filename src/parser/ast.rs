@@ -25,7 +25,7 @@ pub enum AstLeaf {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AstTree(Vec<Ast>);
+pub struct AstTree(pub Vec<Ast>);
 
 impl From<Vec<Ast>> for AstTree {
     fn from(v: Vec<Ast>) -> Self {
@@ -35,12 +35,12 @@ impl From<Vec<Ast>> for AstTree {
 
 impl AstTree {
     /// Iterate over the AST children. This includes comment nodes, unlike `iter`.
-    pub fn iter_with_comments<'a>(&'a self) -> impl Iterator<Item = &'a Ast> {
+    pub fn iter_with_comments(&self) -> impl Iterator<Item = &'_ Ast> {
         self.0.iter()
     }
 
     /// Iterate over the AST children. This skips any comments.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Ast> {
+    pub fn iter(&self) -> impl Iterator<Item = &'_ Ast> {
         let mut skip_next = false;
         self.0.iter().filter(move |ast| {
             if skip_next {
@@ -87,6 +87,37 @@ impl Ast {
     ) -> Result<Vec<Ast>, ParseAstError> {
         let mut tokens = tokens;
         Ast::from_tokens_impl(&mut tokens, None, 0)
+    }
+
+    /// Returns the identifier if the AST node is a leaf node with an identifier, otherwise returns
+    /// `None`.
+    pub fn as_identifier(&self) -> Option<&str> {
+        match self {
+            Ast::Leaf(Token {
+                item: AstLeaf::Identifier(ident),
+                ..
+            }) => Some(ident),
+            _ => None,
+        }
+    }
+
+    /// Returns a list of identifiers if the AST node is a tree containing only identifiers,
+    /// otherwise `None`.
+    pub fn as_identifier_list(&self) -> Option<Vec<&str>> {
+        match self {
+            Ast::Tree(tree) => {
+                let mut identifiers = Vec::new();
+                for child in tree.iter() {
+                    if let Some(ident) = child.as_identifier() {
+                        identifiers.push(ident);
+                    } else {
+                        return None;
+                    }
+                }
+                Some(identifiers)
+            }
+            _ => None,
+        }
     }
 
     /// Convert an iterator over `Token`s into an `Ast`.
@@ -175,7 +206,7 @@ impl Ast {
                 for _ in 0..depth {
                     write!(f, "  ")?;
                 }
-                write!(f, "{}\n", l.item)
+                writeln!(f, "{}", l.item)
             }
             Ast::Tree(children) => {
                 for child in children.iter_with_comments() {

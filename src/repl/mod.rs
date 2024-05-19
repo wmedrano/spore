@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{bail, Result};
@@ -9,6 +10,7 @@ use crate::parser::ast::{Ast, ParseAstError};
 use crate::vm::compiler::Compiler;
 use crate::vm::debugger::TraceDebugger;
 use crate::vm::environment::Environment;
+use crate::vm::ir::CodeBlock;
 use crate::vm::types::instruction::Instruction;
 use crate::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -89,11 +91,21 @@ impl Repl {
                     println!("{}", format!("{ast}").blue());
                 }
             }
+            ",ir" => {
+                for (idx, ast) in asts.iter().enumerate() {
+                    let codeblock = CodeBlock::with_ast(
+                        Some(format!("{idx}")),
+                        HashMap::new(),
+                        std::iter::once(ast),
+                    )?;
+                    println!("{}", format!("{codeblock:#?}").blue());
+                }
+            }
             ",bytecode" => analyze_bytecode(&mut self.env, asts),
             ",trace" => eval_asts(asts, &mut self.env, &mut self.expression_count, true),
             unknown => bail!(
                 "unknown command {unknown}, expected one if {:?}",
-                [",ast", ",bytecode", ",trace"]
+                [",ast", ",ir", ",bytecode", ",trace"]
             ),
         }
         Ok(())
@@ -114,7 +126,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
         } else {
             None
         };
-        let res = Compiler::new("repl-eval", env)
+        let res = Compiler::new(env)
             .compile(&ast)
             .and_then(|bc| match maybe_trace.as_mut() {
                 Some(t) => env.eval_with_debugger(bc.into(), &[], t),
@@ -142,7 +154,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
 
 fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match Compiler::new("repl-eval-bytecode", env).compile(&ast) {
+        let proc = match Compiler::new(env).compile(&ast) {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
