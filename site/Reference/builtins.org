@@ -1,0 +1,201 @@
+#+TITLE: Built-Ins
+#+AUTHOR: Will Medrano
+
+* Numbers
+:PROPERTIES:
+:CUSTOM_ID: Numbers-xan1fsa0e7k0
+:END:
+
+Numbers are a fundamental data type supporting both integers and
+floating-point values. Spore provides a variety of arithmetic and
+comaprison operations to manipulate numbers.
+
+** Arithmetic
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmetic-05tedsa0e7k0
+:END:
+
+*** Addition (+)
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmeticAddition-r5i5vxa0e7k0
+:END:
+
+Adds multiple numbers together.
+
+#+BEGIN_SRC lisp
+  (+)         ;; 0
+  (+ 1 2 3 4) ;; 10
+  (+ 1.1 2.3) ;; 3.4
+#+END_SRC
+
+*** Subtraction (-)
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmeticSubtraction-mn0ly5b0e7k0
+:END:
+
+Subtracts subsequent numbers from the first number. If only a single
+number is provided, then it is negated.
+
+#+BEGIN_SRC lisp
+  (-)           ;; <error>
+  (- 1)         ;; -1
+  (- 1 10)      ;; -9
+  (- 0 1 2 3 4) ;; -10
+#+END_SRC
+
+*** Multiplication (*)
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmeticMultiplication-qz2ly5b0e7k0
+:END:
+
+Multiplies multiple numbers together.
+
+#+BEGIN_SRC lisp
+  (*)       ;; 0
+  (* 2 3)   ;; 6
+  (* 2 3 4) ;; 24
+#+END_SRC
+
+*** Division (/)
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmeticDivision-s45ly5b0e7k0
+:END:
+
+Divide the first number by subsequent arguments. If only one argument
+is provided, then the reciprocal is returned.
+
+#+BEGIN_SRC lisp
+  (/)       ;; <error>
+  (/ 2)     ;; 0.5
+  (/ 3 4)   ;; 0.75
+  (/ 3 2 4) ;; 0.375
+#+END_SRC
+
+*** Comparison
+:PROPERTIES:
+:CUSTOM_ID: NumbersArithmeticComparison-7d3g4fb0e7k0
+:END:
+
+Numbers can be compared with ~<~, ~<=~, ~>~, ~>=~, and ~equal?~.
+
+#+BEGIN_SRC lisp
+  (< 1 2)      ;; true
+  (<= 1 1)     ;; true
+  (> 2 1)      ;; true
+  (>= 2 2)     ;; true
+  (equal? 1 1) ;; true
+  (equal? 1 2) ;; false
+#+END_SRC
+
+* Strings
+:PROPERTIES:
+:CUSTOM_ID: Strings-ofnh9sa0e7k0
+:END:
+
+Strings in Spore are sequences of characters. They support a variety
+of operations for manipulation and comparison.
+
+Spore strings are delimited by double quotes ~"~. To include a double
+quote character within a string, use the escape sequence ~\"~.
+
+
+*Examples*
+- ~"This is a string"~
+- ~"This string contains a quote: \"Hello!\""~
+
+** Operations
+:PROPERTIES:
+:CUSTOM_ID: StringsOperations-lrw2ltc0e7k0
+:END:
+
+*** len
+:PROPERTIES:
+:CUSTOM_ID: StringsOperationslen-huy2ltc0e7k0
+:END:
+
+~len~ returns the length of a string.
+
+#+BEGIN_SRC lisp
+  (len "")       ;; 0
+  (len "string") ;; 6
+#+END_SRC
+
+*** substring
+:PROPERTIES:
+:CUSTOM_ID: StringsOperationssubstring-5sc5twc0e7k0
+:END:
+
+~substring~ extracts a portion of a string, taking start (inclusive)
+and end (exclusive) indices. The first character in the string has
+index 0, and the last character has index ~(- (len <string>) 1)~.
+
+#+BEGIN_SRC lisp
+  (substring "string" 1 3)              ;; "tr"
+  (substring "string" 0 (len "string")) ;; "string"
+#+END_SRC
+
+*** equal?
+:PROPERTIES:
+:CUSTOM_ID: StringsOperationsequal-y8m04yc0e7k0
+:END:
+
+~equal?~ compares two strings for equality.
+
+#+BEGIN_SRC lisp
+  (equal "bat" "bat")      ;; true
+#+END_SRC
+
+* Lists
+:PROPERTIES:
+:CUSTOM_ID: Lists-3lqi7sa0e7k0
+:END:
+
+Lists are a fundamental data structure for organizing multiple
+elements in a specific order. In Spore, lists can contain elements of
+any data type, including other lists.
+
+** Operations
+:PROPERTIES:
+:CUSTOM_ID: ListsOperations-o09233d0e7k0
+:END:
+
+*** list
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationslist-nze233d0e7k0
+:END:
+
+The ~list~ function creates a new list from the arguments.
+
+#+BEGIN_SRC lisp
+  (list 1 2 3 4)        ;; (1 2 3 4)
+  (list 1 2 (list 3 4)) ;; (1 2 (3 4))
+#+END_SRC
+
+*** len
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationslen-d4c294d0e7k0
+:END:
+
+The ~len~ function returns the number of elements in a list.
+
+#+BEGIN_SRC lisp
+  (len (list 1 2))            ;; 2
+  (len (list))                ;; 0
+  (len (list 1 (list 2 3 4))) ;; 2
+#+END_SRC
+
+* Misc
+:PROPERTIES:
+:CUSTOM_ID: Misc-3g1ah5a0e7k0
+:END:
+
+** %no-op
+:PROPERTIES:
+:CUSTOM_ID: Miscnoop-zxbl4sa0e7k0
+:END:
+
+~%no-op~ takes any number of arguments and returns ~void~.
+
+#+BEGIN_SRC spore
+  (%no-op 1 2 3) ;; void
+#+END_SRC

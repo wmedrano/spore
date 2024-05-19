@@ -65,6 +65,21 @@ impl Val {
         }
     }
 
+    /// Attempts to convert `self` into an `usize`.
+    ///
+    /// If `self` is not a valid `0` or positive `Val::Int`, this method returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not of type `<int>`.
+    pub fn try_usize(&self) -> Result<usize> {
+        let i = self.try_int()?;
+        if i < 0 {
+            bail!("{} found unexpected negative number", self);
+        }
+        Ok(i as usize)
+    }
+
     /// Attempts to convert `self` into a `&str`.
     ///
     /// If `self` is not an `Val::String`, this method returns an error.

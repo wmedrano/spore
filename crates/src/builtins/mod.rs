@@ -47,7 +47,8 @@ fn len_fn(args: &[Val]) -> Result<Val> {
         [] => bail!("len expected at least 1 argument."),
         [arg] => match arg {
             Val::List(lst) => Ok(Val::Int(lst.len() as isize)),
-            v => bail!("expected <list> but found {}", v.type_name()),
+            Val::String(s) => Ok(Val::Int(s.len() as isize)),
+            v => bail!("expected <list> or <string> but found {}", v.type_name()),
         },
         _ => bail!("len expected only 1 argument."),
     }
@@ -57,8 +58,17 @@ fn substring_fn(args: &[Val]) -> Result<Val> {
     match args {
         [s, start, end] => {
             let s = s.try_str()?;
-            let start = start.try_int()? as usize;
-            let end = end.try_int()? as usize;
+            let start = start.try_usize()?;
+            let end = end.try_usize()?;
+            if start > end {
+                bail!("assertion start <= end ({start} <= {end}) failed");
+            }
+            if end > s.len() {
+                bail!(
+                    "assertion end < len(str) ({end} < {len}) failed",
+                    len = s.len()
+                );
+            }
             Ok(Val::String(Rc::new(String::from(&s[start..end]))))
         }
         _ => bail!(
