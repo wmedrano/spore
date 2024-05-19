@@ -36,7 +36,7 @@ pub fn scan(text: &str) -> impl Iterator<Item = Token<&'_ str>> {
             },
             CharType::Comment => {
                 let mut end = start + 1;
-                while let Some((_, ch)) = chars.next() {
+                for (_, ch) in chars.by_ref() {
                     end += 1;
                     if ch == '\n' {
                         break;
@@ -132,7 +132,7 @@ fn classify_char(ch: char) -> CharType {
 
 fn scan_until_end_block_comment(chs: &mut impl Iterator<Item = (usize, char)>) {
     let mut previous = ' ';
-    while let Some((_, ch)) = chs.next() {
+    for (_, ch) in chs.by_ref() {
         if previous == '|' && ch == '#' {
             return;
         }

@@ -10,6 +10,7 @@ use self::{
 pub mod compiler;
 pub mod debugger;
 pub mod environment;
+pub mod ir;
 pub mod types;
 
 type ValueRegistry = HashMap<Symbol, Val>;
