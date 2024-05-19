@@ -78,21 +78,26 @@ impl Repl {
     pub fn eval_input(&mut self) -> Result<()> {
         let input = std::mem::take(&mut self.repl_input);
         let (cmd, expr) = command::parse_command(input.as_str());
-        let asts = match Ast::from_sexp_str(expr) {
-            Ok(ast) => ast,
+        let asts = || match Ast::from_sexp_str(expr) {
+            Ok(ast) => Ok(ast),
             Err(err) => {
                 bail!("{}", err.display_with_context(expr));
             }
         };
         match cmd {
-            "" => eval_asts(asts, &mut self.env, &mut self.expression_count, false),
+            "" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, false),
+            ",tokens" => {
+                for token in crate::parser::lexer::tokenize(expr) {
+                    println!("{token:?}");
+                }
+            }
             ",ast" => {
-                for ast in asts {
+                for ast in asts()? {
                     println!("{}", format!("{ast}").blue());
                 }
             }
             ",ir" => {
-                for (idx, ast) in asts.iter().enumerate() {
+                for (idx, ast) in asts()?.iter().enumerate() {
                     let codeblock = CodeBlock::with_ast(
                         Some(format!("{idx}")),
                         HashMap::new(),
@@ -101,11 +106,11 @@ impl Repl {
                     println!("{}", format!("{codeblock:#?}").blue());
                 }
             }
-            ",bytecode" => analyze_bytecode(&mut self.env, asts),
-            ",trace" => eval_asts(asts, &mut self.env, &mut self.expression_count, true),
+            ",bytecode" => analyze_bytecode(&mut self.env, asts()?),
+            ",trace" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, true),
             unknown => bail!(
                 "unknown command {unknown}, expected one if {:?}",
-                [",ast", ",ir", ",bytecode", ",trace"]
+                [",tokens", ",ast", ",ir", ",bytecode", ",trace"]
             ),
         }
         Ok(())

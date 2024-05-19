@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use anyhow::{anyhow, bail, Result};
 
 use crate::vm::{
@@ -9,6 +11,9 @@ use crate::vm::{
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_fn([
         NativeProc::new("%no-op", no_op_fn),
+        NativeProc::new("list", list_fn),
+        NativeProc::new("len", len_fn),
+        NativeProc::new("substring", substring_fn),
         NativeProc::new("+", add_fn),
         NativeProc::new("-", sub_fn),
         NativeProc::new("*", multiply_fn),
@@ -30,6 +35,37 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn list_fn(args: &[Val]) -> Result<Val> {
+    let ret = Val::List(Rc::from(args.to_vec()));
+    Ok(ret)
+}
+
+fn len_fn(args: &[Val]) -> Result<Val> {
+    match args {
+        [] => bail!("len expected at least 1 argument."),
+        [arg] => match arg {
+            Val::List(lst) => Ok(Val::Int(lst.len() as isize)),
+            v => bail!("expected <list> but found {}", v.type_name()),
+        },
+        _ => bail!("len expected only 1 argument."),
+    }
+}
+
+fn substring_fn(args: &[Val]) -> Result<Val> {
+    match args {
+        [s, start, end] => {
+            let s = s.try_str()?;
+            let start = start.try_int()? as usize;
+            let end = end.try_int()? as usize;
+            Ok(Val::String(Rc::new(String::from(&s[start..end]))))
+        }
+        _ => bail!(
+            "substring expected 3 arguments but found {n}.",
+            n = args.len()
+        ),
+    }
 }
 
 fn no_op_fn(args: &[Val]) -> Result<Val> {

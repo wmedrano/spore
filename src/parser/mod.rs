@@ -1,4 +1,4 @@
 pub mod ast;
-mod lexer;
+pub mod lexer;
 mod scanner;
 pub mod token;

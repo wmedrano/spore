@@ -16,7 +16,10 @@ fn classify_tokens<'a, T: 'a + AsRef<str>>(
             "(" => TokenType::LeftParen,
             ")" => TokenType::RightParen,
             "#;" => TokenType::CommentDatum,
-            s if is_string_literal(s) => TokenType::String(s[1..s.len() - 1].to_string()),
+            s if is_string_literal(s) => {
+                let s = s[1..s.len() - 1].replace("\\\"", "\"");
+                TokenType::String(s)
+            }
             s if s.starts_with(';') => TokenType::Comment(s.to_string()),
             s if s.starts_with("#|") && s.ends_with("|#") => TokenType::Comment(s.to_string()),
             s => {
@@ -52,7 +55,7 @@ mod tests {
     fn tokenize_with_strings() {
         use TokenType::*;
         assert_eq!(
-            tokenize("(concatenate \"hello\" \"world\")"),
+            tokenize(r#"(concatenate "hello" "world" "quotes \"are\" ok")"#),
             vec![
                 Token {
                     item: LeftParen,
@@ -71,8 +74,12 @@ mod tests {
                     range: 21..28,
                 },
                 Token {
+                    item: String("quotes \"are\" ok".to_string()),
+                    range: 29..48,
+                },
+                Token {
                     item: RightParen,
-                    range: 28..29,
+                    range: 48..49,
                 },
             ]
         );

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use std::rc::Rc;
 
 use self::{
@@ -22,6 +22,7 @@ pub enum Val {
     NativeProc(Rc<NativeProc>),
     String(Rc<String>),
     Symbol(Symbol),
+    List(Rc<Vec<Val>>),
 }
 
 impl Val {
@@ -30,6 +31,51 @@ impl Val {
         match self {
             Val::Bool(v) => Ok(*v),
             v => Err(anyhow!("expected true/false, but found {}", v)),
+        }
+    }
+
+    /// Returns a static string representing the type name of `self`.
+    ///
+    /// This method is useful for debugging and type checking. It provides a human-readable label
+    /// for the type of the value without the need to match on the variant itself.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Val::Void => "<void>",
+            Val::Bool(_) => "<bool>",
+            Val::Int(_) => "<int>",
+            Val::Float(_) => "<float>",
+            Val::ByteCodeProc(_) | Val::NativeProc(_) => "<proc>",
+            Val::String(_) => "<string>",
+            Val::Symbol(_) => "<symbol>",
+            Val::List(_) => "<list>",
+        }
+    }
+
+    /// Attempts to convert `self` into an `isize`.
+    ///
+    /// If `self` is not an `Val::Int`, this method returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not of type `<int>`.
+    pub fn try_int(&self) -> Result<isize> {
+        match self {
+            Val::Int(v) => Ok(*v),
+            _ => bail!("expected <int> but found {}", self.type_name()),
+        }
+    }
+
+    /// Attempts to convert `self` into a `&str`.
+    ///
+    /// If `self` is not an `Val::String`, this method returns an error.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not of type `<string>`.
+    pub fn try_str(&self) -> Result<&str> {
+        match self {
+            Val::String(v) => Ok(v.as_str()),
+            _ => bail!("expected <string> but found {}", self.type_name()),
         }
     }
 }
@@ -51,6 +97,16 @@ impl std::fmt::Display for Val {
             Val::NativeProc(x) => write!(f, "{}", x),
             Val::String(x) => write!(f, "{:?}", x),
             Val::Symbol(x) => write!(f, "{}", x),
+            Val::List(x) => {
+                write!(f, "(")?;
+                for (idx, v) in x.iter().enumerate() {
+                    if idx > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
