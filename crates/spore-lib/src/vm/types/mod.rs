@@ -30,6 +30,7 @@ impl Val {
     pub fn is_truthy(&self) -> Result<bool> {
         match self {
             Val::Bool(v) => Ok(*v),
+            Val::Void => Ok(false),
             v => Err(anyhow!("expected true/false, but found {}", v)),
         }
     }
@@ -91,6 +92,18 @@ impl Val {
         match self {
             Val::String(v) => Ok(v.as_str()),
             _ => bail!("expected <string> but found {}", self.type_name()),
+        }
+    }
+
+    /// Attempts to convert `self` into a slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `self` is not of type `<list>`.
+    pub fn try_slice(&self) -> Result<&[Val]> {
+        match self {
+            Val::List(lst) => Ok(lst.as_slice()),
+            _ => bail!("Expected <list> but found {t}.", t = self.type_name()),
         }
     }
 }

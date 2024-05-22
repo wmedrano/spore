@@ -1,16 +1,16 @@
 use std::rc::Rc;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use spore::parser::ast::Ast;
-use spore::vm::compiler::Compiler;
-use spore::vm::types::instruction::Instruction;
-use spore::vm::types::proc::bytecode::ByteCodeIter;
-use spore::vm::Vm;
+use spore_lib::parser::ast::Ast;
+use spore_lib::vm::compiler::Compiler;
+use spore_lib::vm::types::instruction::Instruction;
+use spore_lib::vm::types::proc::bytecode::ByteCodeIter;
+use spore_lib::vm::Vm;
 
 const FIB_SRC: &str = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))";
 
 pub fn eval_benchmarks(c: &mut Criterion) {
-    let mut env = spore::vm::Vm::new().build_env();
+    let mut env = spore_lib::vm::Vm::new().build_env();
     c.bench_function("eval_fib_20", |b| {
         env.eval_str(FIB_SRC).unwrap();
         let bytecode = Rc::new(
@@ -38,7 +38,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
 }
 
 pub fn eval_microbenchmarks(c: &mut Criterion) {
-    let mut env = spore::vm::Vm::new().build_env();
+    let mut env = spore_lib::vm::Vm::new().build_env();
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
     let proc = Rc::new(
         Compiler::new(&mut env)

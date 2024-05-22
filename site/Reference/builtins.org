@@ -176,25 +176,61 @@ any data type, including other lists.
 :CUSTOM_ID: ListsOperationslist-nze233d0e7k0
 :END:
 
-The ~list~ function creates a new list from the arguments.
+The ~list~ procedure creates a new list from the arguments.
 
 #+BEGIN_SRC lisp
   (list 1 2 3 4)        ;; (1 2 3 4)
   (list 1 2 (list 3 4)) ;; (1 2 (3 4))
 #+END_SRC
 
+*** list?
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationslist-50hdso71e7k0
+:END:
+
+The ~list?~ procedure  returns ~true~ if the argument is a list, and
+~false~ otherwise.
+
+#+BEGIN_SRC lisp
+  (list? (list 1 2 3)) ;; true
+  (list? 1)            ;; false
+#+END_SRC
+
+
 *** len
 :PROPERTIES:
 :CUSTOM_ID: ListsOperationslen-d4c294d0e7k0
 :END:
 
-The ~len~ function returns the number of elements in a list.
+The ~len~ procedure returns the number of elements in a list.
 
 #+BEGIN_SRC lisp
   (len (list 1 2))            ;; 2
   (len (list))                ;; 0
   (len (list 1 (list 2 3 4))) ;; 2
 #+END_SRC
+
+
+*** first
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationsfirst-ox683cm0e7k0
+:END:
+
+The ~first~ procedure  returns the first element of a list.
+
+#+BEGIN_SRC lisp
+  (first (list 1 2 3)) ;; 1
+  (first (list))       ;; <error>
+#+END_SRC
+
+
+*** rest
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationsrest-in88zr71e7k0
+:END:
+
+The ~rest~ procedure returns a list containing all but the first
+element of a list.
 
 * Misc
 :PROPERTIES:

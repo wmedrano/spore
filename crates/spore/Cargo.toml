@@ -1,0 +1,11 @@
+[package]
+name = "spore"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+colored = "2"
+spore-lib = { path = "../spore-lib" }
+spore-repl = { path = "../spore-repl" }
+rustyline = "13"

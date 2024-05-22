@@ -5,19 +5,18 @@ use anyhow::{bail, Result};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
-
-use crate::parser::ast::{Ast, ParseAstError};
-use crate::vm::compiler::Compiler;
-use crate::vm::debugger::TraceDebugger;
-use crate::vm::environment::Environment;
-use crate::vm::ir::CodeBlock;
-use crate::vm::types::instruction::Instruction;
-use crate::vm::types::{
+use spore_lib::parser::ast::{Ast, ParseAstError};
+use spore_lib::vm::compiler::Compiler;
+use spore_lib::vm::debugger::TraceDebugger;
+use spore_lib::vm::environment::Environment;
+use spore_lib::vm::ir::CodeBlock;
+use spore_lib::vm::types::instruction::Instruction;
+use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
     symbol::Symbol,
     Val,
 };
-use crate::vm::Vm;
+use spore_lib::vm::Vm;
 
 pub mod command;
 
@@ -87,7 +86,7 @@ impl Repl {
         match cmd {
             "" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, false),
             ",tokens" => {
-                for token in crate::parser::lexer::tokenize(expr) {
+                for token in spore_lib::parser::lexer::tokenize(expr) {
                     println!("{token:?}");
                 }
             }

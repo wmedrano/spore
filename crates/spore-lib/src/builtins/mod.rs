@@ -9,21 +9,24 @@ use crate::vm::{
 
 /// Register all builtin functions.
 pub fn register_all(vm: &mut Vm) {
-    vm.register_global_fn([
-        NativeProc::new("%no-op", no_op_fn),
-        NativeProc::new("list", list_fn),
-        NativeProc::new("len", len_fn),
-        NativeProc::new("substring", substring_fn),
-        NativeProc::new("string-concat", string_concat_fn),
-        NativeProc::new("+", add_fn),
-        NativeProc::new("-", sub_fn),
-        NativeProc::new("*", multiply_fn),
-        NativeProc::new("/", divide_fn),
-        NativeProc::new("<", less_fn),
-        NativeProc::new("<=", less_eq_fn),
-        NativeProc::new(">", greater_fn),
-        NativeProc::new(">=", greater_eq_fn),
-        NativeProc::new("equal?", equalp_fn),
+    vm.register_global_procs([
+        NativeProc::new("%no-op", no_op_proc),
+        NativeProc::new("list", list_proc),
+        NativeProc::new("list?", listp_proc),
+        NativeProc::new("first", first_proc),
+        NativeProc::new("rest", rest_proc),
+        NativeProc::new("len", len_proc),
+        NativeProc::new("substring", substring_proc),
+        NativeProc::new("string-concat", string_concat_proc),
+        NativeProc::new("+", add_proc),
+        NativeProc::new("-", sub_proc),
+        NativeProc::new("*", multiply_proc),
+        NativeProc::new("/", divide_proc),
+        NativeProc::new("<", less_proc),
+        NativeProc::new("<=", less_eq_proc),
+        NativeProc::new(">", greater_proc),
+        NativeProc::new(">=", greater_eq_proc),
+        NativeProc::new("equal?", equalp_proc),
     ])
     .unwrap()
 }
@@ -38,12 +41,45 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
     Ok(())
 }
 
-fn list_fn(args: &[Val]) -> Result<Val> {
+fn list_proc(args: &[Val]) -> Result<Val> {
     let ret = Val::List(Rc::from(args.to_vec()));
     Ok(ret)
 }
 
-fn len_fn(args: &[Val]) -> Result<Val> {
+fn listp_proc(args: &[Val]) -> Result<Val> {
+    match args {
+        [Val::List(_)] => Ok(Val::Bool(matches!(args[0], Val::List(_)))),
+        _ => bail!("listp expected 1 arg but found {}", args.len()),
+    }
+}
+
+fn first_proc(args: &[Val]) -> Result<Val> {
+    match args {
+        [arg] => match arg.try_slice()? {
+            [] => Ok(Val::Void),
+            [arg, ..] => Ok(arg.clone()),
+        },
+        _ => bail!(
+            "<proc first> expected a single argument but found {}",
+            args.len()
+        ),
+    }
+}
+
+fn rest_proc(args: &[Val]) -> Result<Val> {
+    match args {
+        [arg] => match arg.try_slice()? {
+            [] | [_] => Ok(Val::List(Rc::new(Vec::new()))),
+            [_, rest @ ..] => Ok(Val::List(Rc::new(Vec::from_iter(rest.iter().cloned())))),
+        },
+        _ => bail!(
+            "<proc rest> expected a single argument but found {}",
+            args.len()
+        ),
+    }
+}
+
+fn len_proc(args: &[Val]) -> Result<Val> {
     match args {
         [] => bail!("len expected at least 1 argument."),
         [arg] => match arg {
@@ -55,7 +91,7 @@ fn len_fn(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn substring_fn(args: &[Val]) -> Result<Val> {
+fn substring_proc(args: &[Val]) -> Result<Val> {
     match args {
         [s, start, end] => {
             let s = s.try_str()?;
@@ -79,19 +115,19 @@ fn substring_fn(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn string_concat_fn(args: &[Val]) -> Result<Val> {
+fn string_concat_proc(args: &[Val]) -> Result<Val> {
     let strs: Result<Vec<_>> = args.iter().map(|v| v.try_str()).collect();
     let res = strs?.join("");
     Ok(Val::String(Rc::new(res)))
 }
 
-fn no_op_fn(args: &[Val]) -> Result<Val> {
+fn no_op_proc(args: &[Val]) -> Result<Val> {
     let res = args.last().cloned().unwrap_or(Val::Void);
     Ok(res)
 }
 
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.
-fn add_fn(args: &[Val]) -> Result<Val> {
+fn add_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("+", args)?;
     let res = match args {
         [] => 0.into(),
@@ -110,13 +146,13 @@ fn add_fn(args: &[Val]) -> Result<Val> {
 
 /// Subtract from the first argument all the rest of the arguments. If there is only a single
 /// argument, then it is negated.
-fn sub_fn(args: &[Val]) -> Result<Val> {
+fn sub_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("-", args)?;
     let res = match args {
         [] => bail!("- requires at least 1 arg"),
         [x] => negate(x),
         [x, ys @ ..] => {
-            let sub_part = add_fn(ys)?;
+            let sub_part = add_proc(ys)?;
             add_two(x, &negate(&sub_part))
         }
     };
@@ -125,19 +161,19 @@ fn sub_fn(args: &[Val]) -> Result<Val> {
 
 /// Divide the first argument by the rest of the arguments. If only a single argument is provided,
 /// then the reciprocal of it is returned.
-fn divide_fn(args: &[Val]) -> Result<Val> {
+fn divide_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("/", args)?;
     match args {
         [] => Err(anyhow!("/ requires at least 1 arg")),
         [x] => Ok(reciprocal(x)),
         [x, ys @ ..] => {
-            let denom = multiply_fn(ys)?;
+            let denom = multiply_proc(ys)?;
             Ok(multiply_two(x, &reciprocal(&denom)))
         }
     }
 }
 
-fn less_fn(args: &[Val]) -> Result<Val> {
+fn less_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("<", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x < y,
@@ -149,7 +185,7 @@ fn less_fn(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn less_eq_fn(args: &[Val]) -> Result<Val> {
+fn less_eq_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("<=", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x <= y,
@@ -161,7 +197,7 @@ fn less_eq_fn(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn greater_fn(args: &[Val]) -> Result<Val> {
+fn greater_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers(">", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x > y,
@@ -173,7 +209,7 @@ fn greater_fn(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn greater_eq_fn(args: &[Val]) -> Result<Val> {
+fn greater_eq_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers(">=", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x >= y,
@@ -186,7 +222,7 @@ fn greater_eq_fn(args: &[Val]) -> Result<Val> {
 }
 
 /// Multiply all arguments in `args`. If there are no values, then `1` is returned.
-fn multiply_fn(args: &[Val]) -> Result<Val> {
+fn multiply_proc(args: &[Val]) -> Result<Val> {
     ensure_numbers("*", args)?;
     let res = match args {
         [] => 1.into(),
@@ -203,7 +239,7 @@ fn multiply_fn(args: &[Val]) -> Result<Val> {
     Ok(res)
 }
 
-fn equalp_fn(args: &[Val]) -> Result<Val> {
+fn equalp_proc(args: &[Val]) -> Result<Val> {
     match args {
         [a, b] => Ok(Val::Bool(a == b)),
         _ => Err(anyhow!(

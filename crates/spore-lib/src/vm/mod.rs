@@ -33,7 +33,7 @@ impl Vm {
     }
 
     /// Register functions into the VM.
-    pub fn register_global_fn(
+    pub fn register_global_procs(
         &mut self,
         fns: impl IntoIterator<Item = Rc<NativeProc>>,
     ) -> Result<()> {

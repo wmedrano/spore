@@ -558,9 +558,29 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "colored",
+ "rustyline",
+ "spore-lib",
+ "spore-repl",
+]
+
+[[package]]
+name = "spore-lib"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "criterion",
  "pretty_assertions",
+]
+
+[[package]]
+name = "spore-repl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "colored",
+ "pretty_assertions",
  "rustyline",
+ "spore-lib",
 ]
 
 [[package]]
