@@ -24,16 +24,22 @@ impl<'a> Compiler<'a> {
     /// Compile `ast` onto the current context and return the callable `ByteCodeProc`.
     pub fn compile(self, name: impl Into<Option<String>>, ast: &Ast) -> Result<ByteCodeProc> {
         let mut ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-        for instruction in ir.instructions.iter_mut() {
-            self.inline_deref(instruction);
-        }
+	self.optimize(&mut ir);
         ir.to_bytecode()
     }
 
+    fn optimize(&self, code: &mut CodeBlock) {
+	for instruction in code.instructions.iter_mut() {
+	    self.inline_deref(instruction);
+	}
+    }
+
+    /// Mutates an `(deref identifier)` instruction into just its `value`. This affects `IrInstruction::DerefIdentifier`
+    /// as well as any possible subexpressions under `instruction`.
     fn inline_deref(&self, instruction: &mut IrInstruction) {
         match instruction {
-            IrInstruction::PushProc(cb) => {
-                for instruction in cb.instructions.iter_mut() {
+            IrInstruction::PushProc(proc) => {
+                for instruction in proc.instructions.iter_mut() {
                     self.inline_deref(instruction);
                 }
             }
@@ -58,7 +64,7 @@ impl<'a> Compiler<'a> {
                     self.inline_deref(expr);
                 }
             }
-            IrInstruction::SetGlobal { value, .. } => {
+            IrInstruction::Define { value, .. } => {
                 self.inline_deref(value);
             }
         }

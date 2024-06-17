@@ -14,7 +14,7 @@ pub fn parse_command(input: &str) -> (&str, &str) {
     let split_idx = iter_chars
         .next()
         .map(|(idx, _)| idx)
-        .unwrap_or(input.len() - 1);
+        .unwrap_or(input.len());
     let command = &input[..split_idx].trim();
     let expression = &input[split_idx..];
     (command, expression)
@@ -44,5 +44,10 @@ mod tests {
         );
         assert_eq!(parse_command(",custom (+ 1 2)"), (",custom", "(+ 1 2)",));
         assert_eq!(parse_command(", (+ 1 2)"), (",", "(+ 1 2)",));
+    }
+
+    #[test]
+    fn single_word_commands_are_parsed() {
+	assert_eq!(parse_command(",ast"), (",ast", ""));
     }
 }

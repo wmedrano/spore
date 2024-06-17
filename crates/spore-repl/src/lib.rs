@@ -107,9 +107,17 @@ impl Repl {
             }
             ",bytecode" => analyze_bytecode(&mut self.env, asts()?),
             ",trace" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, true),
+	    ",help" => {
+		println!(",tokens   - Print the parsed tokens for the expression(s).");
+		println!(",ast      - Print the ast for the expression(s).");
+		println!(",ir       - Print the intermediate representation for the expression(s).");
+		println!(",bytecode - Print the bytecode for the expression(s)");
+		println!(",trace    - Print the input and output of all function calls.");
+		println!(",help     - Print the help documentation.");
+	    },
             unknown => bail!(
-                "unknown command {unknown}, expected one if {:?}",
-                [",tokens", ",ast", ",ir", ",bytecode", ",trace"]
+                "unknown command \"{unknown}\", expected one if {:?}",
+                [",tokens", ",ast", ",ir", ",bytecode", ",trace", ",help"]
             ),
         }
         Ok(())

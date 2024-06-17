@@ -38,7 +38,7 @@ pub enum IrInstruction {
         false_expr: Option<Box<IrInstruction>>,
     },
     /// Set `sym` to `value` globally.
-    SetGlobal {
+    Define {
         sym: Symbol,
         value: Box<IrInstruction>,
     },
@@ -198,7 +198,7 @@ impl CodeBlock {
     }
 
     fn make_define_with_ir(&self, sym: Symbol, value: IrInstruction) -> IrInstruction {
-        IrInstruction::SetGlobal {
+        IrInstruction::Define {
             sym,
             value: Box::new(value),
         }
@@ -287,7 +287,7 @@ impl CodeBlock {
                     res.push(Instruction::Jump(true_bytecode.len()));
                     res.extend(true_bytecode);
                 }
-                IrInstruction::SetGlobal { sym, value } => {
+                IrInstruction::Define { sym, value } => {
                     res.extend(self.to_bytecode_instructions(std::iter::once(value.as_ref()))?);
                     res.push(Instruction::SetVal(sym.clone()));
                 }
