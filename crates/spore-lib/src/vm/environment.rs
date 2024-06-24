@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 
 use crate::parser::ast::Ast;
 
@@ -117,7 +117,7 @@ impl Environment {
         args: &[Val],
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
-        self.prepare(proc, args);
+        self.prepare(proc, args)?;
         debugger.start_eval(self);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
@@ -162,7 +162,11 @@ impl Environment {
         Ok(ret)
     }
 
-    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) {
+    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<()> {
+        ensure!(
+            proc.arg_count == args.len(),
+            "Wrong number of args to {proc}"
+        );
         self.frames.clear();
         self.stack.clear();
         self.stack.extend_from_slice(args);
@@ -170,6 +174,7 @@ impl Environment {
             bytecode: ByteCodeIter::from_proc(proc),
             stack_start_idx: 0,
         });
+        Ok(())
     }
 
     #[cold]
@@ -350,5 +355,28 @@ mod tests {
             .unwrap(),
             vec![Val::Void, 55.into()],
         );
+    }
+
+    #[test]
+    fn eval_with_wrong_number_of_args_returns_error() {
+        let mut env = Vm::new().build_env();
+        let proc_val = env
+            .eval_str("(lambda (x) (+ 1 x))")
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let proc = match proc_val {
+            Val::ByteCodeProc(bc) => bc,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            env.eval_bytecode(proc.clone(), &[Val::Int(1)]).unwrap(),
+            Val::Int(2)
+        );
+        assert!(env.eval_bytecode(proc.clone(), &[]).is_err());
+        assert!(env
+            .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)])
+            .is_err());
     }
 }
