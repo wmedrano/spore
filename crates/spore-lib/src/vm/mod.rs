@@ -1,9 +1,10 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use anyhow::Result;
 
 use self::{
     environment::Environment,
+    module::Module,
     types::{proc::native::NativeProc, symbol::Symbol, Val},
 };
 
@@ -11,22 +12,27 @@ pub mod compiler;
 pub mod debugger;
 pub mod environment;
 pub mod ir;
+pub mod module;
 pub mod types;
-
-type ValueRegistry = HashMap<Symbol, Val>;
 
 /// The spore virtual machine.
 // Note: You typically use the global instance of the VM by calling / `Vm::with_builtins`.
 #[derive(Clone)]
 pub struct Vm {
-    globals: ValueRegistry,
+    globals: Module,
+}
+
+impl Default for Vm {
+    fn default() -> Vm {
+        Vm::new()
+    }
 }
 
 impl Vm {
     /// Create a new `Vm` with all the builtins.
     pub fn new() -> Vm {
         let mut vm = Vm {
-            globals: ValueRegistry::new(),
+            globals: Module::new("%global%"),
         };
         crate::builtins::register_all(&mut vm);
         vm
@@ -46,18 +52,12 @@ impl Vm {
 
     /// Register a value globally.
     pub fn register_global_value(&mut self, sym: Symbol, val: Val) -> Result<()> {
-        let _old_value = self.globals.insert(sym, val);
+        self.globals.set(sym, val);
         Ok(())
     }
 
     /// Create a new environment that can evaluate bytecode.
     pub fn build_env(&self) -> Environment {
         Environment::new(self)
-    }
-}
-
-impl Default for Vm {
-    fn default() -> Vm {
-        Vm::new()
     }
 }

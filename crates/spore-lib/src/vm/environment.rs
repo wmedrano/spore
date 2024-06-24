@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use anyhow::{bail, Context, Result};
 
@@ -7,6 +7,7 @@ use crate::parser::ast::Ast;
 use super::{
     compiler::Compiler,
     debugger::Debugger,
+    module::Module,
     types::{
         instruction::Instruction,
         proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -19,7 +20,7 @@ use super::{
 /// An environment to evaluate bytecode on.
 pub struct Environment {
     /// The registry of global values.
-    globals: HashMap<Symbol, Val>,
+    global_module: Module,
     /// The processing stack.
     stack: Vec<Val>,
     /// Contains the current call frame. This includes the instructions that should be run and the
@@ -42,7 +43,7 @@ impl Environment {
     /// Create a new environment.
     pub fn new(vm: &Vm) -> Environment {
         Environment {
-            globals: vm.globals.clone(),
+            global_module: vm.globals.clone(),
             stack: Vec::with_capacity(4096),
             frames: Vec::with_capacity(128),
         }
@@ -76,15 +77,19 @@ impl Environment {
             .with_context(|| self.stack_trace())
     }
 
+    pub fn global_module(&mut self) -> &mut Module {
+        &mut self.global_module
+    }
+
     /// Set a symbol to a global value.
     pub fn set_global(&mut self, sym: Symbol, val: Val) {
         // TODO: Consider signaling when a symbol is being overwritten.
-        self.globals.insert(sym, val);
+        self.global_module.set(sym, val);
     }
 
     /// Gets the value of a global symbol or `None` if it is not defined.
     pub fn get_global(&self, sym: &Symbol) -> Option<Val> {
-        self.globals.get(sym).cloned()
+        self.global_module.get(sym)
     }
 
     /// The values on the current stack frame.
@@ -129,7 +134,7 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.globals.get(s) {
+                Instruction::GetVal(s) => match self.global_module.get(s) {
                     Some(v) => {
                         self.execute_push_val(v.clone());
                     }
@@ -257,7 +262,7 @@ impl Environment {
     fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
-        self.globals.insert(s, v);
+        self.global_module.set(s, v);
         Ok(())
     }
 }

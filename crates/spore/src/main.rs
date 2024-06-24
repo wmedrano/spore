@@ -1,6 +1,6 @@
-use spore_repl;
+use spore_repl::Repl;
 
 fn main() {
-    let mut repl = spore_repl::Repl::new().unwrap();
+    let mut repl = Repl::new().unwrap();
     repl.run().unwrap();
 }

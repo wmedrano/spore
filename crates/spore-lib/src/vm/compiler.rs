@@ -24,14 +24,14 @@ impl<'a> Compiler<'a> {
     /// Compile `ast` onto the current context and return the callable `ByteCodeProc`.
     pub fn compile(self, name: impl Into<Option<String>>, ast: &Ast) -> Result<ByteCodeProc> {
         let mut ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-	self.optimize(&mut ir);
+        self.optimize(&mut ir);
         ir.to_bytecode()
     }
 
     fn optimize(&self, code: &mut CodeBlock) {
-	for instruction in code.instructions.iter_mut() {
-	    self.inline_deref(instruction);
-	}
+        for instruction in code.instructions.iter_mut() {
+            self.inline_deref(instruction);
+        }
     }
 
     /// Mutates an `(deref identifier)` instruction into just its `value`. This affects `IrInstruction::DerefIdentifier`
