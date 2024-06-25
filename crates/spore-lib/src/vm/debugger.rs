@@ -139,7 +139,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new(&mut env)
+        let proc = Compiler::new()
             .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -166,7 +166,7 @@ mod tests {
         // This version of fib has a runtime error in its base case (when n <= 2).
         env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new(&mut env)
+        let proc = Compiler::new()
             .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();

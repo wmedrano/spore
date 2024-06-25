@@ -21,6 +21,8 @@ use super::{
 pub struct Environment {
     /// The registry of global values.
     global_module: Module,
+    /// The local module.
+    local_module: Module,
     /// The processing stack.
     stack: Vec<Val>,
     /// Contains the current call frame. This includes the instructions that should be run and the
@@ -44,6 +46,7 @@ impl Environment {
     pub fn new(vm: &Vm) -> Environment {
         Environment {
             global_module: vm.globals.clone(),
+            local_module: Module::new("%local%"),
             stack: Vec::with_capacity(4096),
             frames: Vec::with_capacity(128),
         }
@@ -55,7 +58,7 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = Compiler::new(self).compile("eval-str".to_string(), &ast)?;
+                let proc = Compiler::new().compile("eval-str".to_string(), &ast)?;
                 self.eval_bytecode(proc.into(), &[])
             })
             .collect()
@@ -77,18 +80,29 @@ impl Environment {
             .with_context(|| self.stack_trace())
     }
 
-    pub fn global_module(&mut self) -> &mut Module {
-        &mut self.global_module
+    /// Set a symbol in the module to the given value.
+    pub fn set_local(&mut self, sym: Symbol, val: Val) {
+        self.local_module.set(sym, val);
     }
 
-    /// Set a symbol to a global value.
-    pub fn set_global(&mut self, sym: Symbol, val: Val) {
-        // TODO: Consider signaling when a symbol is being overwritten.
-        self.global_module.set(sym, val);
-    }
-
-    /// Gets the value of a global symbol or `None` if it is not defined.
-    pub fn get_global(&self, sym: &Symbol) -> Option<Val> {
+    /// Gets the value of a symbol or `None` if it is not defined.
+    ///
+    /// This function searches for the symbol in two scopes:
+    /// 1. First, it checks the local module scope.
+    /// 2. If not found locally, it then checks the global module scope.
+    ///
+    /// # Arguments
+    ///
+    /// * `sym` - A reference to the Symbol to look up
+    ///
+    /// # Returns
+    ///
+    /// * `Some(Val)` if the symbol is found in either the local or global scope
+    /// * `None` if the symbol is not defined in either scope
+    pub fn get_val(&self, sym: &Symbol) -> Option<Val> {
+        if let Some(v) = self.local_module.get(sym) {
+            return Some(v);
+        }
         self.global_module.get(sym)
     }
 
@@ -134,12 +148,21 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.global_module.get(s) {
-                    Some(v) => {
-                        self.execute_push_val(v.clone());
+                Instruction::GetVal(s) => {
+                    let maybe_v = {
+                        if let Some(v) = self.local_module.get(s) {
+                            Some(v)
+                        } else {
+                            self.global_module.get(s)
+                        }
+                    };
+                    match maybe_v {
+                        Some(v) => {
+                            self.execute_push_val(v.clone());
+                        }
+                        None => bail!("{s} is not defined"),
                     }
-                    None => bail!("{s} is not defined"),
-                },
+                }
                 Instruction::JumpIf(n) => {
                     let n = *n;
                     self.execute_jump_if(n)?
