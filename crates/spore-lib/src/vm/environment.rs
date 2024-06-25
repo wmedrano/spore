@@ -7,7 +7,7 @@ use crate::parser::ast::Ast;
 use super::{
     compiler::Compiler,
     debugger::Debugger,
-    module::Module,
+    module::ModuleManager,
     types::{
         instruction::Instruction,
         proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -19,10 +19,8 @@ use super::{
 
 /// An environment to evaluate bytecode on.
 pub struct Environment {
-    /// The registry of global values.
-    global_module: Module,
-    /// The local module.
-    local_module: Module,
+    /// All the modules.
+    modules: ModuleManager,
     /// The processing stack.
     stack: Vec<Val>,
     /// Contains the current call frame. This includes the instructions that should be run and the
@@ -45,8 +43,7 @@ impl Environment {
     /// Create a new environment.
     pub fn new(vm: &Vm) -> Environment {
         Environment {
-            global_module: vm.globals.clone(),
-            local_module: Module::new("%local%"),
+            modules: ModuleManager::new(vm.globals.clone()),
             stack: Vec::with_capacity(4096),
             frames: Vec::with_capacity(128),
         }
@@ -80,30 +77,14 @@ impl Environment {
             .with_context(|| self.stack_trace())
     }
 
-    /// Set a symbol in the module to the given value.
-    pub fn set_local(&mut self, sym: Symbol, val: Val) {
-        self.local_module.set(sym, val);
+    /// Get all the modules.
+    pub fn modules(&mut self) -> &ModuleManager {
+        &self.modules
     }
 
-    /// Gets the value of a symbol or `None` if it is not defined.
-    ///
-    /// This function searches for the symbol in two scopes:
-    /// 1. First, it checks the local module scope.
-    /// 2. If not found locally, it then checks the global module scope.
-    ///
-    /// # Arguments
-    ///
-    /// * `sym` - A reference to the Symbol to look up
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Val)` if the symbol is found in either the local or global scope
-    /// * `None` if the symbol is not defined in either scope
-    pub fn get_val(&self, sym: &Symbol) -> Option<Val> {
-        if let Some(v) = self.local_module.get(sym) {
-            return Some(v);
-        }
-        self.global_module.get(sym)
+    /// Get all the modules.
+    pub fn modules_mut(&mut self) -> &mut ModuleManager {
+        &mut self.modules
     }
 
     /// The values on the current stack frame.
@@ -148,21 +129,12 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => {
-                    let maybe_v = {
-                        if let Some(v) = self.local_module.get(s) {
-                            Some(v)
-                        } else {
-                            self.global_module.get(s)
-                        }
-                    };
-                    match maybe_v {
-                        Some(v) => {
-                            self.execute_push_val(v.clone());
-                        }
-                        None => bail!("{s} is not defined"),
+                Instruction::GetVal(s) => match self.modules.get(s) {
+                    Some(v) => {
+                        self.execute_push_val(v.clone());
                     }
-                }
+                    None => bail!("{s} is not defined"),
+                },
                 Instruction::JumpIf(n) => {
                     let n = *n;
                     self.execute_jump_if(n)?
@@ -290,7 +262,7 @@ impl Environment {
     fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
-        self.global_module.set(s, v);
+        self.modules.set_local(s, v);
         Ok(())
     }
 }

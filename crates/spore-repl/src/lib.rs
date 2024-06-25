@@ -154,7 +154,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                env.set_local(sym.clone(), v.clone());
+                env.modules_mut().set_local(sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(errs) => {
@@ -190,7 +190,7 @@ fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeI
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) = env.get_val(&sym) {
+                if let Some(Val::ByteCodeProc(bc)) = env.modules().get(&sym) {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }

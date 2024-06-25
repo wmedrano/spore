@@ -32,7 +32,7 @@ impl Vm {
     /// Create a new `Vm` with all the builtins.
     pub fn new() -> Vm {
         let mut vm = Vm {
-            globals: Module::new("%global%"),
+            globals: Module::new(),
         };
         crate::builtins::register_all(&mut vm);
         vm

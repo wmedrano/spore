@@ -7,6 +7,7 @@ use crate::parser::ast::Ast;
 use super::{ir::CodeBlock, types::proc::bytecode::ByteCodeProc};
 
 /// Compiles Asts into `ByteCodeProc` objects.
+#[derive(Default)]
 pub struct Compiler;
 
 impl Compiler {
