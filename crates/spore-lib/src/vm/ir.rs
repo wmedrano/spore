@@ -2,7 +2,10 @@ use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{anyhow, bail, Result};
 
-use crate::parser::ast::{Ast, AstLeaf};
+use crate::parser::{
+    ast::{Ast, AstLeaf},
+    token::Token,
+};
 
 use super::types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Val};
 
@@ -77,6 +80,9 @@ impl CodeBlock {
                 AstLeaf::If => bail!(
                     "unexpected keyword if, did you mean (if <pred> <true-expr> <false-expr>)?"
                 ),
+                AstLeaf::Import => {
+                    bail!("unexpected keyword import, did you mean (import \"<file>\")")
+                }
                 AstLeaf::Lambda => {
                     bail!(
                         "unexpected keyword lambda, did you mean (lambda (<args>...) <exprs>...)?"
@@ -113,6 +119,12 @@ impl CodeBlock {
                                     bail!("if expression had too many args but expected only <pred>, <true-expr>, and optionally <false-expr>.");
                                 }
                                 self.make_if(pred, true_expr, false_expr)?
+                            }
+                            AstLeaf::Import => {
+                                let filepath = children.next().ok_or_else(|| {
+                                    anyhow!("expected expression of form (import \"filepath\")")
+                                })?;
+                                self.make_import(filepath)?
                             }
                             AstLeaf::Lambda => {
                                 let args = match children.next().and_then(Ast::as_identifier_list) {
@@ -189,6 +201,16 @@ impl CodeBlock {
                 true_expr,
                 false_expr: Some(Box::new(self.make_instruction(expr)?)),
             }),
+        }
+    }
+
+    fn make_import(&self, filepath: &Ast) -> Result<IrInstruction> {
+        match filepath {
+            Ast::Leaf(Token {
+                item: AstLeaf::String(filepath),
+                ..
+            }) => bail!("Import not supported. Unable to import {filepath}."),
+            _ => bail!("Expected expression of form (import \"<filepath>\")"),
         }
     }
 

@@ -12,6 +12,7 @@ pub enum Ast {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstLeaf {
     If,
+    Import,
     Lambda,
     Define,
     Identifier(String),
@@ -229,6 +230,7 @@ impl std::fmt::Display for AstLeaf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AstLeaf::If => write!(f, "<if>"),
+            AstLeaf::Import => write!(f, "<import>"),
             AstLeaf::Lambda => write!(f, "<lambda>"),
             AstLeaf::Define => write!(f, "<define>"),
             AstLeaf::Identifier(ident) => write!(f, "<identifier {ident}>"),
