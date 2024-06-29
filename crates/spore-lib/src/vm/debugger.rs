@@ -126,11 +126,12 @@ impl Debugger for TraceDebugger {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use crate::{
         parser::ast::Ast,
-        vm::{ir::CodeBlock, Vm},
+        vm::{
+            ir::{CodeBlock, CodeBlockArgs},
+            Vm,
+        },
     };
 
     use super::*;
@@ -143,8 +144,7 @@ mod tests {
             .unwrap();
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
-            let ir =
-                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
             ir.to_bytecode()
         }
         .unwrap();
@@ -173,8 +173,7 @@ mod tests {
             .unwrap();
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
-            let ir =
-                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
             ir.to_bytecode()
         }
         .unwrap();

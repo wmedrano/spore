@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use anyhow::{bail, ensure, Context, Result};
 
@@ -6,7 +6,7 @@ use crate::parser::ast::Ast;
 
 use super::{
     debugger::Debugger,
-    ir::CodeBlock,
+    ir::{CodeBlock, CodeBlockArgs},
     module::ModuleManager,
     types::{
         instruction::Instruction,
@@ -56,10 +56,12 @@ impl Environment {
             .into_iter()
             .map(|ast| {
                 let proc = {
-                    let name = "eval-str".to_string();
+                    let code_block_args = CodeBlockArgs {
+                        name: Some("eval-str".to_string()),
+                        ..CodeBlockArgs::default()
+                    };
                     let ast = &ast;
-                    let ir =
-                        CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
+                    let ir = CodeBlock::with_ast(code_block_args, std::iter::once(ast))?;
                     ir.to_bytecode()
                 }?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
@@ -222,6 +224,7 @@ impl Environment {
     }
 
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
+        ensure!(self.stack.len() >= n, "interpretter stack is corrupt, expected stack with minimum size {n} but found {stack_len}.", stack_len = self.stack.len());
         let proc_idx = self.stack.len() - n;
         let proc_val = std::mem::take(&mut self.stack[proc_idx]);
         match proc_val {

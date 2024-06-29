@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore_lib::parser::ast::Ast;
-use spore_lib::vm::compiler::Compiler;
+use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::proc::bytecode::ByteCodeIter;
 use spore_lib::vm::Vm;
@@ -15,10 +15,9 @@ pub fn eval_benchmarks(c: &mut Criterion) {
         env.eval_str(FIB_SRC).unwrap();
         let bytecode = Rc::new(
             {
-                let this = Compiler::new();
-                let name = "eval-benchmark".to_string();
                 let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
-                let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
+                let ir =
+                    CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
                 ir.to_bytecode()
             }
             .unwrap(),
@@ -31,12 +30,11 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     .bench_function("eval_add_20_elements", |b| {
         let bytecode = Rc::new(
             {
-                let this = Compiler::new();
-                let name = "eval-benchmark".to_string();
                 let ast: &Ast =
                     &Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)")
                         .unwrap()[0];
-                let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
+                let ir =
+                    CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
                 ir.to_bytecode()
             }
             .unwrap(),
@@ -52,10 +50,8 @@ pub fn eval_microbenchmarks(c: &mut Criterion) {
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
     let proc = Rc::new(
         {
-            let this = Compiler::new();
-            let name = "eval-benchmark".to_string();
             let ast = &ast;
-            let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
+            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
             ir.to_bytecode()
         }
         .unwrap(),
@@ -100,10 +96,8 @@ pub fn compile_benchmarks(c: &mut Criterion) {
     .bench_function("compile_fib", |b| {
         b.iter(|| {
             {
-                let this = Compiler::new();
-                let name = "compile-benchmark".to_string();
-                let ir =
-                    CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(fib_ast))?;
+                let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(fib_ast))
+                    .unwrap();
                 ir.to_bytecode()
             }
             .unwrap()
