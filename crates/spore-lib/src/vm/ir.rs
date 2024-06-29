@@ -70,28 +70,16 @@ impl CodeBlock {
         asts: impl Iterator<Item = &'a Ast>,
     ) -> Result<CodeBlock> {
         let allow_define = args.allow_define;
-        let mut cb = CodeBlock::new(args);
+        let mut cb = CodeBlock {
+            name: args.name,
+            arg_to_idx: args.arg_to_idx,
+            instructions: Vec::new(),
+        };
         for ast in asts {
             let instructions = cb.make_instruction(ast, allow_define)?;
             cb.instructions.push(instructions);
         }
         Ok(cb)
-    }
-
-    pub fn new(args: CodeBlockArgs) -> CodeBlock {
-        CodeBlock {
-            name: args.name,
-            arg_to_idx: args.arg_to_idx,
-            instructions: Vec::new(),
-        }
-    }
-
-    pub fn to_bytecode(&self) -> Result<ByteCodeProc> {
-        Ok(ByteCodeProc {
-            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
-            arg_count: self.arg_to_idx.len(),
-            bytecode: self.to_bytecode_instructions(self.instructions.iter())?,
-        })
     }
 
     fn make_instruction(&self, ast: &Ast, allow_define: bool) -> Result<IrInstruction> {
@@ -287,6 +275,18 @@ impl CodeBlock {
             args,
         })
     }
+}
+
+impl CodeBlock {
+    /// Convert the code block into bytecode.
+    pub fn to_bytecode(&self) -> Result<ByteCodeProc> {
+        Ok(ByteCodeProc {
+            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
+            arg_count: self.arg_to_idx.len(),
+            bytecode: self.to_bytecode_instructions(self.instructions.iter())?,
+        })
+    }
+
     fn to_bytecode_instructions<'a>(
         &self,
         irs: impl Iterator<Item = &'a IrInstruction>,
