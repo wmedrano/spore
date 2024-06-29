@@ -126,9 +126,11 @@ impl Debugger for TraceDebugger {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use crate::{
         parser::ast::Ast,
-        vm::{compiler::Compiler, Vm},
+        vm::{ir::CodeBlock, Vm},
     };
 
     use super::*;
@@ -139,9 +141,13 @@ mod tests {
         let mut env = Vm::new().build_env();
         env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new()
-            .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
-            .unwrap();
+        let proc = {
+            let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
+            let ir =
+                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            ir.to_bytecode()
+        }
+        .unwrap();
         let mut debugger = TraceDebugger::new();
         env.eval_bytecode(proc.into(), &[], &mut debugger).unwrap();
         assert_eq!(
@@ -165,9 +171,13 @@ mod tests {
         // This version of fib has a runtime error in its base case (when n <= 2).
         env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
             .unwrap();
-        let proc = Compiler::new()
-            .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
-            .unwrap();
+        let proc = {
+            let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
+            let ir =
+                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            ir.to_bytecode()
+        }
+        .unwrap();
         let mut debugger = TraceDebugger::new();
         assert!(env.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
         assert_eq!(

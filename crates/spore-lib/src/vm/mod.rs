@@ -8,7 +8,6 @@ use self::{
     types::{proc::native::NativeProc, symbol::Symbol, Val},
 };
 
-pub mod compiler;
 pub mod debugger;
 pub mod environment;
 pub mod ir;

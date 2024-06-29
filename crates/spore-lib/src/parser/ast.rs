@@ -209,8 +209,9 @@ impl Ast {
                 writeln!(f, "{}", l.item)
             }
             Ast::Tree(children) => {
-                for child in children.iter_with_comments() {
-                    child.display_with_depth(f, depth + 1)?;
+                let depths = std::iter::once(depth).chain(std::iter::repeat(depth + 1));
+                for (child, depth) in children.iter_with_comments().zip(depths) {
+                    child.display_with_depth(f, depth)?;
                 }
                 Ok(())
             }
@@ -491,6 +492,22 @@ mod tests {
                     range: 13..22,
                 }),
             ]
+        );
+    }
+
+    #[test]
+    fn ast_display() {
+        let ast = Ast::from_sexp_str("(* (+ 1 2) (- 3 4))").unwrap();
+        assert_eq!(
+            ast.first().unwrap().to_string(),
+            r#"<identifier *>
+  <identifier +>
+    <int 1>
+    <int 2>
+  <identifier ->
+    <int 3>
+    <int 4>
+"#
         );
     }
 }

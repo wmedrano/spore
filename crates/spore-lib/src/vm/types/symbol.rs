@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{borrow::Borrow, rc::Rc};
 
 /// A symbol.
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
@@ -7,6 +7,18 @@ pub struct Symbol(pub Rc<String>);
 impl Symbol {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+}
+
+impl Borrow<str> for Symbol {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl Borrow<str> for &Symbol {
+    fn borrow(&self) -> &str {
+        self.as_str()
     }
 }
 

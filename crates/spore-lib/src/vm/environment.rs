@@ -1,12 +1,12 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{bail, ensure, Context, Result};
 
 use crate::parser::ast::Ast;
 
 use super::{
-    compiler::Compiler,
     debugger::Debugger,
+    ir::CodeBlock,
     module::ModuleManager,
     types::{
         instruction::Instruction,
@@ -55,7 +55,13 @@ impl Environment {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = Compiler::new().compile("eval-str".to_string(), &ast)?;
+                let proc = {
+                    let name = "eval-str".to_string();
+                    let ast = &ast;
+                    let ir =
+                        CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
+                    ir.to_bytecode()
+                }?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()

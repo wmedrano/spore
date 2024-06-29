@@ -245,7 +245,7 @@ impl CodeBlock {
         })
     }
 
-    pub fn to_bytecode_instructions<'a>(
+    fn to_bytecode_instructions<'a>(
         &self,
         irs: impl Iterator<Item = &'a IrInstruction>,
     ) -> Result<Vec<Instruction>> {

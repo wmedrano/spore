@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use anyhow::{ensure, Result};
+use std::{borrow::Borrow, collections::HashMap};
 
 use super::types::{symbol::Symbol, Val};
 
@@ -13,10 +11,8 @@ use super::types::{symbol::Symbol, Val};
 pub struct ModuleManager {
     /// The global module, accessible from all other modules.
     global: Module,
-    /// The name of the currently active module.
-    current_module: String,
-    /// A map of module names to their corresponding Module instances.
-    modules: HashMap<String, Module>,
+    /// The set of modules.
+    modules: Vec<Module>,
 }
 
 impl ModuleManager {
@@ -33,38 +29,11 @@ impl ModuleManager {
     ///
     /// A new ModuleManager instance.
     pub fn new(global: Module) -> ModuleManager {
+        let local_module = Module::new();
         ModuleManager {
             global,
-            current_module: "".to_string(),
-            modules: std::iter::once(("".to_string(), Module::new())).collect(),
+            modules: vec![local_module],
         }
-    }
-
-    pub fn contains_module(&self, module: &str) -> bool {
-        self.modules.contains_key(module)
-    }
-
-    /// Set the current module.
-    pub fn set_current_module(&mut self, module: String) -> Result<()> {
-        ensure!(
-            self.modules.contains_key(&module),
-            "{module} is not defined."
-        );
-        self.current_module = module;
-        Ok(())
-    }
-
-    /// Get the current module.
-    pub fn current_module(&self) -> &str {
-        &self.current_module
-    }
-
-    /// Add a new module to self. If the module exitsts, then it is reset.
-    pub fn add_module(&mut self, name: impl Into<String>) -> Result<()> {
-        let name = name.into();
-        ensure!(!name.is_empty(), "Module name must not be empty.");
-        self.modules.insert(name, Module::new());
-        Ok(())
     }
 
     /// Retrieves a value associated with a symbol from the current module or global module.
@@ -78,28 +47,12 @@ impl ModuleManager {
     /// # Returns
     ///
     /// An Option<Val> containing the value if found, or None if the symbol is not present in either module.
-    pub fn get(&self, sym: &Symbol) -> Option<Val> {
-        match self.modules.get(&self.current_module).unwrap().get(sym) {
-            Some(v) => Some(v),
-            None => self.global.get(sym),
+    pub fn get(&self, sym: impl Borrow<str>) -> Option<Val> {
+        let sym = sym.borrow();
+        if let Some(v) = self.modules.first().and_then(|m| m.get(sym)) {
+            return Some(v);
         }
-    }
-
-    /// Retrieves a value associated with a symbol from a specified module.
-    ///
-    /// # Arguments
-    ///
-    /// * `module` - A string slice representing the name of the module to search in.
-    /// * `sym` - A reference to the Symbol to look up.
-    ///
-    /// # Returns
-    ///
-    /// An Option<Val> containing the value if found, or None if either:
-    /// - The specified module does not exist.
-    /// - The symbol is not present in the specified module.
-    pub fn get_qualified(&self, module: &str, sym: &Symbol) -> Option<Val> {
-        let module = self.modules.get(module)?;
-        module.get(sym)
+        self.global.get(sym)
     }
 
     /// Sets a value for a symbol in the current local module.
@@ -113,10 +66,8 @@ impl ModuleManager {
     ///
     /// Panics if the current module does not exist in the modules HashMap.
     pub fn set_local(&mut self, sym: Symbol, val: Val) {
-        self.modules
-            .get_mut(&self.current_module)
-            .unwrap()
-            .set(sym, val)
+        let module = self.modules.first_mut().unwrap();
+        module.set(sym, val)
     }
 }
 
@@ -160,8 +111,8 @@ impl Module {
     ///
     /// An `Option<Val>` that is `Some(Val)` if the symbol exists in the module,
     /// and `None` if the symbol does not exist.
-    pub fn get(&self, sym: &Symbol) -> Option<Val> {
-        self.values.get(sym).cloned()
+    pub fn get(&self, sym: impl Borrow<str>) -> Option<Val> {
+        self.values.get(sym.borrow()).cloned()
     }
 
     /// Sets the value associated with a given symbol.

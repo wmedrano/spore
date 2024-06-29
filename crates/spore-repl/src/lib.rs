@@ -6,7 +6,6 @@ use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use spore_lib::parser::ast::{Ast, ParseAstError};
-use spore_lib::vm::compiler::Compiler;
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::environment::Environment;
 use spore_lib::vm::ir::CodeBlock;
@@ -142,12 +141,17 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
         } else {
             None
         };
-        let res = Compiler::new()
-            .compile("repl-eval".to_string(), &ast)
-            .and_then(|bc| match maybe_trace.as_mut() {
-                Some(t) => env.eval_bytecode(bc.into(), &[], t),
-                None => env.eval_bytecode(bc.into(), &[], &mut ()),
-            });
+        let res = {
+            let name = "repl-eval".to_string();
+            let ast = &ast;
+            let ir =
+                CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            ir.to_bytecode()
+        }
+        .and_then(|bc| match maybe_trace.as_mut() {
+            Some(t) => env.eval_bytecode(bc.into(), &[], t),
+            None => env.eval_bytecode(bc.into(), &[], &mut ()),
+        });
         if let Some(trace) = maybe_trace {
             println!("{trace}");
         }
@@ -170,7 +174,13 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
 
 fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match Compiler::new().compile("repl-analyze-bytecode".to_string(), &ast) {
+        let proc = match {
+            let name = "repl-analyze-bytecode".to_string();
+            let ast = &ast;
+            let ir =
+                CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast)).unwrap();
+            ir.to_bytecode()
+        } {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
