@@ -21,7 +21,10 @@ pub fn eval_benchmarks(c: &mut Criterion) {
                 )
                 .unwrap(),
         );
-        b.iter(|| env.eval_bytecode(black_box(bytecode.clone()), &[]).unwrap())
+        b.iter(|| {
+            env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
+                .unwrap()
+        })
     })
     .bench_function("eval_add_20_elements", |b| {
         let bytecode = Rc::new(
@@ -33,7 +36,10 @@ pub fn eval_benchmarks(c: &mut Criterion) {
                 )
                 .unwrap(),
         );
-        b.iter(|| env.eval_bytecode(black_box(bytecode.clone()), &[]).unwrap())
+        b.iter(|| {
+            env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
+                .unwrap()
+        })
     });
 }
 

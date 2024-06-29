@@ -143,8 +143,7 @@ mod tests {
             .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
-        env.eval_with_debugger(proc.into(), &[], &mut debugger)
-            .unwrap();
+        env.eval_bytecode(proc.into(), &[], &mut debugger).unwrap();
         assert_eq!(
             debugger.to_string(),
             r#"(<proc _>) => 5
@@ -170,9 +169,7 @@ mod tests {
             .compile(None, &Ast::from_sexp_str("(fib 5)").unwrap()[0])
             .unwrap();
         let mut debugger = TraceDebugger::new();
-        assert!(env
-            .eval_with_debugger(proc.into(), &[], &mut debugger)
-            .is_err());
+        assert!(env.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
         assert_eq!(
             debugger.to_string(),
             r#"(<proc _>) => _

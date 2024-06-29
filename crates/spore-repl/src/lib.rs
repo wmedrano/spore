@@ -28,6 +28,7 @@ pub struct Repl {
 }
 
 impl Repl {
+    /// Create a new repl.
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         Ok(Repl {
@@ -74,7 +75,8 @@ impl Repl {
         Ok(())
     }
 
-    pub fn eval_input(&mut self) -> Result<()> {
+    /// Evaluate the current input.
+    fn eval_input(&mut self) -> Result<()> {
         let input = std::mem::take(&mut self.repl_input);
         let (cmd, expr) = command::parse_command(input.as_str());
         let asts = || match Ast::from_sexp_str(expr) {
@@ -143,8 +145,8 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
         let res = Compiler::new()
             .compile("repl-eval".to_string(), &ast)
             .and_then(|bc| match maybe_trace.as_mut() {
-                Some(t) => env.eval_with_debugger(bc.into(), &[], t),
-                None => env.eval_bytecode(bc.into(), &[]),
+                Some(t) => env.eval_bytecode(bc.into(), &[], t),
+                None => env.eval_bytecode(bc.into(), &[], &mut ()),
             });
         if let Some(trace) = maybe_trace {
             println!("{trace}");

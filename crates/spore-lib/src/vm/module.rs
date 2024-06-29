@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use anyhow::{ensure, Result};
+
 use super::types::{symbol::Symbol, Val};
 
 /// Manages multiple modules and provides access to global and local variables.
@@ -38,6 +40,33 @@ impl ModuleManager {
         }
     }
 
+    pub fn contains_module(&self, module: &str) -> bool {
+        self.modules.contains_key(module)
+    }
+
+    /// Set the current module.
+    pub fn set_current_module(&mut self, module: String) -> Result<()> {
+        ensure!(
+            self.modules.contains_key(&module),
+            "{module} is not defined."
+        );
+        self.current_module = module;
+        Ok(())
+    }
+
+    /// Get the current module.
+    pub fn current_module(&self) -> &str {
+        &self.current_module
+    }
+
+    /// Add a new module to self. If the module exitsts, then it is reset.
+    pub fn add_module(&mut self, name: impl Into<String>) -> Result<()> {
+        let name = name.into();
+        ensure!(!name.is_empty(), "Module name must not be empty.");
+        self.modules.insert(name, Module::new());
+        Ok(())
+    }
+
     /// Retrieves a value associated with a symbol from the current module or global module.
     ///
     /// First checks the current module for the symbol. If not found, falls back to the global module.
@@ -54,6 +83,23 @@ impl ModuleManager {
             Some(v) => Some(v),
             None => self.global.get(sym),
         }
+    }
+
+    /// Retrieves a value associated with a symbol from a specified module.
+    ///
+    /// # Arguments
+    ///
+    /// * `module` - A string slice representing the name of the module to search in.
+    /// * `sym` - A reference to the Symbol to look up.
+    ///
+    /// # Returns
+    ///
+    /// An Option<Val> containing the value if found, or None if either:
+    /// - The specified module does not exist.
+    /// - The symbol is not present in the specified module.
+    pub fn get_qualified(&self, module: &str, sym: &Symbol) -> Option<Val> {
+        let module = self.modules.get(module)?;
+        module.get(sym)
     }
 
     /// Sets a value for a symbol in the current local module.

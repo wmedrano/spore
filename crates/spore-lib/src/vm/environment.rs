@@ -56,18 +56,13 @@ impl Environment {
             .into_iter()
             .map(|ast| {
                 let proc = Compiler::new().compile("eval-str".to_string(), &ast)?;
-                self.eval_bytecode(proc.into(), &[])
+                self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()
     }
 
-    /// Evaluate a bytecode procedure with the given arguments.
-    pub fn eval_bytecode(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<Val> {
-        self.eval_with_debugger(proc, args, &mut ())
-    }
-
     /// Evaluate a bytecode procedure with the given arguments and the given debugger.
-    pub fn eval_with_debugger(
+    pub fn eval_bytecode(
         &mut self,
         proc: Rc<ByteCodeProc>,
         args: &[Val],
@@ -143,12 +138,12 @@ impl Environment {
                     let n = *n;
                     self.execute_jump(n)
                 }
-                Instruction::Return => {
-                    self.pop_frame(debugger)?;
-                }
                 Instruction::SetVal(s) => {
                     let s = s.clone();
                     self.execute_set_val(s, debugger)?
+                }
+                Instruction::Return => {
+                    self.pop_frame(debugger)?;
                 }
             }
         }
@@ -366,12 +361,13 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!(
-            env.eval_bytecode(proc.clone(), &[Val::Int(1)]).unwrap(),
+            env.eval_bytecode(proc.clone(), &[Val::Int(1)], &mut ())
+                .unwrap(),
             Val::Int(2)
         );
-        assert!(env.eval_bytecode(proc.clone(), &[]).is_err());
+        assert!(env.eval_bytecode(proc.clone(), &[], &mut ()).is_err());
         assert!(env
-            .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)])
+            .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)], &mut ())
             .is_err());
     }
 }

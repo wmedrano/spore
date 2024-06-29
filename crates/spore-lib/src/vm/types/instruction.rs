@@ -14,10 +14,10 @@ pub enum Instruction {
     JumpIf(usize),
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
-    /// Pops the current frame and returns the value at the top of the current frame stack.
-    Return,
     /// Set the value of Symbol to be what is at the top of the stack.
     SetVal(Symbol),
+    /// Pops the current frame and returns the value at the top of the current frame stack.
+    Return,
 }
 
 impl std::fmt::Display for Instruction {
@@ -27,9 +27,9 @@ impl std::fmt::Display for Instruction {
             Instruction::Eval(n) => write!(f, "evaluate last {n}"),
             Instruction::JumpIf(n) => write!(f, "jump {n} if true"),
             Instruction::Jump(n) => write!(f, "jump {n}"),
+            Instruction::GetArg(n) => write!(f, "get arg {n}"),
             Instruction::GetVal(s) => write!(f, "get value for {s}"),
             Instruction::SetVal(s) => write!(f, "set value for {s}"),
-            Instruction::GetArg(n) => write!(f, "get arg {n}"),
             Instruction::Return => write!(f, "return"),
         }
     }
