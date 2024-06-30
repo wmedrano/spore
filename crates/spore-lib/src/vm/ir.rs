@@ -319,6 +319,7 @@ impl CodeBlock {
                     match self.arg_to_idx.get(ident.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
                         None => res.push(Instruction::GetVal(Box::new(ValRef {
+                            module: module.clone(),
                             symbol: ident.clone(),
                         }))),
                     }

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::vm::module::ModuleSource;
+
 use super::{symbol::Symbol, Val};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,6 +28,7 @@ pub enum Instruction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValRef {
+    pub module: ModuleSource,
     pub symbol: String,
 }
 
@@ -47,7 +50,7 @@ impl std::fmt::Display for Instruction {
 
 impl std::fmt::Display for ValRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{sym}", sym = self.symbol)
+        write!(f, "{mod}/{sym}", mod=self.module, sym = self.symbol)
     }
 }
 
