@@ -36,7 +36,7 @@ pub enum IrInstruction {
     /// Push a procedure value to the stack.
     PushProc(CodeBlock),
     /// Dereference an identifier and push it to the stack.
-    DerefIdentifier(String),
+    DerefIdentifier { symbol: String },
     /// Call a procedure with the given arguments.
     CallProc {
         proc: Box<IrInstruction>,
@@ -120,7 +120,9 @@ impl CodeBlock {
                 AstLeaf::Define => {
                     bail!("unexpected keyword define, did you mean (define <symbol> <value-expr>)?")
                 }
-                AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier(ident.clone()),
+                AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier {
+                    symbol: ident.clone(),
+                },
                 AstLeaf::Symbol(sym) => IrInstruction::PushConst(Symbol::from(sym.clone()).into()),
                 AstLeaf::String(s) => IrInstruction::PushConst(Val::String(Rc::new(s.clone()))),
                 AstLeaf::Float(f) => IrInstruction::PushConst(Val::Float(*f)),
@@ -189,7 +191,9 @@ impl CodeBlock {
                             }
                         }
                         AstLeaf::Identifier(ident) => self.make_proc_call(
-                            IrInstruction::DerefIdentifier(ident.clone()),
+                            IrInstruction::DerefIdentifier {
+                                symbol: ident.clone(),
+                            },
                             children,
                         )?,
                         AstLeaf::Symbol(_)
@@ -304,7 +308,7 @@ impl CodeBlock {
 impl CodeBlock {
     fn to_bytecode_instructions<'a>(
         &self,
-        module: &ModuleSource,
+        default_module: &ModuleSource,
         irs: impl Iterator<Item = &'a IrInstruction>,
     ) -> Result<Vec<Instruction>> {
         let mut res: Vec<Instruction> = Vec::new();
@@ -312,24 +316,27 @@ impl CodeBlock {
             match ir {
                 IrInstruction::PushConst(val) => res.push(Instruction::PushVal(val.clone())),
                 IrInstruction::PushProc(codeblock) => {
-                    let bytecode = codeblock.to_bytecode(module.clone())?;
+                    let bytecode = codeblock.to_bytecode(default_module.clone())?;
                     res.push(Instruction::PushVal(Val::ByteCodeProc(Rc::new(bytecode))));
                 }
-                IrInstruction::DerefIdentifier(ident) => {
-                    match self.arg_to_idx.get(ident.as_str()) {
+                IrInstruction::DerefIdentifier { symbol } => {
+                    match self.arg_to_idx.get(symbol.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
                         None => res.push(Instruction::GetVal(Box::new(ValRef {
-                            module: module.clone(),
-                            symbol: ident.clone(),
+                            module: default_module.clone(),
+                            symbol: symbol.clone(),
                         }))),
                     }
                 }
                 IrInstruction::CallProc { proc, args } => {
-                    res.extend(
-                        self.to_bytecode_instructions(module, std::iter::once(proc.as_ref()))?,
-                    );
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(proc.as_ref()),
+                    )?);
                     for arg in args {
-                        res.extend(self.to_bytecode_instructions(module, std::iter::once(arg))?);
+                        res.extend(
+                            self.to_bytecode_instructions(default_module, std::iter::once(arg))?,
+                        );
                     }
                     res.push(Instruction::Eval(args.len() + 1));
                 }
@@ -338,15 +345,19 @@ impl CodeBlock {
                     true_expr,
                     false_expr,
                 } => {
-                    res.extend(
-                        self.to_bytecode_instructions(module, std::iter::once(pred.as_ref()))?,
-                    );
-                    let true_bytecode =
-                        self.to_bytecode_instructions(module, std::iter::once(true_expr.as_ref()))?;
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(pred.as_ref()),
+                    )?);
+                    let true_bytecode = self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(true_expr.as_ref()),
+                    )?;
                     let false_bytecode = match false_expr {
-                        Some(ir) => {
-                            self.to_bytecode_instructions(module, std::iter::once(ir.as_ref()))?
-                        }
+                        Some(ir) => self.to_bytecode_instructions(
+                            default_module,
+                            std::iter::once(ir.as_ref()),
+                        )?,
                         None => vec![Instruction::PushVal(Val::Void)],
                     };
                     res.push(Instruction::JumpIf(false_bytecode.len() + 1));
@@ -355,13 +366,14 @@ impl CodeBlock {
                     res.extend(true_bytecode);
                 }
                 IrInstruction::Define { sym, value } => {
-                    res.extend(
-                        self.to_bytecode_instructions(module, std::iter::once(value.as_ref()))?,
-                    );
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(value.as_ref()),
+                    )?);
                     res.push(Instruction::SetVal(sym.clone()));
                 }
                 IrInstruction::Import { filepath } => {
-                    res.push(Instruction::LoadModule(Box::new(filepath.clone())));
+                    res.push(Instruction::ImportModule(Box::new(filepath.clone())));
                 }
             };
         }

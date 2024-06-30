@@ -52,6 +52,14 @@ impl ModuleManager {
         self.modules.push(module);
     }
 
+    pub fn get_mut(&mut self, module: &ModuleSource) -> Option<&mut Module> {
+        if *module == ModuleSource::Global {
+            Some(&mut self.global)
+        } else {
+            self.modules.iter_mut().find(|m| m.source == *module)
+        }
+    }
+
     /// Retrieves a value associated with a symbol from the current module or global module.
     ///
     /// First checks the current module for the symbol. If not found, falls back to the global module.
@@ -124,6 +132,8 @@ pub enum ModuleSource {
 pub struct Module {
     /// The source of the module.
     source: ModuleSource,
+    /// Aliases to other modules.
+    module_aliases: HashMap<String, ModuleSource>,
     /// A map of symbols to their corresponding values.
     values: HashMap<Symbol, Val>,
 }
@@ -133,6 +143,7 @@ impl Module {
     pub fn new(source: ModuleSource) -> Module {
         Module {
             source,
+            module_aliases: HashMap::new(),
             values: HashMap::new(),
         }
     }
@@ -140,6 +151,14 @@ impl Module {
     /// Get the source of the module.
     pub fn source(&self) -> &ModuleSource {
         &self.source
+    }
+
+    pub fn aliases(&self) -> &HashMap<String, ModuleSource> {
+        &self.module_aliases
+    }
+
+    pub fn set_alias(&mut self, alias: String, module: ModuleSource) {
+        self.module_aliases.insert(alias, module);
     }
 
     /// Retrieves the value associated with a given symbol.
@@ -174,7 +193,12 @@ impl std::fmt::Display for ModuleSource {
         match self {
             ModuleSource::Global => write!(f, "%global%"),
             ModuleSource::Virtual(v) => write!(f, "%virtual%/{v}"),
-            ModuleSource::File(p) => write!(f, "{p:?}"),
+            ModuleSource::File(p) => match p.to_str() {
+                Some(s) => write!(f, "{s}"),
+                None => {
+                    write!(f, "{}", p.to_string_lossy())
+                }
+            },
         }
     }
 }

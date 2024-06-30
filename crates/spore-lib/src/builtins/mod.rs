@@ -17,6 +17,7 @@ pub fn register_all(vm: &mut Vm) {
         NativeProc::new("list?", listp_proc),
         NativeProc::new("first", first_proc),
         NativeProc::new("rest", rest_proc),
+        NativeProc::new("nth", nth_proc),
         NativeProc::new("len", len_proc),
         NativeProc::new("substring", substring_proc),
         NativeProc::new("string-concat", string_concat_proc),
@@ -90,6 +91,25 @@ fn rest_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
         },
         _ => bail!(
             "<proc rest> expected a single argument but found {}",
+            args.len()
+        ),
+    }
+}
+
+fn nth_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    match args {
+        [lst, nth] => {
+            let lst = lst.try_slice()?;
+            let nth = nth.try_usize()?;
+            lst.get(nth).cloned().ok_or_else(|| {
+                anyhow!(
+                    "<proc nth> failed to get element {nth} from list of length {len}",
+                    len = lst.len()
+                )
+            })
+        }
+        _ => bail!(
+            "<proc nth> expected an argument for list and nth but found {} arguments",
             args.len()
         ),
     }

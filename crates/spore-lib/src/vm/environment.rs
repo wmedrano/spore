@@ -1,6 +1,6 @@
 use std::{path::PathBuf, rc::Rc};
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 
 use crate::parser::ast::Ast;
 
@@ -148,7 +148,7 @@ impl Environment {
                     let module = frame.bytecode.inner().module.clone();
                     self.execute_set_val(&module, s, debugger)?
                 }
-                Instruction::LoadModule(filepath) => {
+                Instruction::ImportModule(filepath) => {
                     let filepath = filepath.as_ref().clone();
                     self.load_module(filepath, debugger)?;
                 }
@@ -275,6 +275,16 @@ impl Environment {
 
     fn load_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
         let module_source = ModuleSource::File(filepath.clone());
+        if let Some(frame) = self.frames.last_mut() {
+            if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
+                let alias = filepath
+                    .file_stem()
+                    .ok_or_else(|| anyhow!("Could not parse alias for filename {filepath:?}"))?
+                    .to_string_lossy()
+                    .to_string();
+                current_module.set_alias(alias, module_source.clone());
+            }
+        }
         if self.modules.has_module(&module_source) {
             return Ok(());
         }
