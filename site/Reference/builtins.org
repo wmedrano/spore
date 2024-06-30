@@ -237,13 +237,13 @@ element of a list.
 :CUSTOM_ID: Misc-3g1ah5a0e7k0
 :END:
 
-** %no-op
+** do
 :PROPERTIES:
-:CUSTOM_ID: Miscnoop-zxbl4sa0e7k0
+:CUSTOM_ID: Miscdo-zxbl4sa0e7k0
 :END:
 
-~%no-op~ takes any number of arguments and returns ~void~.
+~do~ takes any number of arguments and returns the last value.
 
 #+BEGIN_SRC spore
-  (%no-op 1 2 3) ;; void
+  (do 1 2 3) ;; 3
 #+END_SRC

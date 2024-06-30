@@ -10,7 +10,7 @@ use crate::vm::{
 /// Register all builtin functions.
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_procs([
-        NativeProc::new("%no-op", no_op_proc),
+        NativeProc::new("do", do_proc),
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
         NativeProc::new("first", first_proc),
@@ -121,9 +121,8 @@ fn string_concat_proc(args: &[Val]) -> Result<Val> {
     Ok(Val::String(Rc::new(res)))
 }
 
-fn no_op_proc(args: &[Val]) -> Result<Val> {
-    let res = args.last().cloned().unwrap_or(Val::Void);
-    Ok(res)
+fn do_proc(args: &[Val]) -> Result<Val> {
+    Ok(args.last().cloned().unwrap_or(Val::Void))
 }
 
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.
