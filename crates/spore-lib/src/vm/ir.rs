@@ -9,7 +9,12 @@ use crate::parser::{
 
 use super::{
     module::ModuleSource,
-    types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Val},
+    types::{
+        instruction::{Instruction, ValRef},
+        proc::bytecode::ByteCodeProc,
+        symbol::Symbol,
+        Val,
+    },
 };
 
 /// Contains a set of high level instructions to execute. Can be converted to lower level
@@ -313,7 +318,9 @@ impl CodeBlock {
                 IrInstruction::DerefIdentifier(ident) => {
                     match self.arg_to_idx.get(ident.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
-                        None => res.push(Instruction::GetVal(Symbol::from(ident.as_str()))),
+                        None => res.push(Instruction::GetVal(Box::new(ValRef {
+                            symbol: ident.clone(),
+                        }))),
                     }
                 }
                 IrInstruction::CallProc { proc, args } => {

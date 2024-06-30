@@ -242,7 +242,8 @@ fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeI
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) = env.modules().get(&REPL_MODULE, &sym) {
+                let maybe_val = env.modules().get(&REPL_MODULE, sym.symbol.as_str());
+                if let Some(Val::ByteCodeProc(bc)) = maybe_val {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }

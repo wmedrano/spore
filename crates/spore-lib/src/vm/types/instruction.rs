@@ -11,7 +11,7 @@ pub enum Instruction {
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
     /// Get the value of the given symbol from the environment and push it on the stack.
-    GetVal(Symbol),
+    GetVal(Box<ValRef>),
     /// Jump a number of bytecodes if the result at the top of the stack is false.
     JumpIf(usize),
     /// Jump ahead by the given number of bytecode instructions.
@@ -22,6 +22,11 @@ pub enum Instruction {
     LoadModule(Box<PathBuf>),
     /// Pops the current frame and returns the value at the top of the current frame stack.
     Return,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValRef {
+    pub symbol: String,
 }
 
 impl std::fmt::Display for Instruction {
@@ -37,6 +42,12 @@ impl std::fmt::Display for Instruction {
             Instruction::LoadModule(filepath) => write!(f, "load module {filepath:?}"),
             Instruction::Return => write!(f, "return"),
         }
+    }
+}
+
+impl std::fmt::Display for ValRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{sym}", sym = self.symbol)
     }
 }
 

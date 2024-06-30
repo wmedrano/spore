@@ -129,7 +129,7 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.modules.get(&proc.module, s) {
+                Instruction::GetVal(s) => match self.modules.get(&proc.module, s.symbol.as_str()) {
                     Some(v) => {
                         self.execute_push_val(v.clone());
                     }
