@@ -8,7 +8,7 @@ use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::environment::Environment;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
-use spore_lib::vm::module::ModuleSource;
+use spore_lib::vm::module::{Module, ModuleSource};
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -34,8 +34,10 @@ impl Repl {
     /// Creates a new Repl instance.
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
+        let mut env = Vm::new().build_env();
+        env.modules_mut().add_module(Module::new(REPL_MODULE));
         Ok(Repl {
-            env: Vm::new().build_env(),
+            env,
             editor,
             repl_input: String::new(),
             expression_count: 0,

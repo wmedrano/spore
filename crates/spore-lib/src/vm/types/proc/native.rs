@@ -2,9 +2,9 @@ use std::rc::Rc;
 
 use anyhow::Result;
 
-use crate::vm::types::Val;
+use crate::vm::{module::ModuleManager, types::Val};
 
-type NativeProcFn = dyn 'static + Send + Sync + Fn(&[Val]) -> Result<Val>;
+type NativeProcFn = dyn 'static + Send + Sync + Fn(&ModuleManager, &[Val]) -> Result<Val>;
 
 pub struct NativeProc {
     name: &'static str,
@@ -13,7 +13,7 @@ pub struct NativeProc {
 
 impl NativeProc {
     /// Create a new native procedure from a Rust function.
-    pub fn new<P: 'static + Send + Sync + Fn(&[Val]) -> Result<Val>>(
+    pub fn new<P: 'static + Send + Sync + Fn(&ModuleManager, &[Val]) -> Result<Val>>(
         name: &'static str,
         proc: P,
     ) -> Rc<NativeProc> {
@@ -27,8 +27,8 @@ impl NativeProc {
     }
 
     /// Evaluate the native procedure.
-    pub fn eval(&self, args: &[Val]) -> Result<Val> {
-        (self.f)(args)
+    pub fn eval(&self, modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+        (self.f)(modules, args)
     }
 }
 

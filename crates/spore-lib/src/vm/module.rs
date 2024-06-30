@@ -35,6 +35,23 @@ impl ModuleManager {
         }
     }
 
+    /// Iterate over all the modules.
+    pub fn iter(&self) -> impl Iterator<Item = &Module> {
+        std::iter::once(&self.global).chain(self.modules.iter())
+    }
+
+    /// Adds the given module to the `ModuleManager`. If the module already exists, then it is replaced.
+    pub fn add_module(&mut self, module: Module) {
+        assert_ne!(module.source, ModuleSource::Global);
+        for existing_module in self.modules.iter_mut() {
+            if existing_module.source == module.source {
+                *existing_module = module;
+                return;
+            }
+        }
+        self.modules.push(module);
+    }
+
     /// Retrieves a value associated with a symbol from the current module or global module.
     ///
     /// First checks the current module for the symbol. If not found, falls back to the global module.
@@ -88,6 +105,17 @@ impl ModuleManager {
     }
 }
 
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
+pub enum ModuleSource {
+    /// The global module containing all the builtins.
+    #[default]
+    Global,
+    /// A module that is not backed by any file.
+    Virtual(&'static str),
+    /// A module that is backed by a file.
+    File(PathBuf),
+}
+
 /// A module that stores values associated with symbols.
 ///
 /// Modules are used to manage namespaces, allowing for the organization
@@ -100,17 +128,6 @@ pub struct Module {
     values: HashMap<Symbol, Val>,
 }
 
-#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
-pub enum ModuleSource {
-    /// The global module containing all the builtins.
-    #[default]
-    Global,
-    /// A module that is not backed by any file.
-    Virtual(&'static str),
-    /// A module that is backed by a file.
-    File(PathBuf),
-}
-
 impl Module {
     /// Create a new empty module.
     pub fn new(source: ModuleSource) -> Module {
@@ -118,6 +135,11 @@ impl Module {
             source,
             values: HashMap::new(),
         }
+    }
+
+    /// Get the source of the module.
+    pub fn source(&self) -> &ModuleSource {
+        &self.source
     }
 
     /// Retrieves the value associated with a given symbol.

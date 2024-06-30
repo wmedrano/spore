@@ -119,7 +119,7 @@ impl Environment {
             match instruction {
                 Instruction::PushVal(v) => {
                     let v = v.clone();
-                    self.execute_push_val(v);
+                    self.stack.push(v);
                 }
                 Instruction::Eval(n) => {
                     let n = *n;
@@ -131,7 +131,7 @@ impl Environment {
                 }
                 Instruction::GetVal(s) => match self.modules.get(&s.module, s.symbol.as_str()) {
                     Some(v) => {
-                        self.execute_push_val(v.clone());
+                        self.stack.push(v.clone());
                     }
                     None => bail!("{s} is not defined"),
                 },
@@ -249,7 +249,7 @@ impl Environment {
                 let stack_base = proc_idx + 1;
                 let res = {
                     let args = self.stack.drain(stack_base..);
-                    proc.eval(args.as_slice())?
+                    proc.eval(&self.modules, args.as_slice())?
                 };
                 *self.stack.last_mut().unwrap() = res;
             }
@@ -259,10 +259,6 @@ impl Environment {
             ),
         };
         Ok(())
-    }
-
-    fn execute_push_val(&mut self, val: Val) {
-        self.stack.push(val);
     }
 
     fn execute_set_val(
@@ -278,6 +274,10 @@ impl Environment {
     }
 
     fn load_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
+        let module_source = ModuleSource::File(filepath.clone());
+        if self.modules.has_module(&module_source) {
+            return Ok(());
+        }
         let contents = std::fs::read_to_string(&filepath)?;
         let asts = Ast::from_sexp_str(&contents)?;
         let args = CodeBlockArgs {
@@ -285,9 +285,8 @@ impl Environment {
             allow_define: true,
             ..CodeBlockArgs::default()
         };
-        let module_source = ModuleSource::File(filepath.clone());
         let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode(module_source)?;
-        self.execute_push_val(bytecode.into());
+        self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
     }
 }
