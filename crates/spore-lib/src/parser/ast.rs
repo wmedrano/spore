@@ -170,6 +170,7 @@ impl Ast {
                     } else {
                         match s.as_str() {
                             "if" => exps.push(Ast::Leaf(token.with_item(AstLeaf::If))),
+                            "import" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Import))),
                             "lambda" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Lambda))),
                             "define" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Define))),
                             _ => exps
@@ -464,6 +465,33 @@ mod tests {
                 })
             ]
         );
+    }
+
+    #[test]
+    fn parse_special_tokens() {
+        use Ast::*;
+        use AstLeaf::*;
+        assert_eq!(
+            Ast::from_sexp_str("if import define lambda").unwrap(),
+            vec![
+                Leaf(Token {
+                    item: If,
+                    range: 0..2,
+                }),
+                Leaf(Token {
+                    item: Import,
+                    range: 3..9,
+                }),
+                Leaf(Token {
+                    item: Define,
+                    range: 10..16,
+                }),
+                Leaf(Token {
+                    item: Lambda,
+                    range: 17..23,
+                }),
+            ]
+        )
     }
 
     #[test]

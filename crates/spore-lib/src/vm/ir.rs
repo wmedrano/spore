@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, str::FromStr};
 
 use anyhow::{anyhow, bail, ensure, Result};
 
@@ -45,6 +45,8 @@ pub enum IrInstruction {
         sym: Symbol,
         value: Box<IrInstruction>,
     },
+    /// Ensure that a file has been imported.
+    Import { filepath: PathBuf },
 }
 
 pub struct CodeBlockArgs {
@@ -80,6 +82,15 @@ impl CodeBlock {
             cb.instructions.push(instructions);
         }
         Ok(cb)
+    }
+
+    /// Convert the code block into bytecode.
+    pub fn to_bytecode(&self) -> Result<ByteCodeProc> {
+        Ok(ByteCodeProc {
+            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
+            arg_count: self.arg_to_idx.len(),
+            bytecode: self.to_bytecode_instructions(self.instructions.iter())?,
+        })
     }
 
     fn make_instruction(&self, ast: &Ast, allow_define: bool) -> Result<IrInstruction> {
@@ -218,7 +229,10 @@ impl CodeBlock {
             Ast::Leaf(Token {
                 item: AstLeaf::String(filepath),
                 ..
-            }) => bail!("Import not supported. Unable to import {filepath}."),
+            }) => {
+                let filepath = PathBuf::from_str(&filepath)?;
+                Ok(IrInstruction::Import { filepath })
+            }
             _ => bail!("Expected expression of form (import \"<filepath>\")"),
         }
     }
@@ -278,15 +292,6 @@ impl CodeBlock {
 }
 
 impl CodeBlock {
-    /// Convert the code block into bytecode.
-    pub fn to_bytecode(&self) -> Result<ByteCodeProc> {
-        Ok(ByteCodeProc {
-            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
-            arg_count: self.arg_to_idx.len(),
-            bytecode: self.to_bytecode_instructions(self.instructions.iter())?,
-        })
-    }
-
     fn to_bytecode_instructions<'a>(
         &self,
         irs: impl Iterator<Item = &'a IrInstruction>,
@@ -332,6 +337,9 @@ impl CodeBlock {
                 IrInstruction::Define { sym, value } => {
                     res.extend(self.to_bytecode_instructions(std::iter::once(value.as_ref()))?);
                     res.push(Instruction::SetVal(sym.clone()));
+                }
+                IrInstruction::Import { filepath } => {
+                    res.push(Instruction::LoadModule(Box::new(filepath.clone())));
                 }
             };
         }

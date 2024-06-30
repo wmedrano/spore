@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use super::{symbol::Symbol, Val};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -16,6 +18,8 @@ pub enum Instruction {
     Jump(usize),
     /// Set the value of Symbol to be what is at the top of the stack.
     SetVal(Symbol),
+    /// Load a module.
+    LoadModule(Box<PathBuf>),
     /// Pops the current frame and returns the value at the top of the current frame stack.
     Return,
 }
@@ -30,6 +34,7 @@ impl std::fmt::Display for Instruction {
             Instruction::GetArg(n) => write!(f, "get arg {n}"),
             Instruction::GetVal(s) => write!(f, "get value for {s}"),
             Instruction::SetVal(s) => write!(f, "set value for {s}"),
+            Instruction::LoadModule(filepath) => write!(f, "load module {filepath:?}"),
             Instruction::Return => write!(f, "return"),
         }
     }

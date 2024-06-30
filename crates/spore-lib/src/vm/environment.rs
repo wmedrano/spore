@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{path::PathBuf, rc::Rc};
 
 use anyhow::{bail, ensure, Context, Result};
 
@@ -116,7 +116,7 @@ impl Environment {
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
         self.prepare(proc, args)?;
-        debugger.start_eval(self);
+        debugger.eval_proc(self);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
             match instruction {
@@ -149,6 +149,10 @@ impl Environment {
                 Instruction::SetVal(s) => {
                     let s = s.clone();
                     self.execute_set_val(s, debugger)?
+                }
+                Instruction::LoadModule(filepath) => {
+                    let filepath = filepath.as_ref().clone();
+                    self.load_module(filepath, debugger)?;
                 }
                 Instruction::Return => {
                     self.pop_frame(debugger)?;
@@ -235,7 +239,7 @@ impl Environment {
                     bytecode: ByteCodeIter::from_proc(proc),
                     stack_start_idx: proc_idx + 1,
                 });
-                debugger.start_eval(self);
+                debugger.eval_proc(self);
                 if expected_args != actual_args {
                     bail!(
                         "{name} expected {expected_args} but found {actual_args}",
@@ -268,6 +272,19 @@ impl Environment {
         debugger.define(self, &s, &v);
         self.modules.set_local(s, v);
         Ok(())
+    }
+
+    fn load_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
+        let contents = std::fs::read_to_string(&filepath)?;
+        let asts = Ast::from_sexp_str(&contents)?;
+        let args = CodeBlockArgs {
+            name: Some(format!("init-module-{filepath:?}")),
+            allow_define: true,
+            ..CodeBlockArgs::default()
+        };
+        let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode()?;
+        self.execute_push_val(bytecode.into());
+        self.execute_eval_n(1, debugger)
     }
 }
 
