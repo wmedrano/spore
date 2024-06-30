@@ -20,6 +20,8 @@ use spore_lib::vm::Vm;
 /// Contains functionality for pasing commands.
 pub mod command;
 
+const REPL_MODULE: ModuleSource = ModuleSource::Virtual("repl");
+
 /// Represents the Read-Eval-Print Loop (REPL) for the Spore language.
 pub struct Repl {
     env: Environment,
@@ -168,7 +170,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             };
             let ast = &ast;
             match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
-                Ok(ir) => ir.to_bytecode(),
+                Ok(ir) => ir.to_bytecode(REPL_MODULE),
                 Err(err) => {
                     println!("{}", err.to_string().red());
                     return;
@@ -187,7 +189,8 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                env.modules_mut().set_local(sym.clone(), v.clone());
+                env.modules_mut()
+                    .set_value(&REPL_MODULE, sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(errs) => {
@@ -209,7 +212,7 @@ fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
             };
             let ast = &ast;
             match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
-                Ok(ir) => ir.to_bytecode(),
+                Ok(ir) => ir.to_bytecode(REPL_MODULE),
                 Err(err) => {
                     println!("{}", err.to_string().red());
                     return;
@@ -239,9 +242,7 @@ fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeI
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) =
-                    env.modules().get(&ModuleSource::Virtual("repl"), &sym)
-                {
+                if let Some(Val::ByteCodeProc(bc)) = env.modules().get(&REPL_MODULE, &sym) {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }

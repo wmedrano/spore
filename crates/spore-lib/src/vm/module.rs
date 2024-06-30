@@ -27,10 +27,11 @@ impl ModuleManager {
     ///
     /// A new ModuleManager instance.
     pub fn new(global: Module) -> ModuleManager {
-        let local_module = Module::new(ModuleSource::Virtual("repl"));
+        let mut global = global;
+        global.source = ModuleSource::Global;
         ModuleManager {
             global,
-            modules: vec![local_module],
+            modules: Vec::new(),
         }
     }
 
@@ -47,18 +48,20 @@ impl ModuleManager {
     /// An Option<Val> containing the value if found, or None if the symbol is not present in either module.
     pub fn get(&self, module: &ModuleSource, sym: impl Borrow<str>) -> Option<Val> {
         let sym = sym.borrow();
-        let maybe_val = self
-            .modules
-            .iter()
-            .find(|m| module == &m.source)
-            .and_then(|m| m.get(sym));
-        if let Some(v) = maybe_val {
-            return Some(v);
+        if *module != ModuleSource::Global {
+            let maybe_val = self
+                .modules
+                .iter()
+                .find(|m| module == &m.source)
+                .and_then(|m| m.get(sym));
+            if let Some(v) = maybe_val {
+                return Some(v);
+            }
         }
         self.global.get(sym)
     }
 
-    /// Sets a value for a symbol in the current local module.
+    /// Sets a value for a symbol in the given module. If the module does not exist, then it is created.
     ///
     /// # Arguments
     ///
@@ -68,9 +71,20 @@ impl ModuleManager {
     /// # Panics
     ///
     /// Panics if the current module does not exist in the modules HashMap.
-    pub fn set_local(&mut self, sym: Symbol, val: Val) {
-        let module = self.modules.first_mut().unwrap();
-        module.set(sym, val)
+    pub fn set_value(&mut self, module: &ModuleSource, sym: Symbol, val: Val) {
+        let module = match self.modules.iter_mut().find(|m| m.source == *module) {
+            Some(m) => m,
+            None => {
+                self.modules.push(Module::new(module.clone()));
+                self.modules.last_mut().unwrap()
+            }
+        };
+        module.set(sym, val);
+    }
+
+    /// Returns `true` if `module` is registered.
+    pub fn has_module(&mut self, module: &ModuleSource) -> bool {
+        self.modules.iter().find(|m| m.source == *module).is_some()
     }
 }
 
@@ -86,7 +100,7 @@ pub struct Module {
     values: HashMap<Symbol, Val>,
 }
 
-#[derive(Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
 pub enum ModuleSource {
     /// The global module containing all the builtins.
     #[default]

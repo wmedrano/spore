@@ -130,6 +130,7 @@ mod tests {
         parser::ast::Ast,
         vm::{
             ir::{CodeBlock, CodeBlockArgs},
+            module::ModuleSource,
             Vm,
         },
     };
@@ -137,15 +138,20 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
+    const MODULE: ModuleSource = ModuleSource::Virtual("test");
+
     #[test]
     fn trace_prints_out_entire_trace() {
         let mut env = Vm::new().build_env();
-        env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
-            .unwrap();
+        env.eval_str(
+            MODULE,
+            "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
+        )
+        .unwrap();
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
             let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
+            ir.to_bytecode(MODULE)
         }
         .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -169,12 +175,15 @@ mod tests {
     fn error_encountered_in_stack_returns_trace_up_to_that_point() {
         let mut env = Vm::new().build_env();
         // This version of fib has a runtime error in its base case (when n <= 2).
-        env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
-            .unwrap();
+        env.eval_str(
+            MODULE,
+            "(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))",
+        )
+        .unwrap();
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
             let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
+            ir.to_bytecode(MODULE)
         }
         .unwrap();
         let mut debugger = TraceDebugger::new();

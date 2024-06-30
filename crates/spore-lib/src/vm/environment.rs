@@ -51,19 +51,16 @@ impl Environment {
 
     /// Evaluate an S-Expression string and return the last value. If there are no expression, than
     /// `Val::Void` is returned.
-    pub fn eval_str(&mut self, s: &str) -> Result<Vec<Val>> {
+    pub fn eval_str(&mut self, module: ModuleSource, s: &str) -> Result<Vec<Val>> {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = {
-                    let code_block_args = CodeBlockArgs {
-                        name: Some("eval-str".to_string()),
-                        ..CodeBlockArgs::default()
-                    };
-                    let ast = &ast;
-                    let ir = CodeBlock::with_ast(code_block_args, std::iter::once(ast))?;
-                    ir.to_bytecode()
-                }?;
+                let code_block_args = CodeBlockArgs {
+                    name: Some("eval-str".to_string()),
+                    ..CodeBlockArgs::default()
+                };
+                let ir = CodeBlock::with_ast(code_block_args, std::iter::once(&ast))?;
+                let proc = ir.to_bytecode(module.clone())?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()
@@ -115,7 +112,7 @@ impl Environment {
         args: &[Val],
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
-        self.prepare(proc, args)?;
+        self.prepare(proc.clone(), args)?;
         debugger.eval_proc(self);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
@@ -132,8 +129,7 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.modules.get(&ModuleSource::Virtual("repl"), s)
-                {
+                Instruction::GetVal(s) => match self.modules.get(&proc.module, s) {
                     Some(v) => {
                         self.execute_push_val(v.clone());
                     }
@@ -149,7 +145,8 @@ impl Environment {
                 }
                 Instruction::SetVal(s) => {
                     let s = s.clone();
-                    self.execute_set_val(s, debugger)?
+                    let module = frame.bytecode.inner().module.clone();
+                    self.execute_set_val(&module, s, debugger)?
                 }
                 Instruction::LoadModule(filepath) => {
                     let filepath = filepath.as_ref().clone();
@@ -268,10 +265,15 @@ impl Environment {
         self.stack.push(val);
     }
 
-    fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
+    fn execute_set_val(
+        &mut self,
+        module: &ModuleSource,
+        s: Symbol,
+        debugger: &mut impl Debugger,
+    ) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
-        self.modules.set_local(s, v);
+        self.modules.set_value(&module, s, v);
         Ok(())
     }
 
@@ -283,7 +285,8 @@ impl Environment {
             allow_define: true,
             ..CodeBlockArgs::default()
         };
-        let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode()?;
+        let module_source = ModuleSource::File(filepath.clone());
+        let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode(module_source)?;
         self.execute_push_val(bytecode.into());
         self.execute_eval_n(1, debugger)
     }
@@ -307,10 +310,15 @@ mod tests {
 
     use super::*;
 
+    const MODULE: ModuleSource = ModuleSource::Virtual("test");
+
     #[test]
     fn can_execute_ast() {
         assert_eq!(
-            Vm::new().build_env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
+            Vm::new()
+                .build_env()
+                .eval_str(MODULE, "(+ 1 2 (- 3 4))")
+                .unwrap(),
             vec![2.into()]
         );
     }
@@ -320,7 +328,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if true (* 10 2) (+ 10 2))")
+                .eval_str(MODULE, "(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![20.into()],
         );
@@ -331,7 +339,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if false (* 10 2) (+ 10 2))")
+                .eval_str(MODULE, "(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![12.into()],
         )
@@ -342,7 +350,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if true (* 10 2))")
+                .eval_str(MODULE, "(if true (* 10 2))")
                 .unwrap(),
             vec![20.into()],
         )
@@ -353,7 +361,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if false (* 10 2))")
+                .eval_str(MODULE, "(if false (* 10 2))")
                 .unwrap(),
             vec![Val::Void],
         )
@@ -364,6 +372,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         assert_eq!(
             env.eval_str(
+                MODULE,
                 r#"
 (define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
 (fib 10)
@@ -378,7 +387,7 @@ mod tests {
     fn eval_with_wrong_number_of_args_returns_error() {
         let mut env = Vm::new().build_env();
         let proc_val = env
-            .eval_str("(lambda (x) (+ 1 x))")
+            .eval_str(MODULE, "(lambda (x) (+ 1 x))")
             .unwrap()
             .into_iter()
             .next()
