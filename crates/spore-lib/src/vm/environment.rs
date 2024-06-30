@@ -7,7 +7,7 @@ use crate::parser::ast::Ast;
 use super::{
     debugger::Debugger,
     ir::{CodeBlock, CodeBlockArgs},
-    module::ModuleManager,
+    module::{ModuleManager, ModuleSource},
     types::{
         instruction::Instruction,
         proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -132,7 +132,8 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.modules.get(s) {
+                Instruction::GetVal(s) => match self.modules.get(&ModuleSource::Virtual("repl"), s)
+                {
                     Some(v) => {
                         self.execute_push_val(v.clone());
                     }

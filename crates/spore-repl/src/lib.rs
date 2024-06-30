@@ -8,6 +8,7 @@ use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::environment::Environment;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
+use spore_lib::vm::module::ModuleSource;
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -16,8 +17,10 @@ use spore_lib::vm::types::{
 };
 use spore_lib::vm::Vm;
 
+/// Contains functionality for pasing commands.
 pub mod command;
 
+/// Represents the Read-Eval-Print Loop (REPL) for the Spore language.
 pub struct Repl {
     env: Environment,
     editor: DefaultEditor,
@@ -26,7 +29,7 @@ pub struct Repl {
 }
 
 impl Repl {
-    /// Create a new repl.
+    /// Creates a new Repl instance.
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         Ok(Repl {
@@ -37,7 +40,7 @@ impl Repl {
         })
     }
 
-    /// Run the REPL.
+    /// Runs teh REPL, accepting and evaluating user input.
     pub fn run(&mut self) -> Result<()> {
         println!(
             "{welcome}\n  {repo_link}\n",
@@ -135,6 +138,7 @@ impl Repl {
     }
 }
 
+//// Returns `true` if the given input string is a complete expressions.
 fn line_is_complete(s: &str) -> bool {
     !matches!(
         Ast::from_sexp_str(s),
@@ -142,6 +146,14 @@ fn line_is_complete(s: &str) -> bool {
     )
 }
 
+/// Evaluate `asts` under the given `env`.
+///
+/// # Params
+/// asts - The asts to run.
+/// env - The environment to evaluate under.
+/// expr_count - The number of expressions that have been evaluated in the REPL. This is incremented for each
+///   expression. This is also used to store variables (with names like $0, $1, $2, ...) under env.
+/// trace - If the trace output should be printed.
 fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trace: bool) {
     for ast in asts {
         let mut maybe_trace = if trace {
@@ -151,7 +163,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
         };
         let res = {
             let code_block_args = CodeBlockArgs {
-                name: Some("repl-eval".to_string()),
+                name: Some(format!("repl-proc-{n}", n = *expr_count + 1)),
                 ..CodeBlockArgs::default()
             };
             let ast = &ast;
@@ -187,6 +199,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
     }
 }
 
+/// Analyze the bytecode for `asts`.
 fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
         let proc = match {
@@ -209,7 +222,7 @@ fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
                 continue;
             }
         };
-        let bytecode = maybe_expand_bytecode(env, proc);
+        let bytecode = analyze_bytecode_iter(env, proc);
         for (idx, bc) in bytecode.enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
@@ -217,14 +230,18 @@ fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     }
 }
 
-fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
+/// Get the `ByteCodeIter` for `proc`. If `proc` is a simple expression that returns a procedure or a symbol that refers
+/// to a procedure, then an iterator for that procedure is returned.
+fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
     let proc = Rc::new(proc);
     let mut iter = ByteCodeIter::from_proc(proc.clone());
     if iter.clone().count() == 1 {
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) = env.modules().get(&sym) {
+                if let Some(Val::ByteCodeProc(bc)) =
+                    env.modules().get(&ModuleSource::Virtual("repl"), &sym)
+                {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }

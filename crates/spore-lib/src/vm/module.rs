@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, path::PathBuf};
 
 use super::types::{symbol::Symbol, Val};
 
@@ -9,9 +9,7 @@ use super::types::{symbol::Symbol, Val};
 /// retrieving values associated with symbols across different namespaces.
 #[derive(Clone)]
 pub struct ModuleManager {
-    /// The global module, accessible from all other modules.
     global: Module,
-    /// The set of modules.
     modules: Vec<Module>,
 }
 
@@ -29,7 +27,7 @@ impl ModuleManager {
     ///
     /// A new ModuleManager instance.
     pub fn new(global: Module) -> ModuleManager {
-        let local_module = Module::new();
+        let local_module = Module::new(ModuleSource::Virtual("repl"));
         ModuleManager {
             global,
             modules: vec![local_module],
@@ -47,9 +45,14 @@ impl ModuleManager {
     /// # Returns
     ///
     /// An Option<Val> containing the value if found, or None if the symbol is not present in either module.
-    pub fn get(&self, sym: impl Borrow<str>) -> Option<Val> {
+    pub fn get(&self, module: &ModuleSource, sym: impl Borrow<str>) -> Option<Val> {
         let sym = sym.borrow();
-        if let Some(v) = self.modules.first().and_then(|m| m.get(sym)) {
+        let maybe_val = self
+            .modules
+            .iter()
+            .find(|m| module == &m.source)
+            .and_then(|m| m.get(sym));
+        if let Some(v) = maybe_val {
             return Some(v);
         }
         self.global.get(sym)
@@ -77,26 +80,28 @@ impl ModuleManager {
 /// of variables and functions within a program.
 #[derive(Clone, Default)]
 pub struct Module {
+    /// The source of the module.
+    source: ModuleSource,
     /// A map of symbols to their corresponding values.
     values: HashMap<Symbol, Val>,
 }
 
+#[derive(Clone, Default, Hash, PartialEq, Eq)]
+pub enum ModuleSource {
+    /// The global module containing all the builtins.
+    #[default]
+    Global,
+    /// A module that is not backed by any file.
+    Virtual(&'static str),
+    /// A module that is backed by a file.
+    File(PathBuf),
+}
+
 impl Module {
-    /// Creates a new module with an optional name.
-    ///
-    /// The name is not used within this implementation but can be used
-    /// for debugging or logging purposes.
-    ///
-    /// # Arguments
-    ///
-    /// * `_name` - A value that can be converted into a `String`, representing
-    ///             the name of the module.
-    ///
-    /// # Returns
-    ///
-    /// A new `Module` instance.
-    pub fn new() -> Module {
+    /// Create a new empty module.
+    pub fn new(source: ModuleSource) -> Module {
         Module {
+            source,
             values: HashMap::new(),
         }
     }
