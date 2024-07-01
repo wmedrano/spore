@@ -130,14 +130,12 @@ impl Environment {
                     self.execute_get_arg(n)
                 }
                 Instruction::GetVal(s) => {
-                    match self
-                        .modules
-                        .get_value(&s.module, &s.alias, s.symbol.as_str())
-                    {
-                        Some(v) => {
-                            self.stack.push(v.clone());
-                        }
-                        None => bail!("{s} is not defined"),
+                    let maybe_value =
+                        self.modules
+                            .get_value(&s.module, &s.alias, s.symbol.as_str());
+                    match maybe_value {
+                        Some(v) => self.stack.push(v),
+                        None => bail!("value for {s} is not defined"),
                     }
                 }
                 Instruction::JumpIf(n) => {
@@ -146,12 +144,12 @@ impl Environment {
                 }
                 Instruction::Jump(n) => {
                     let n = *n;
-                    self.execute_jump(n)
+                    frame.bytecode.jump(n);
                 }
                 Instruction::SetVal(s) => {
                     let s = s.clone();
                     let module = frame.bytecode.inner().module.clone();
-                    self.execute_set_val(&module, s, debugger)?
+                    self.execute_set_val(&module, s, debugger)?;
                 }
                 Instruction::ImportModule(filepath) => {
                     let filepath = filepath.as_ref().clone();
@@ -220,18 +218,17 @@ impl Environment {
     fn execute_jump_if(&mut self, n: usize) -> Result<()> {
         let v = self.stack.pop().unwrap_or_default();
         if v.is_truthy()? {
-            self.execute_jump(n);
+            self.frames.last_mut().unwrap().bytecode.jump(n);
         }
         Ok(())
     }
 
-    fn execute_jump(&mut self, n: usize) {
-        let frame = self.frames.last_mut().unwrap();
-        frame.bytecode.jump(n);
-    }
-
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
-        ensure!(self.stack.len() >= n, "interpretter stack is corrupt, expected stack with minimum size {n} but found {stack_len}.", stack_len = self.stack.len());
+        ensure!(
+            n <= self.stack.len(),
+            "interpretter stuck is corrupt, expected stack with minimum stack size {n} but found {stack_len}.",
+            stack_len = self.stack.len()
+        );
         let proc_idx = self.stack.len() - n;
         let proc_val = std::mem::take(&mut self.stack[proc_idx]);
         match proc_val {

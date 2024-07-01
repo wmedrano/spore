@@ -11,10 +11,7 @@ pub fn parse_command(input: &str) -> (&str, &str) {
     }
     while iter_chars.next_if(|(_, ch)| !ch.is_whitespace()).is_some() {}
     while iter_chars.next_if(|(_, ch)| ch.is_whitespace()).is_some() {}
-    let split_idx = iter_chars
-        .next()
-        .map(|(idx, _)| idx)
-        .unwrap_or(input.len());
+    let split_idx = iter_chars.next().map(|(idx, _)| idx).unwrap_or(input.len());
     let command = &input[..split_idx].trim();
     let expression = &input[split_idx..];
     (command, expression)
@@ -48,6 +45,6 @@ mod tests {
 
     #[test]
     fn single_word_commands_are_parsed() {
-	assert_eq!(parse_command(",ast"), (",ast", ""));
+        assert_eq!(parse_command(",ast"), (",ast", ""));
     }
 }
