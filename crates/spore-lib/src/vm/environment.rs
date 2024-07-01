@@ -60,7 +60,7 @@ impl Environment {
                     ..CodeBlockArgs::default()
                 };
                 let ir = CodeBlock::with_ast(code_block_args, std::iter::once(&ast))?;
-                let proc = ir.to_bytecode(module.clone())?;
+                let proc = ir.to_bytecode(module.clone(), &self.modules)?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()
@@ -295,7 +295,8 @@ impl Environment {
             allow_define: true,
             ..CodeBlockArgs::default()
         };
-        let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode(module_source)?;
+        let bytecode =
+            CodeBlock::with_ast(args, asts.iter())?.to_bytecode(module_source, &self.modules)?;
         self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
     }

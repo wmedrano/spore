@@ -35,6 +35,10 @@ impl ModuleManager {
         }
     }
 
+    pub fn new_empty() -> ModuleManager {
+        ModuleManager::new(Module::new(ModuleSource::Global))
+    }
+
     /// Iterate over all the modules.
     pub fn iter(&self) -> impl Iterator<Item = &Module> {
         std::iter::once(&self.global).chain(self.modules.iter())
