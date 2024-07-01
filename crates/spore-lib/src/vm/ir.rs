@@ -8,7 +8,7 @@ use crate::parser::{
 };
 
 use super::{
-    module::{ModuleManager, ModuleSource},
+    module::ModuleSource,
     types::{
         instruction::{Instruction, ValRef},
         proc::bytecode::ByteCodeProc,
@@ -93,12 +93,8 @@ impl CodeBlock {
     }
 
     /// Convert the code block into bytecode.
-    pub fn to_bytecode(
-        &self,
-        module: ModuleSource,
-        modules: &ModuleManager,
-    ) -> Result<ByteCodeProc> {
-        let bytecode = self.to_bytecode_instructions(&module, modules, self.instructions.iter())?;
+    pub fn to_bytecode(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+        let bytecode = self.to_bytecode_instructions(&module, self.instructions.iter())?;
         Ok(ByteCodeProc {
             name: self.name.clone().unwrap_or_else(|| "_".to_string()),
             arg_count: self.arg_to_idx.len(),
@@ -313,7 +309,6 @@ impl CodeBlock {
     fn to_bytecode_instructions<'a>(
         &self,
         default_module: &ModuleSource,
-        modules: &ModuleManager,
         irs: impl Iterator<Item = &'a IrInstruction>,
     ) -> Result<Vec<Instruction>> {
         let mut res: Vec<Instruction> = Vec::new();
@@ -321,7 +316,7 @@ impl CodeBlock {
             match ir {
                 IrInstruction::PushConst(val) => res.push(Instruction::PushVal(val.clone())),
                 IrInstruction::PushProc(codeblock) => {
-                    let bytecode = codeblock.to_bytecode(default_module.clone(), modules)?;
+                    let bytecode = codeblock.to_bytecode(default_module.clone())?;
                     res.push(Instruction::PushVal(Val::ByteCodeProc(Rc::new(bytecode))));
                 }
                 IrInstruction::DerefIdentifier { symbol } => {
@@ -341,15 +336,12 @@ impl CodeBlock {
                 IrInstruction::CallProc { proc, args } => {
                     res.extend(self.to_bytecode_instructions(
                         default_module,
-                        modules,
                         std::iter::once(proc.as_ref()),
                     )?);
                     for arg in args {
-                        res.extend(self.to_bytecode_instructions(
-                            default_module,
-                            modules,
-                            std::iter::once(arg),
-                        )?);
+                        res.extend(
+                            self.to_bytecode_instructions(default_module, std::iter::once(arg))?,
+                        );
                     }
                     res.push(Instruction::Eval(args.len() + 1));
                 }
@@ -360,18 +352,15 @@ impl CodeBlock {
                 } => {
                     res.extend(self.to_bytecode_instructions(
                         default_module,
-                        modules,
                         std::iter::once(pred.as_ref()),
                     )?);
                     let true_bytecode = self.to_bytecode_instructions(
                         default_module,
-                        modules,
                         std::iter::once(true_expr.as_ref()),
                     )?;
                     let false_bytecode = match false_expr {
                         Some(ir) => self.to_bytecode_instructions(
                             default_module,
-                            modules,
                             std::iter::once(ir.as_ref()),
                         )?,
                         None => vec![Instruction::PushVal(Val::Void)],
@@ -384,7 +373,6 @@ impl CodeBlock {
                 IrInstruction::Define { sym, value } => {
                     res.extend(self.to_bytecode_instructions(
                         default_module,
-                        modules,
                         std::iter::once(value.as_ref()),
                     )?);
                     res.push(Instruction::SetVal(sym.clone()));
@@ -418,7 +406,7 @@ mod tests {
         let ast = Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap();
         let instructions = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter())
             .unwrap()
-            .to_bytecode(MODULE, &ModuleManager::new_empty())
+            .to_bytecode(MODULE)
             .unwrap()
             .bytecode
             .into_iter()
@@ -448,7 +436,7 @@ mod tests {
         let ast = Ast::from_sexp_str("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
         let bytecode = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter())
             .unwrap()
-            .to_bytecode(MODULE, &ModuleManager::new_empty())
+            .to_bytecode(MODULE)
             .unwrap();
         assert!(
             matches!(

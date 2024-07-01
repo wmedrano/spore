@@ -191,7 +191,7 @@ fn eval_asts(
             };
             let ast = &ast;
             match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
-                Ok(ir) => ir.to_bytecode(module.clone(), env.modules()),
+                Ok(ir) => ir.to_bytecode(module.clone()),
                 Err(err) => {
                     println!("{}", err.to_string().red());
                     return;
@@ -231,7 +231,7 @@ fn analyze_bytecode(module: &ModuleSource, env: &mut Environment, asts: Vec<Ast>
         };
         let ast = &ast;
         let block_or_err = match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
-            Ok(ir) => ir.to_bytecode(module.clone(), env.modules()),
+            Ok(ir) => ir.to_bytecode(module.clone()),
             Err(err) => {
                 println!("{}", err.to_string().red());
                 return;
