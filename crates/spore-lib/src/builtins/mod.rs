@@ -44,7 +44,7 @@ fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     let module_names: Vec<_> = modules
         .iter()
         .map(|module| module.source().to_string())
-        .map(|name| Val::from(name))
+        .map(Val::from)
         .collect();
     Ok(Val::List(Rc::new(module_names)))
 }

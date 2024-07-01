@@ -3,7 +3,7 @@ use std::rc::Rc;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore_lib::parser::ast::Ast;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
-use spore_lib::vm::module::ModuleSource;
+use spore_lib::vm::module::{ModuleManager, ModuleSource};
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::proc::bytecode::ByteCodeIter;
 use spore_lib::vm::Vm;
@@ -20,7 +20,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
                 let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
                 let ir =
                     CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-                ir.to_bytecode(MODULE)
+                ir.to_bytecode(MODULE, env.modules())
             }
             .unwrap(),
         );
@@ -33,7 +33,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
         let ast =
             Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)").unwrap();
         let ir = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter()).unwrap();
-        let bytecode = Rc::new(ir.to_bytecode(MODULE).unwrap());
+        let bytecode = Rc::new(ir.to_bytecode(MODULE, env.modules()).unwrap());
         b.iter(|| {
             env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()
@@ -44,7 +44,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
 pub fn eval_microbenchmarks(c: &mut Criterion) {
     let ast = Ast::from_sexp_str(FIB_SRC).unwrap();
     let ir = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter()).unwrap();
-    let proc = Rc::new(ir.to_bytecode(MODULE).unwrap());
+    let proc = Rc::new(ir.to_bytecode(MODULE, &ModuleManager::new_empty()).unwrap());
     c.bench_function("iter_bytecode", |b| {
         let iter = ByteCodeIter::from_proc(proc.clone());
         b.iter(|| {
@@ -85,7 +85,7 @@ pub fn compile_benchmarks(c: &mut Criterion) {
         let fib_ast = black_box(Ast::from_sexp_str(FIB_SRC).unwrap());
         b.iter(|| {
             let ir = CodeBlock::with_ast(CodeBlockArgs::default(), fib_ast.iter()).unwrap();
-            ir.to_bytecode(MODULE).unwrap()
+            ir.to_bytecode(MODULE, &ModuleManager::new_empty()).unwrap()
         })
     });
 }

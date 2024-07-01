@@ -248,7 +248,7 @@ impl CodeBlock {
                 item: AstLeaf::String(filepath),
                 ..
             }) => {
-                let filepath = PathBuf::from_str(&filepath)?;
+                let filepath = PathBuf::from_str(filepath)?;
                 Ok(IrInstruction::Import { filepath })
             }
             _ => bail!("Expected expression of form (import \"<filepath>\")"),

@@ -274,7 +274,7 @@ impl Environment {
     ) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
-        self.modules.set_value(&module, s, v);
+        self.modules.set_value(module, s, v);
         Ok(())
     }
 

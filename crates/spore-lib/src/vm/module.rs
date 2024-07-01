@@ -119,7 +119,7 @@ impl ModuleManager {
 
     /// Returns `true` if `module` is registered.
     pub fn has_module(&mut self, module: &ModuleSource) -> bool {
-        self.modules.iter().find(|m| m.source == *module).is_some()
+        self.modules.iter().any(|m| m.source == *module)
     }
 }
 

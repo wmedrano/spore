@@ -155,7 +155,7 @@ impl Repl {
     }
 }
 
-//// Returns `true` if the given input string is a complete expressions.
+/// Returns `true` if the given input string is a complete expressions.
 fn line_is_complete(s: &str) -> bool {
     !matches!(
         Ast::from_sexp_str(s),
@@ -225,20 +225,19 @@ fn eval_asts(
 /// Analyze the bytecode for `asts`.
 fn analyze_bytecode(module: &ModuleSource, env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match {
-            let code_block_args = CodeBlockArgs {
-                name: Some("repl-analyze-bytecode".to_string()),
-                ..CodeBlockArgs::default()
-            };
-            let ast = &ast;
-            match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
-                Ok(ir) => ir.to_bytecode(module.clone(), env.modules()),
-                Err(err) => {
-                    println!("{}", err.to_string().red());
-                    return;
-                }
+        let code_block_args = CodeBlockArgs {
+            name: Some("repl-analyze-bytecode".to_string()),
+            ..CodeBlockArgs::default()
+        };
+        let ast = &ast;
+        let block_or_err = match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
+            Ok(ir) => ir.to_bytecode(module.clone(), env.modules()),
+            Err(err) => {
+                println!("{}", err.to_string().red());
+                return;
             }
-        } {
+        };
+        let proc = match block_or_err {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
