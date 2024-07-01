@@ -129,12 +129,17 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.modules.get(&s.module, s.symbol.as_str()) {
-                    Some(v) => {
-                        self.stack.push(v.clone());
+                Instruction::GetVal(s) => {
+                    match self
+                        .modules
+                        .get_value(&s.module, &s.alias, s.symbol.as_str())
+                    {
+                        Some(v) => {
+                            self.stack.push(v.clone());
+                        }
+                        None => bail!("{s} is not defined"),
                     }
-                    None => bail!("{s} is not defined"),
-                },
+                }
                 Instruction::JumpIf(n) => {
                     let n = *n;
                     self.execute_jump_if(n)?

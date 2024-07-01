@@ -327,10 +327,15 @@ impl CodeBlock {
                 IrInstruction::DerefIdentifier { symbol } => {
                     match self.arg_to_idx.get(symbol.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
-                        None => res.push(Instruction::GetVal(Box::new(ValRef {
-                            module: default_module.clone(),
-                            symbol: symbol.clone(),
-                        }))),
+                        None => {
+                            let (alias, sym) = split_alias(symbol.as_str());
+                            let val_ref = Box::new(ValRef {
+                                module: default_module.clone(),
+                                alias: alias.to_string(),
+                                symbol: sym.to_string(),
+                            });
+                            res.push(Instruction::GetVal(val_ref))
+                        }
                     }
                 }
                 IrInstruction::CallProc { proc, args } => {
@@ -390,6 +395,13 @@ impl CodeBlock {
             };
         }
         Ok(res)
+    }
+}
+
+fn split_alias(s: &str) -> (&str, &str) {
+    match s.find('/') {
+        Some(idx) => (&s[0..idx], &s[idx + 1..]),
+        None => ("", s),
     }
 }
 

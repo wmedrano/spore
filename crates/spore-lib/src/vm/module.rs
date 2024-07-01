@@ -35,6 +35,7 @@ impl ModuleManager {
         }
     }
 
+    /// Create a new empty module manager with an empty `global` module.
     pub fn new_empty() -> ModuleManager {
         ModuleManager::new(Module::new(ModuleSource::Global))
     }
@@ -75,16 +76,21 @@ impl ModuleManager {
     /// # Returns
     ///
     /// An Option<Val> containing the value if found, or None if the symbol is not present in either module.
-    pub fn get(&self, module: &ModuleSource, sym: impl Borrow<str>) -> Option<Val> {
+    pub fn get_value(
+        &self,
+        module_source: &ModuleSource,
+        alias: &str,
+        sym: impl Borrow<str>,
+    ) -> Option<Val> {
         let sym = sym.borrow();
-        if *module != ModuleSource::Global {
-            let maybe_val = self
-                .modules
-                .iter()
-                .find(|m| module == &m.source)
-                .and_then(|m| m.get(sym));
-            if let Some(v) = maybe_val {
-                return Some(v);
+        if *module_source != ModuleSource::Global {
+            if let Some(mut module) = self.modules.iter().find(|m| *module_source == m.source) {
+                if let Some(ms) = module.module_aliases.get(alias) {
+                    module = self.modules.iter().find(|m| *ms == m.source).unwrap();
+                }
+                if let Some(v) = module.get(sym) {
+                    return Some(v);
+                }
             }
         }
         self.global.get(sym)

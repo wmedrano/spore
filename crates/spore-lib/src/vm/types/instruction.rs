@@ -29,6 +29,7 @@ pub enum Instruction {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValRef {
     pub module: ModuleSource,
+    pub alias: String,
     pub symbol: String,
 }
 
