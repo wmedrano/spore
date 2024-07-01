@@ -150,7 +150,7 @@ impl Environment {
                 }
                 Instruction::ImportModule(filepath) => {
                     let filepath = filepath.as_ref().clone();
-                    self.load_module(filepath, debugger)?;
+                    self.import_module(filepath, debugger)?;
                 }
                 Instruction::Return => {
                     self.pop_frame(debugger)?;
@@ -273,7 +273,7 @@ impl Environment {
         Ok(())
     }
 
-    fn load_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
+    fn import_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
         let module_source = ModuleSource::File(filepath.clone());
         if let Some(frame) = self.frames.last_mut() {
             if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
