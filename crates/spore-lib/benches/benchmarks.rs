@@ -15,15 +15,9 @@ pub fn eval_benchmarks(c: &mut Criterion) {
     let mut env = spore_lib::vm::Vm::new().build_env();
     c.bench_function("eval_fib_20", |b| {
         env.eval_str(MODULE, FIB_SRC).unwrap();
-        let bytecode = Rc::new(
-            {
-                let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
-                let ir =
-                    CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-                ir.to_bytecode(MODULE)
-            }
-            .unwrap(),
-        );
+        let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
+        let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
+        let bytecode = Rc::new(ir.to_bytecode(MODULE).unwrap());
         b.iter(|| {
             env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()

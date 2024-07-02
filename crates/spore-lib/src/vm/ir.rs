@@ -423,7 +423,7 @@ mod tests {
             .next()
             .unwrap();
         let bytecode = match instructions {
-            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc.bytecode,
+            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc.bytecode.clone(),
             v => panic!("Expected PushVal(ByteCodeProc) but found {v:?}"),
         };
         assert!(
