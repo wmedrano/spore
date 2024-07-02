@@ -294,10 +294,10 @@ impl Environment {
         let asts = Ast::from_sexp_str(&contents)?;
         let args = CodeBlockArgs {
             name: Some(format!("init-module-{filepath:?}")),
-            allow_define: true,
             ..CodeBlockArgs::default()
         };
-        let bytecode = CodeBlock::with_ast(args, asts.iter())?.to_bytecode(module_source)?;
+        let bytecode =
+            CodeBlock::with_ast(args.clone(), asts.iter())?.to_bytecode(module_source.clone())?;
         self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
     }

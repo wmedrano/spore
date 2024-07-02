@@ -57,10 +57,11 @@ pub enum IrInstruction {
     Import { filepath: PathBuf },
 }
 
+#[derive(Debug, Clone)]
 pub struct CodeBlockArgs {
     pub name: Option<String>,
     pub arg_to_idx: HashMap<String, usize>,
-    pub allow_define: bool,
+    pub is_subexpression: bool,
 }
 
 impl Default for CodeBlockArgs {
@@ -68,7 +69,7 @@ impl Default for CodeBlockArgs {
         CodeBlockArgs {
             name: None,
             arg_to_idx: HashMap::new(),
-            allow_define: true,
+            is_subexpression: false,
         }
     }
 }
@@ -79,14 +80,14 @@ impl CodeBlock {
         args: CodeBlockArgs,
         asts: impl Iterator<Item = &'a Ast>,
     ) -> Result<CodeBlock> {
-        let allow_define = args.allow_define;
+        let is_subexpression = args.is_subexpression;
         let mut cb = CodeBlock {
             name: args.name,
             arg_to_idx: args.arg_to_idx,
             instructions: Vec::new(),
         };
         for ast in asts {
-            let instructions = cb.make_instruction(ast, allow_define)?;
+            let instructions = cb.make_instruction(ast, is_subexpression)?;
             cb.instructions.push(instructions);
         }
         Ok(cb)
@@ -103,7 +104,9 @@ impl CodeBlock {
         })
     }
 
-    fn make_instruction(&self, ast: &Ast, allow_define: bool) -> Result<IrInstruction> {
+    /// Make a new `IrInstruction`. If `is_subexpression` is `true`, then some instructions such as
+    /// `define` and `import` will not be available.
+    fn make_instruction(&self, ast: &Ast, is_subexpression: bool) -> Result<IrInstruction> {
         let res = match ast {
             Ast::Leaf(l) => match &l.item {
                 AstLeaf::If => bail!(
@@ -155,7 +158,10 @@ impl CodeBlock {
                             self.make_if(pred, true_expr, false_expr)?
                         }
                         AstLeaf::Import => {
-                            ensure!(allow_define, "(import ...) not allowed as a subexpression");
+                            ensure!(
+                                !is_subexpression,
+                                "(import ...) not allowed as a subexpression"
+                            );
                             let filepath = children.next().ok_or_else(|| {
                                 anyhow!("expected expression of form (import \"filepath\")")
                             })?;
@@ -169,7 +175,10 @@ impl CodeBlock {
                             self.make_lambda(None, &args, children)?
                         }
                         AstLeaf::Define => {
-                            ensure!(allow_define, "(define ...) not allowed as a subexpression");
+                            ensure!(
+                                !is_subexpression,
+                                "(define ...) not allowed as a subexpression"
+                            );
                             let sym_expr = children.next();
                             if let Some(sym) = sym_expr.and_then(Ast::as_identifier) {
                                 let expr = children.next().ok_or_else(|| {
@@ -209,7 +218,7 @@ impl CodeBlock {
                         }
                     },
                     proc_ast @ Ast::Tree(_) => {
-                        self.make_proc_call(self.make_instruction(proc_ast, false)?, children)?
+                        self.make_proc_call(self.make_instruction(proc_ast, true)?, children)?
                     }
                 }
             }
@@ -223,8 +232,8 @@ impl CodeBlock {
         true_expr: &Ast,
         false_expr: Option<&Ast>,
     ) -> Result<IrInstruction> {
-        let pred = Box::new(self.make_instruction(pred, false)?);
-        let true_expr = Box::new(self.make_instruction(true_expr, false)?);
+        let pred = Box::new(self.make_instruction(pred, true)?);
+        let true_expr = Box::new(self.make_instruction(true_expr, true)?);
         match false_expr {
             None => Ok(IrInstruction::If {
                 pred,
@@ -234,7 +243,7 @@ impl CodeBlock {
             Some(expr) => Ok(IrInstruction::If {
                 pred,
                 true_expr,
-                false_expr: Some(Box::new(self.make_instruction(expr, false)?)),
+                false_expr: Some(Box::new(self.make_instruction(expr, true)?)),
             }),
         }
     }
@@ -253,7 +262,7 @@ impl CodeBlock {
     }
 
     fn make_define(&self, sym: Symbol, expr: &Ast) -> Result<IrInstruction> {
-        let value = self.make_instruction(expr, false)?;
+        let value = self.make_instruction(expr, true)?;
         Ok(self.make_define_with_ir(sym, value))
     }
 
@@ -279,7 +288,7 @@ impl CodeBlock {
             CodeBlockArgs {
                 name,
                 arg_to_idx,
-                allow_define: false,
+                is_subexpression: true,
             },
             exprs,
         )?;
@@ -296,7 +305,7 @@ impl CodeBlock {
     ) -> Result<IrInstruction> {
         let mut args = Vec::new();
         for ast in arg_asts {
-            let instructions = self.make_instruction(ast, false)?;
+            let instructions = self.make_instruction(ast, true)?;
             args.push(instructions);
         }
         Ok(IrInstruction::CallProc {
