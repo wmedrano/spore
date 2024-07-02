@@ -50,7 +50,7 @@ pub enum IrInstruction {
     },
     /// Set `sym` to `value` globally.
     Define {
-        sym: Symbol,
+        symbol: Symbol,
         value: Box<IrInstruction>,
     },
     /// Ensure that a file has been imported.
@@ -155,6 +155,7 @@ impl CodeBlock {
                             self.make_if(pred, true_expr, false_expr)?
                         }
                         AstLeaf::Import => {
+                            ensure!(allow_define, "(import ...) not allowed as a subexpression");
                             let filepath = children.next().ok_or_else(|| {
                                 anyhow!("expected expression of form (import \"filepath\")")
                             })?;
@@ -258,7 +259,7 @@ impl CodeBlock {
 
     fn make_define_with_ir(&self, sym: Symbol, value: IrInstruction) -> IrInstruction {
         IrInstruction::Define {
-            sym,
+            symbol: sym,
             value: Box::new(value),
         }
     }
@@ -370,7 +371,7 @@ impl CodeBlock {
                     res.push(Instruction::Jump(true_bytecode.len()));
                     res.extend(true_bytecode);
                 }
-                IrInstruction::Define { sym, value } => {
+                IrInstruction::Define { symbol: sym, value } => {
                     res.extend(self.to_bytecode_instructions(
                         default_module,
                         std::iter::once(value.as_ref()),
@@ -395,30 +396,39 @@ fn split_alias(s: &str) -> (&str, &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use crate::vm::types::{instruction::Instruction, Val};
 
     use super::*;
 
     const MODULE: ModuleSource = ModuleSource::Virtual("test");
 
+    fn compile_to_codeblock(s: &str) -> anyhow::Result<CodeBlock> {
+        let asts = Ast::from_sexp_str(s).unwrap();
+        CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter())
+    }
+
+    fn compile_to_bytecode(s: &str) -> anyhow::Result<Vec<Instruction>> {
+        let asts = Ast::from_sexp_str(s).unwrap();
+        let codeblock = CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter()).unwrap();
+        Ok(codeblock.to_bytecode(MODULE)?.bytecode)
+    }
+
     #[test]
-    fn lambda_compiles_to_bytecode() {
-        let ast = Ast::from_sexp_str("(lambda (n) (+ n 1))").unwrap();
-        let instructions = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter())
+    fn lambda_compiles_to_val_with_bytecode() {
+        let instructions = compile_to_bytecode("(lambda (n) (+ n 1))")
             .unwrap()
-            .to_bytecode(MODULE)
-            .unwrap()
-            .bytecode
             .into_iter()
             .next()
             .unwrap();
         let bytecode = match instructions {
-            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc,
+            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc.bytecode,
             v => panic!("Expected PushVal(ByteCodeProc) but found {v:?}"),
         };
         assert!(
             matches!(
-                bytecode.bytecode.as_slice(),
+                bytecode.as_slice(),
                 [
                     Instruction::GetVal(_),
                     Instruction::GetArg(0),
@@ -426,21 +436,16 @@ mod tests {
                     Instruction::Eval(3),
                 ]
             ),
-            "Found {:?}",
-            bytecode.bytecode
+            "Found {bytecode:?}",
         );
     }
 
     #[test]
     fn comment_next_datum_skips_datum() {
-        let ast = Ast::from_sexp_str("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
-        let bytecode = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter())
-            .unwrap()
-            .to_bytecode(MODULE)
-            .unwrap();
+        let bytecode = compile_to_bytecode("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
         assert!(
             matches!(
-                bytecode.bytecode.as_slice(),
+                bytecode.as_slice(),
                 [
                     Instruction::GetVal(_),
                     Instruction::PushVal(Val::Int(1)),
@@ -448,27 +453,28 @@ mod tests {
                     Instruction::Eval(3),
                 ]
             ),
-            "Found {:?}",
-            bytecode.bytecode
+            "Found {bytecode:?}",
         );
     }
 
     #[test]
     fn define_not_allowed_in_subexpressions() {
-        let compile = |sexp| {
-            let asts = Ast::from_sexp_str(sexp).unwrap();
-            CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter())
-        };
+        assert!(compile_to_codeblock("(define a 4)").is_ok());
+        assert!(compile_to_codeblock("(do (define b 4))").is_err());
+    }
 
-        assert!(compile("(list a b)").is_ok());
-        assert!(compile("(list a (define b 1))").is_err());
+    #[test]
+    fn import_not_allowed_in_subexpressions() {
+        assert!(compile_to_codeblock("(import \"my-file.spore\")").is_ok());
+        assert!(compile_to_codeblock("(do (import \"my-file.spore\"))").is_err());
+    }
 
-        assert!(compile("(if a b c)").is_ok());
-        assert!(compile("(if a (define b 1) c)").is_err());
-        assert!(compile("(if (define a 1) b c)").is_err());
-        assert!(compile("(if a b (define c 1))").is_err());
-
-        assert!(compile("(define (a b) (+ a b))").is_ok());
-        assert!(compile("(define (a b) (define a b))").is_err());
+    #[test]
+    fn import_compiles_to_import_instruction() {
+        let bytecode = compile_to_bytecode("(import \"my-file.spore\")").unwrap();
+        assert!(
+            matches!(bytecode.as_slice(), [Instruction::ImportModule(p)] if p.as_ref() == Path::new("my-file.spore")),
+            "Got: {bytecode:?}"
+        );
     }
 }
