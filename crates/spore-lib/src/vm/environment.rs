@@ -480,18 +480,19 @@ mod tests {
                 path = test_file_path("does_not_exist.spore")
             ),
         );
-        assert!(res.is_err());
+        assert!(res.is_err(), "Expected error but no error encountered");
         assert_eq!(
             env.eval_str(MODULE, "(modules)").unwrap(),
             vec![Val::List(Rc::new(vec![
                 "%global%".to_string().into(),
                 "%virtual%/%test%".to_string().into(),
             ]))],
+            "Expecting the default set of modules with no other module removal/additions."
         );
     }
 
     #[test]
-    fn working_dir_is_good() {
+    fn import_module_with_runtime_error_returns_error() {
         let mut env = Vm::new().build_env();
         let res = env.eval_str(
             MODULE,
