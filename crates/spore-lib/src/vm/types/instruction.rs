@@ -28,8 +28,11 @@ pub enum Instruction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValRef {
+    /// The module the value is referenced from.
     pub module: ModuleSource,
-    pub alias: String,
+    /// The sub module that the value should be taken from.
+    pub sub_module: Option<String>,
+    /// The symbol for the value.
     pub symbol: String,
 }
 

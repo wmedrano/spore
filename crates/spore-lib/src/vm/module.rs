@@ -100,14 +100,16 @@ impl ModuleManager {
     pub fn get_value(
         &self,
         module_source: &ModuleSource,
-        alias: &str,
+        import_module: Option<impl AsRef<str>>,
         sym: impl Borrow<str>,
     ) -> Option<Val> {
         let sym = sym.borrow();
         if *module_source != ModuleSource::Global {
             if let Some(mut module) = self.modules.iter().find(|m| *module_source == m.source) {
-                if let Some(ms) = module.module_aliases.get(alias) {
-                    module = self.modules.iter().find(|m| *ms == m.source).unwrap();
+                if let Some(import_module) = import_module {
+                    if let Some(ms) = module.imported_modules.get(import_module.as_ref()) {
+                        module = self.modules.iter().find(|m| *ms == m.source).unwrap();
+                    }
                 }
                 if let Some(v) = module.get(sym) {
                     return Some(v);
@@ -158,8 +160,8 @@ pub enum ModuleSource {
 pub struct Module {
     /// The source of the module.
     source: ModuleSource,
-    /// Aliases to other modules.
-    module_aliases: HashMap<String, ModuleSource>,
+    /// A map from identifier to the module that has been imported into the current module.
+    imported_modules: HashMap<String, ModuleSource>,
     /// A map of symbols to their corresponding values.
     values: HashMap<Symbol, Val>,
 }
@@ -169,7 +171,7 @@ impl Module {
     pub fn new(source: ModuleSource) -> Module {
         Module {
             source,
-            module_aliases: HashMap::new(),
+            imported_modules: HashMap::new(),
             values: HashMap::new(),
         }
     }
@@ -179,12 +181,14 @@ impl Module {
         &self.source
     }
 
-    pub fn aliases(&self) -> &HashMap<String, ModuleSource> {
-        &self.module_aliases
+    /// Get a map from an import identifier to the module it points to.
+    pub fn imports(&self) -> &HashMap<String, ModuleSource> {
+        &self.imported_modules
     }
 
-    pub fn set_alias(&mut self, alias: String, module: ModuleSource) {
-        self.module_aliases.insert(alias, module);
+    /// Add an import
+    pub fn add_import(&mut self, module_identifier: String, module: ModuleSource) {
+        self.imported_modules.insert(module_identifier, module);
     }
 
     /// Retrieves the value associated with a given symbol.

@@ -138,9 +138,11 @@ impl Environment {
                     self.execute_get_arg(n)
                 }
                 Instruction::GetVal(s) => {
-                    let maybe_value =
-                        self.modules
-                            .get_value(&s.module, &s.alias, s.symbol.as_str());
+                    let maybe_value = self.modules.get_value(
+                        &s.module,
+                        s.sub_module.as_ref().map(String::as_str),
+                        s.symbol.as_str(),
+                    );
                     match maybe_value {
                         Some(v) => self.stack.push(v),
                         None => bail!("value for {s} is not defined"),
@@ -290,12 +292,12 @@ impl Environment {
         let module_source = ModuleSource::File(filepath.clone());
         if let Some(frame) = self.frames.last_mut() {
             if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
-                let alias = filepath
+                let module_identifier = filepath
                     .file_stem()
-                    .ok_or_else(|| anyhow!("Could not parse alias for filename {filepath:?}"))?
+                    .ok_or_else(|| anyhow!("Could not parse file stem for filename {filepath:?}"))?
                     .to_string_lossy()
                     .to_string();
-                current_module.set_alias(alias, module_source.clone());
+                current_module.add_import(module_identifier, module_source.clone());
             }
         }
         if self.modules.has_module(&module_source) {
@@ -334,7 +336,7 @@ mod tests {
 
     use super::*;
 
-    const MODULE: ModuleSource = ModuleSource::Virtual("%test%");
+    const MODULE: ModuleSource = ModuleSource::Virtual("test");
 
     fn string_list_to_vec(lst: &Val) -> Vec<String> {
         lst.try_slice()
@@ -454,7 +456,7 @@ mod tests {
         let before_modules = env.eval_str(MODULE, "(modules)").unwrap();
         assert_eq!(
             string_list_to_vec(before_modules.first().unwrap()),
-            vec!["%global%".to_string(), "%virtual%/%test%".to_string()]
+            vec!["%global%".to_string(), "%virtual%/test".to_string()]
         );
 
         let after_modules = env
@@ -464,7 +466,7 @@ mod tests {
             string_list_to_vec(after_modules.last().unwrap()),
             vec![
                 "%global%".to_string(),
-                "%virtual%/%test%".to_string(),
+                "%virtual%/test".to_string(),
                 "/dev/null".to_string()
             ]
         );
@@ -485,7 +487,7 @@ mod tests {
             env.eval_str(MODULE, "(modules)").unwrap(),
             vec![Val::List(Rc::new(vec![
                 "%global%".to_string().into(),
-                "%virtual%/%test%".to_string().into(),
+                "%virtual%/test".to_string().into(),
             ]))],
             "Expecting the default set of modules with no other module removal/additions."
         );
@@ -503,7 +505,7 @@ mod tests {
             env.eval_str(MODULE, "(modules)").unwrap(),
             vec![Val::List(Rc::new(vec![
                 "%global%".to_string().into(),
-                "%virtual%/%test%".to_string().into(),
+                "%virtual%/test".to_string().into(),
             ]))],
         );
     }
@@ -515,7 +517,7 @@ mod tests {
             env.eval_str(
                 MODULE,
                 &format!(
-                    "(import \"{path}\") (modules) (aliases \"{MODULE}\") (circle/circle-area 2)",
+                    "(import \"{path}\") (modules) (list-imports \"{MODULE}\") (circle/circle-area 2)",
                     path = test_file_path("circle.spore")
                 ),
             )
@@ -526,10 +528,10 @@ mod tests {
                 // List of all modules.
                 Val::List(Rc::new(vec![
                     "%global%".to_string().into(),
-                    "%virtual%/%test%".to_string().into(),
+                    "%virtual%/test".to_string().into(),
                     test_file_path("circle.spore").into(),
                 ])),
-                // List of all aliases in default module.
+                // List of all modules imported into the default module.
                 Val::List(Rc::new(vec!["circle".to_string().into(),])),
                 // Result of evaluating circle-area procedure.
                 Val::Float(12.56),

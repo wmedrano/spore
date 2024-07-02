@@ -8,9 +8,9 @@
 
 Modules are created by storing ~spore~ code in a file. The file can
 then be loaded at runtime to provide functionality. Items in the
-module can be referenced with the syntax ~<alias>/<symbol>~ where
-~alias~ is the name of the file stripped of its file extension and
-~<symbol>~ is any item defined in the module.
+module can be referenced with the syntax ~<module-alias>/<symbol>~
+where ~module-alias~ is the name of the file stripped of its file
+extension and ~<symbol>~ is any item defined in the module.
 
 Example file: ~"/tmp/shapes.spore"~
 
@@ -311,20 +311,21 @@ element of a list. If the list is empty, then an error is raised.
   (modules) ;; ("%global%" "%virtual%/repl")
 #+END_SRC
 
-** aliases
+** list-imports
 :PROPERTIES:
-:CUSTOM_ID: Miscaliases-i2u9chk0z8k0
+:CUSTOM_ID: Misclistimports-c1y4k3u0z8k0
 :END:
 
-~aliases~ returns the list of available aliases for the given module.
+~list-imports~ returns the list of modules that have been imported into the
+given module.
 
 #+BEGIN_SRC lisp
-  (aliases "%global%") ;; ()
+  (list-imports "%global%") ;; ()
 #+END_SRC
 
 Repl loading module example:
 
 #+BEGIN_SRC lisp
   (import "path/to/my/module.spore")
-  (aliases "%virtual%/repl") ;; ("module")
+  (list-imports "%virtual%/repl") ;; ("module")
 #+END_SRC

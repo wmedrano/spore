@@ -12,7 +12,7 @@ use crate::vm::{
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_procs([
         NativeProc::new("modules", modules_proc),
-        NativeProc::new("aliases", aliases_proc),
+        NativeProc::new("list-imports", list_imports_proc),
         NativeProc::new("do", do_proc),
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
@@ -49,23 +49,23 @@ fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     Ok(Val::List(Rc::new(module_names)))
 }
 
-fn aliases_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+fn list_imports_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [module] => {
             let module_str = module.try_str()?;
             for module in modules.iter() {
                 if module.source().to_string() == module_str {
-                    let aliases = module
-                        .aliases()
+                    let imports = module
+                        .imports()
                         .keys()
                         .map(|m| Val::from(m.clone()))
                         .collect();
-                    return Ok(Val::List(Rc::new(aliases)));
+                    return Ok(Val::List(Rc::new(imports)));
                 }
             }
             bail!("module {module_str:?} not found");
         }
-        _ => bail!("expected (aliases <module-str>)"),
+        _ => bail!("expected (list-imports <module-str>)"),
     }
 }
 

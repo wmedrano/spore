@@ -347,11 +347,11 @@ impl CodeBlock {
                     match self.arg_to_idx.get(symbol.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
                         None => {
-                            let (alias, sym) = split_alias(symbol.as_str());
+                            let (module_ident, symbol) = split_identifier(symbol.as_str());
                             let val_ref = Box::new(ValRef {
                                 module: default_module.clone(),
-                                alias: alias.to_string(),
-                                symbol: sym.to_string(),
+                                sub_module: module_ident,
+                                symbol,
                             });
                             res.push(Instruction::GetVal(val_ref))
                         }
@@ -410,10 +410,10 @@ impl CodeBlock {
     }
 }
 
-fn split_alias(s: &str) -> (&str, &str) {
+fn split_identifier(s: &str) -> (Option<String>, String) {
     match s.find('/') {
-        Some(idx) => (&s[0..idx], &s[idx + 1..]),
-        None => ("", s),
+        Some(idx) => (Some(s[0..idx].to_string()), s[idx + 1..].to_string()),
+        None => (None, s.to_string()),
     }
 }
 
