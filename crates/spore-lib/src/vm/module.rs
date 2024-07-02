@@ -57,12 +57,33 @@ impl ModuleManager {
         self.modules.push(module);
     }
 
+    /// Remove a module. If the module does not exist or is the global module, then nothing happens.
+    pub fn remove_module(&mut self, module: &ModuleSource) {
+        assert_ne!(module, &ModuleSource::Global);
+        self.modules.retain(|m| &m.source != module);
+    }
+
+    /// Get the module with the given source. If the module does not exist, then `None` is returned.
     pub fn get_mut(&mut self, module: &ModuleSource) -> Option<&mut Module> {
         if *module == ModuleSource::Global {
             Some(&mut self.global)
         } else {
             self.modules.iter_mut().find(|m| m.source == *module)
         }
+    }
+
+    /// Get the module with the given source. If the module does not exist, then `None` is returned.
+    pub fn get(&self, module: &ModuleSource) -> Option<&Module> {
+        if *module == ModuleSource::Global {
+            Some(&self.global)
+        } else {
+            self.modules.iter().find(|m| m.source == *module)
+        }
+    }
+
+    /// Returns `true` if `module` is registered.
+    pub fn has_module(&mut self, module: &ModuleSource) -> bool {
+        self.get(module).is_some()
     }
 
     /// Retrieves a value associated with a symbol from the current module or global module.
@@ -116,11 +137,6 @@ impl ModuleManager {
         };
         module.set(sym, val);
     }
-
-    /// Returns `true` if `module` is registered.
-    pub fn has_module(&mut self, module: &ModuleSource) -> bool {
-        self.modules.iter().any(|m| m.source == *module)
-    }
 }
 
 #[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
@@ -138,7 +154,7 @@ pub enum ModuleSource {
 ///
 /// Modules are used to manage namespaces, allowing for the organization
 /// of variables and functions within a program.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct Module {
     /// The source of the module.
     source: ModuleSource,

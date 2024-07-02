@@ -93,14 +93,28 @@ impl CodeBlock {
         Ok(cb)
     }
 
-    /// Convert the code block into bytecode.
-    pub fn to_bytecode(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+    /// Convert the codeblock into a procedure that defines a module.
+    pub fn to_module_definition(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+        self.to_proc_impl(module, true)
+    }
+
+    /// Convert the code block into bytecode that is attached to the given module.
+    pub fn to_proc(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+        self.to_proc_impl(module, false)
+    }
+
+    fn to_proc_impl(
+        &self,
+        module: ModuleSource,
+        is_module_definition: bool,
+    ) -> Result<ByteCodeProc> {
         let bytecode = self.to_bytecode_instructions(&module, self.instructions.iter())?;
         Ok(ByteCodeProc {
             name: self.name.clone().unwrap_or_else(|| "_".to_string()),
             arg_count: self.arg_to_idx.len(),
             bytecode,
             module,
+            is_module_definition,
         })
     }
 
@@ -326,7 +340,7 @@ impl CodeBlock {
             match ir {
                 IrInstruction::PushConst(val) => res.push(Instruction::PushVal(val.clone())),
                 IrInstruction::PushProc(codeblock) => {
-                    let bytecode = codeblock.to_bytecode(default_module.clone())?;
+                    let bytecode = codeblock.to_proc(default_module.clone())?;
                     res.push(Instruction::PushVal(Val::ByteCodeProc(Rc::new(bytecode))));
                 }
                 IrInstruction::DerefIdentifier { symbol } => {
@@ -421,7 +435,7 @@ mod tests {
     fn compile_to_bytecode(s: &str) -> anyhow::Result<Vec<Instruction>> {
         let asts = Ast::from_sexp_str(s).unwrap();
         let codeblock = CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter()).unwrap();
-        Ok(codeblock.to_bytecode(MODULE)?.bytecode)
+        Ok(codeblock.to_proc(MODULE)?.bytecode)
     }
 
     #[test]
@@ -480,7 +494,14 @@ mod tests {
 
     #[test]
     fn import_compiles_to_import_instruction() {
-        let bytecode = compile_to_bytecode("(import \"my-file.spore\")").unwrap();
+        let asts = Ast::from_sexp_str("(import \"my-file.spore\")").unwrap();
+        let codeblock = CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter()).unwrap();
+        let proc = codeblock.to_module_definition(MODULE).unwrap();
+
+        assert!(!codeblock.to_proc(MODULE).unwrap().is_module_definition);
+        assert!(proc.is_module_definition);
+
+        let bytecode = proc.bytecode;
         assert!(
             matches!(bytecode.as_slice(), [Instruction::ImportModule(p)] if p.as_ref() == Path::new("my-file.spore")),
             "Got: {bytecode:?}"

@@ -7,7 +7,7 @@ use crate::parser::ast::Ast;
 use super::{
     debugger::Debugger,
     ir::{CodeBlock, CodeBlockArgs},
-    module::{ModuleManager, ModuleSource},
+    module::{Module, ModuleManager, ModuleSource},
     types::{
         instruction::Instruction,
         proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -60,7 +60,7 @@ impl Environment {
                     ..CodeBlockArgs::default()
                 };
                 let ir = CodeBlock::with_ast(code_block_args, std::iter::once(&ast))?;
-                let proc = ir.to_bytecode(module.clone())?;
+                let proc = ir.to_proc(module.clone())?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()
@@ -74,6 +74,14 @@ impl Environment {
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
         self.eval_bytecode_impl(proc, args, debugger)
+            .inspect_err(|_| {
+                for frame in self.frames.iter_mut() {
+                    let bytecode = frame.bytecode.inner();
+                    if bytecode.is_module_definition {
+                        self.modules.remove_module(&bytecode.module);
+                    }
+                }
+            })
             .with_context(|| self.stack_trace())
     }
 
@@ -170,6 +178,9 @@ impl Environment {
             proc.arg_count == args.len(),
             "Wrong number of args to {proc}"
         );
+        if !self.modules.has_module(&proc.module) {
+            self.modules.add_module(Module::new(proc.module.clone()));
+        }
         self.frames.clear();
         self.stack.clear();
         self.stack.extend_from_slice(args);
@@ -290,14 +301,16 @@ impl Environment {
         if self.modules.has_module(&module_source) {
             return Ok(());
         }
-        let contents = std::fs::read_to_string(&filepath)?;
+        let contents = std::fs::read_to_string(&filepath)
+            .with_context(|| format!("filepath: {filepath:?}"))?;
         let asts = Ast::from_sexp_str(&contents)?;
         let args = CodeBlockArgs {
             name: Some(format!("init-module-{filepath:?}")),
             ..CodeBlockArgs::default()
         };
-        let bytecode =
-            CodeBlock::with_ast(args.clone(), asts.iter())?.to_bytecode(module_source.clone())?;
+        let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())?
+            .to_module_definition(module_source.clone())?;
+        self.modules.add_module(Module::new(module_source.clone()));
         self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
     }
@@ -321,7 +334,24 @@ mod tests {
 
     use super::*;
 
-    const MODULE: ModuleSource = ModuleSource::Virtual("test");
+    const MODULE: ModuleSource = ModuleSource::Virtual("%test%");
+
+    fn string_list_to_vec(lst: &Val) -> Vec<String> {
+        lst.try_slice()
+            .unwrap()
+            .into_iter()
+            .map(|v| v.try_str())
+            .map(Result::unwrap)
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn test_file_path(p: &str) -> String {
+        let mut full_path = std::env::current_dir().unwrap();
+        full_path.push("test_data");
+        full_path.push(p);
+        full_path.to_str().unwrap().to_string()
+    }
 
     #[test]
     fn can_execute_ast() {
@@ -416,5 +446,93 @@ mod tests {
         assert!(env
             .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)], &mut ())
             .is_err());
+    }
+
+    #[test]
+    fn import_module_creates_new_module() {
+        let mut env = Vm::new().build_env();
+        let before_modules = env.eval_str(MODULE, "(modules)").unwrap();
+        assert_eq!(
+            string_list_to_vec(before_modules.first().unwrap()),
+            vec!["%global%".to_string(), "%virtual%/%test%".to_string()]
+        );
+
+        let after_modules = env
+            .eval_str(MODULE, "(import \"/dev/null\") (modules)")
+            .unwrap();
+        assert_eq!(
+            string_list_to_vec(after_modules.last().unwrap()),
+            vec![
+                "%global%".to_string(),
+                "%virtual%/%test%".to_string(),
+                "/dev/null".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn import_nonexistent_module_returns_error() {
+        let mut env = Vm::new().build_env();
+        let res = env.eval_str(
+            MODULE,
+            &format!(
+                "(import \"{path}\")",
+                path = test_file_path("does_not_exist.spore")
+            ),
+        );
+        assert!(res.is_err());
+        assert_eq!(
+            env.eval_str(MODULE, "(modules)").unwrap(),
+            vec![Val::List(Rc::new(vec![
+                "%global%".to_string().into(),
+                "%virtual%/%test%".to_string().into(),
+            ]))],
+        );
+    }
+
+    #[test]
+    fn working_dir_is_good() {
+        let mut env = Vm::new().build_env();
+        let res = env.eval_str(
+            MODULE,
+            &format!("(import \"{path}\")", path = test_file_path("bad.spore")),
+        );
+        assert!(res.is_err());
+        assert_eq!(
+            env.eval_str(MODULE, "(modules)").unwrap(),
+            vec![Val::List(Rc::new(vec![
+                "%global%".to_string().into(),
+                "%virtual%/%test%".to_string().into(),
+            ]))],
+        );
+    }
+
+    #[test]
+    fn import_module_allows_access_to_module() {
+        let mut env = Vm::new().build_env();
+        assert_eq!(
+            env.eval_str(
+                MODULE,
+                &format!(
+                    "(import \"{path}\") (modules) (aliases \"{MODULE}\") (circle/circle-area 2)",
+                    path = test_file_path("circle.spore")
+                ),
+            )
+            .unwrap(),
+            vec![
+                // Import statement.
+                Val::Void,
+                // List of all modules.
+                Val::List(Rc::new(vec![
+                    "%global%".to_string().into(),
+                    "%virtual%/%test%".to_string().into(),
+                    test_file_path("circle.spore").into(),
+                ])),
+                // List of all aliases in default module.
+                Val::List(Rc::new(vec!["circle".to_string().into(),])),
+                // Result of evaluating circle-area procedure.
+                Val::Float(12.56),
+            ],
+        );
     }
 }

@@ -1,0 +1,4 @@
+(define pi 3.14)
+
+(define (circle-area radius)
+  (* radius radius pi))

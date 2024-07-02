@@ -1,0 +1,2 @@
+(define x "good-definition")
+(define y (+ "bad" "use" "of" "operations"))

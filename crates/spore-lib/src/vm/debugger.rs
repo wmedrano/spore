@@ -151,7 +151,7 @@ mod tests {
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
             let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode(MODULE)
+            ir.to_proc(MODULE)
         }
         .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -182,7 +182,7 @@ mod tests {
         .unwrap();
         let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
         let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
-        let proc = ir.to_bytecode(MODULE).unwrap();
+        let proc = ir.to_proc(MODULE).unwrap();
         let mut debugger = TraceDebugger::new();
         assert!(env.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
         assert_eq!(
