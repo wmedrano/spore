@@ -107,7 +107,8 @@ fn first_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn rest_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [arg] => match arg.try_slice()? {
-            [] | [_] => Ok(Val::List(Rc::new(Vec::new()))),
+            [] => bail!("attempted to call procedure rest on empty list"),
+            [_] => Ok(Val::List(Rc::new(Vec::new()))),
             [_, rest @ ..] => Ok(Val::List(Rc::new(Vec::from_iter(rest.iter().cloned())))),
         },
         _ => bail!(

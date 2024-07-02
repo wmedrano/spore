@@ -35,7 +35,7 @@ shapes/pi ;; 3.14159
 
 Numbers are a fundamental data type supporting both integers and
 floating-point values. Spore provides a variety of arithmetic and
-comaprison operations to manipulate numbers.
+comparison operations to manipulate numbers.
 
 ** Arithmetic
 :PROPERTIES:
@@ -137,27 +137,15 @@ quote character within a string, use the escape sequence ~\"~.
 
 *** equal?
 :PROPERTIES:
-:CUSTOM_ID: StringsOperationsequal-y8m04yc0e7k0
+:CUSTOM_ID: StringsOperationsequal-7md599t0z8k0
 :END:
 
 ~equal?~ compares two strings for equality.
 
 #+BEGIN_SRC lisp
-  (equal "bat" "bat")      ;; true
-#+END_SRC
-
-*** nth
-:PROPERTIES:
-:CUSTOM_ID: StringsOperationslen-huy2ltc0e7k0
-:END:
-
-~nth~ returns the ~nth~ element of the ~list~.
-
-#+BEGIN_SRC lisp
-  (nth (list "0" "1" "2") 0) ;; "0"
-  (nth (list "0" "1" "2") 1) ;; "1"
-  (nth (list "0" "1" "2") 2) ;; "2"
-  (nth (list "0" "1" "2") 3) ;; ERROR!
+  (equal? "bat" "bat") ;; true
+  (equal? "bat" "tab") ;; false
+  (equal? "33"  33)    ;; false
 #+END_SRC
 
 
@@ -272,7 +260,28 @@ The ~first~ procedure  returns the first element of a list.
 :END:
 
 The ~rest~ procedure returns a list containing all but the first
-element of a list.
+element of a list. If the list is empty, then an error is raised.
+
+#+BEGIN_SRC lisp
+  (rest (list "0" "1" "2")) ;; ("1" "2")
+  (rest (list "0"))         ;; ()
+  (rest (list))             ;; <error>
+#+END_SRC
+
+*** nth
+:PROPERTIES:
+:CUSTOM_ID: ListsOperationsnth-azohu8t0z8k0
+:END:
+
+~nth~ returns the ~nth~ element of the ~list~.
+
+#+BEGIN_SRC lisp
+  (nth (list "0" "1" "2") 0) ;; "0"
+  (nth (list "0" "1" "2") 1) ;; "1"
+  (nth (list "0" "1" "2") 2) ;; "2"
+  (nth (list "0" "1" "2") 3) ;; <error>
+#+END_SRC
+
 
 * Misc
 :PROPERTIES:
@@ -288,6 +297,7 @@ element of a list.
 
 #+BEGIN_SRC lisp
   (do 1 2 3) ;; 3
+  (do)       ;; <void>
 #+END_SRC
 
 ** modules
