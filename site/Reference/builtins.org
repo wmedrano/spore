@@ -1,6 +1,33 @@
 #+TITLE: Built-Ins
 #+AUTHOR: Will Medrano
 
+* Modules
+:PROPERTIES:
+:CUSTOM_ID: Modules-xay5olk0z8k0
+:END:
+
+Modules are created by storing ~spore~ code in a file. The file can
+then be loaded at runtime to provide functionality. Items in the
+module can be referenced with the syntax ~<alias>/<symbol>~ where
+~alias~ is the name of the file stripped of its file extension and
+~<symbol>~ is any item defined in the module.
+
+Example file: ~"/tmp/shapes.spore"~
+
+#+BEGIN_SRC lisp
+(define pi 3.14159)
+(define (circle-area radius)
+  (* pi radius radius))
+#+END_SRC
+
+Repl interaction:
+
+#+BEGIN_SRC lisp
+(import "/tmp/shapes.spore") ;; Imported under the shapes/ prefix.
+shapes/pi ;; 3.14159
+(circle-area 2) ;; 12.56636
+#+END_SRC
+
 * Numbers
 :PROPERTIES:
 :CUSTOM_ID: Numbers-xan1fsa0e7k0
@@ -118,6 +145,21 @@ quote character within a string, use the escape sequence ~\"~.
 #+BEGIN_SRC lisp
   (equal "bat" "bat")      ;; true
 #+END_SRC
+
+*** nth
+:PROPERTIES:
+:CUSTOM_ID: StringsOperationslen-huy2ltc0e7k0
+:END:
+
+~nth~ returns the ~nth~ element of the ~list~.
+
+#+BEGIN_SRC lisp
+  (nth (list "0" "1" "2") 0) ;; "0"
+  (nth (list "0" "1" "2") 1) ;; "1"
+  (nth (list "0" "1" "2") 2) ;; "2"
+  (nth (list "0" "1" "2") 3) ;; ERROR!
+#+END_SRC
+
 
 *** len
 :PROPERTIES:
@@ -244,6 +286,35 @@ element of a list.
 
 ~do~ takes any number of arguments and returns the last value.
 
-#+BEGIN_SRC spore
+#+BEGIN_SRC lisp
   (do 1 2 3) ;; 3
+#+END_SRC
+
+** modules
+:PROPERTIES:
+:CUSTOM_ID: Miscmodules-gvu1agk0z8k0
+:END:
+
+~modules~ returns all loaded modules by name as a list of strings.
+
+#+BEGIN_SRC lisp
+  (modules) ;; ("%global%" "%virtual%/repl")
+#+END_SRC
+
+** aliases
+:PROPERTIES:
+:CUSTOM_ID: Miscaliases-i2u9chk0z8k0
+:END:
+
+~aliases~ returns the list of available aliases for the given module.
+
+#+BEGIN_SRC lisp
+  (aliases "%global%") ;; ()
+#+END_SRC
+
+Repl loading module example:
+
+#+BEGIN_SRC lisp
+  (import "path/to/my/module.spore")
+  (aliases "%virtual%/repl") ;; ("module")
 #+END_SRC
