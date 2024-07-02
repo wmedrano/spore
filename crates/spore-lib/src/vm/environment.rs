@@ -1,13 +1,13 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{path::PathBuf, rc::Rc};
 
-use anyhow::{bail, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 
 use crate::parser::ast::Ast;
 
 use super::{
     debugger::Debugger,
-    ir::CodeBlock,
-    module::ModuleManager,
+    ir::{CodeBlock, CodeBlockArgs},
+    module::{Module, ModuleManager, ModuleSource},
     types::{
         instruction::Instruction,
         proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -51,17 +51,16 @@ impl Environment {
 
     /// Evaluate an S-Expression string and return the last value. If there are no expression, than
     /// `Val::Void` is returned.
-    pub fn eval_str(&mut self, s: &str) -> Result<Vec<Val>> {
+    pub fn eval_str(&mut self, module: ModuleSource, s: &str) -> Result<Vec<Val>> {
         Ast::from_sexp_str(s)?
             .into_iter()
             .map(|ast| {
-                let proc = {
-                    let name = "eval-str".to_string();
-                    let ast = &ast;
-                    let ir =
-                        CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-                    ir.to_bytecode()
-                }?;
+                let code_block_args = CodeBlockArgs {
+                    name: Some("eval-str".to_string()),
+                    ..CodeBlockArgs::default()
+                };
+                let ir = CodeBlock::with_ast(code_block_args, std::iter::once(&ast))?;
+                let proc = ir.to_proc(module.clone())?;
                 self.eval_bytecode(proc.into(), &[], &mut ())
             })
             .collect()
@@ -75,6 +74,14 @@ impl Environment {
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
         self.eval_bytecode_impl(proc, args, debugger)
+            .inspect_err(|_| {
+                for frame in self.frames.iter_mut() {
+                    let bytecode = frame.bytecode.inner();
+                    if bytecode.is_module_definition {
+                        self.modules.remove_module(&bytecode.module);
+                    }
+                }
+            })
             .with_context(|| self.stack_trace())
     }
 
@@ -113,14 +120,14 @@ impl Environment {
         args: &[Val],
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
-        self.prepare(proc, args)?;
-        debugger.start_eval(self);
+        self.prepare(proc.clone(), args)?;
+        debugger.eval_proc(self);
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
             match instruction {
                 Instruction::PushVal(v) => {
                     let v = v.clone();
-                    self.execute_push_val(v);
+                    self.stack.push(v);
                 }
                 Instruction::Eval(n) => {
                     let n = *n;
@@ -130,23 +137,31 @@ impl Environment {
                     let n = *n;
                     self.execute_get_arg(n)
                 }
-                Instruction::GetVal(s) => match self.modules.get(s) {
-                    Some(v) => {
-                        self.execute_push_val(v.clone());
+                Instruction::GetVal(s) => {
+                    let maybe_value =
+                        self.modules
+                            .get_value(&s.module, &s.alias, s.symbol.as_str());
+                    match maybe_value {
+                        Some(v) => self.stack.push(v),
+                        None => bail!("value for {s} is not defined"),
                     }
-                    None => bail!("{s} is not defined"),
-                },
+                }
                 Instruction::JumpIf(n) => {
                     let n = *n;
                     self.execute_jump_if(n)?
                 }
                 Instruction::Jump(n) => {
                     let n = *n;
-                    self.execute_jump(n)
+                    frame.bytecode.jump(n);
                 }
                 Instruction::SetVal(s) => {
                     let s = s.clone();
-                    self.execute_set_val(s, debugger)?
+                    let module = frame.bytecode.inner().module.clone();
+                    self.execute_set_val(&module, s, debugger)?;
+                }
+                Instruction::ImportModule(filepath) => {
+                    let filepath = filepath.as_ref().clone();
+                    self.import_module(filepath, debugger)?;
                 }
                 Instruction::Return => {
                     self.pop_frame(debugger)?;
@@ -163,6 +178,9 @@ impl Environment {
             proc.arg_count == args.len(),
             "Wrong number of args to {proc}"
         );
+        if !self.modules.has_module(&proc.module) {
+            self.modules.add_module(Module::new(proc.module.clone()));
+        }
         self.frames.clear();
         self.stack.clear();
         self.stack.extend_from_slice(args);
@@ -211,17 +229,17 @@ impl Environment {
     fn execute_jump_if(&mut self, n: usize) -> Result<()> {
         let v = self.stack.pop().unwrap_or_default();
         if v.is_truthy()? {
-            self.execute_jump(n);
+            self.frames.last_mut().unwrap().bytecode.jump(n);
         }
         Ok(())
     }
 
-    fn execute_jump(&mut self, n: usize) {
-        let frame = self.frames.last_mut().unwrap();
-        frame.bytecode.jump(n);
-    }
-
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
+        ensure!(
+            n <= self.stack.len(),
+            "interpretter stuck is corrupt, expected stack with minimum stack size {n} but found {stack_len}.",
+            stack_len = self.stack.len()
+        );
         let proc_idx = self.stack.len() - n;
         let proc_val = std::mem::take(&mut self.stack[proc_idx]);
         match proc_val {
@@ -232,7 +250,7 @@ impl Environment {
                     bytecode: ByteCodeIter::from_proc(proc),
                     stack_start_idx: proc_idx + 1,
                 });
-                debugger.start_eval(self);
+                debugger.eval_proc(self);
                 if expected_args != actual_args {
                     bail!(
                         "{name} expected {expected_args} but found {actual_args}",
@@ -244,7 +262,7 @@ impl Environment {
                 let stack_base = proc_idx + 1;
                 let res = {
                     let args = self.stack.drain(stack_base..);
-                    proc.eval(args.as_slice())?
+                    proc.eval(&self.modules, args.as_slice())?
                 };
                 *self.stack.last_mut().unwrap() = res;
             }
@@ -256,15 +274,45 @@ impl Environment {
         Ok(())
     }
 
-    fn execute_push_val(&mut self, val: Val) {
-        self.stack.push(val);
-    }
-
-    fn execute_set_val(&mut self, s: Symbol, debugger: &mut impl Debugger) -> Result<()> {
+    fn execute_set_val(
+        &mut self,
+        module: &ModuleSource,
+        s: Symbol,
+        debugger: &mut impl Debugger,
+    ) -> Result<()> {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
-        self.modules.set_local(s, v);
+        self.modules.set_value(module, s, v);
         Ok(())
+    }
+
+    fn import_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
+        let module_source = ModuleSource::File(filepath.clone());
+        if let Some(frame) = self.frames.last_mut() {
+            if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
+                let alias = filepath
+                    .file_stem()
+                    .ok_or_else(|| anyhow!("Could not parse alias for filename {filepath:?}"))?
+                    .to_string_lossy()
+                    .to_string();
+                current_module.set_alias(alias, module_source.clone());
+            }
+        }
+        if self.modules.has_module(&module_source) {
+            return Ok(());
+        }
+        let contents = std::fs::read_to_string(&filepath)
+            .with_context(|| format!("filepath: {filepath:?}"))?;
+        let asts = Ast::from_sexp_str(&contents)?;
+        let args = CodeBlockArgs {
+            name: Some(format!("init-module-{filepath:?}")),
+            ..CodeBlockArgs::default()
+        };
+        let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())?
+            .to_module_definition(module_source.clone())?;
+        self.modules.add_module(Module::new(module_source.clone()));
+        self.stack.push(bytecode.into());
+        self.execute_eval_n(1, debugger)
     }
 }
 
@@ -286,10 +334,32 @@ mod tests {
 
     use super::*;
 
+    const MODULE: ModuleSource = ModuleSource::Virtual("%test%");
+
+    fn string_list_to_vec(lst: &Val) -> Vec<String> {
+        lst.try_slice()
+            .unwrap()
+            .into_iter()
+            .map(|v| v.try_str())
+            .map(Result::unwrap)
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn test_file_path(p: &str) -> String {
+        let mut full_path = std::env::current_dir().unwrap();
+        full_path.push("test_data");
+        full_path.push(p);
+        full_path.to_str().unwrap().to_string()
+    }
+
     #[test]
     fn can_execute_ast() {
         assert_eq!(
-            Vm::new().build_env().eval_str("(+ 1 2 (- 3 4))").unwrap(),
+            Vm::new()
+                .build_env()
+                .eval_str(MODULE, "(+ 1 2 (- 3 4))")
+                .unwrap(),
             vec![2.into()]
         );
     }
@@ -299,7 +369,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if true (* 10 2) (+ 10 2))")
+                .eval_str(MODULE, "(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![20.into()],
         );
@@ -310,7 +380,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if false (* 10 2) (+ 10 2))")
+                .eval_str(MODULE, "(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![12.into()],
         )
@@ -321,7 +391,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if true (* 10 2))")
+                .eval_str(MODULE, "(if true (* 10 2))")
                 .unwrap(),
             vec![20.into()],
         )
@@ -332,7 +402,7 @@ mod tests {
         assert_eq!(
             Vm::new()
                 .build_env()
-                .eval_str("(if false (* 10 2))")
+                .eval_str(MODULE, "(if false (* 10 2))")
                 .unwrap(),
             vec![Val::Void],
         )
@@ -343,6 +413,7 @@ mod tests {
         let mut env = Vm::new().build_env();
         assert_eq!(
             env.eval_str(
+                MODULE,
                 r#"
 (define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
 (fib 10)
@@ -357,7 +428,7 @@ mod tests {
     fn eval_with_wrong_number_of_args_returns_error() {
         let mut env = Vm::new().build_env();
         let proc_val = env
-            .eval_str("(lambda (x) (+ 1 x))")
+            .eval_str(MODULE, "(lambda (x) (+ 1 x))")
             .unwrap()
             .into_iter()
             .next()
@@ -375,5 +446,94 @@ mod tests {
         assert!(env
             .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)], &mut ())
             .is_err());
+    }
+
+    #[test]
+    fn import_module_creates_new_module() {
+        let mut env = Vm::new().build_env();
+        let before_modules = env.eval_str(MODULE, "(modules)").unwrap();
+        assert_eq!(
+            string_list_to_vec(before_modules.first().unwrap()),
+            vec!["%global%".to_string(), "%virtual%/%test%".to_string()]
+        );
+
+        let after_modules = env
+            .eval_str(MODULE, "(import \"/dev/null\") (modules)")
+            .unwrap();
+        assert_eq!(
+            string_list_to_vec(after_modules.last().unwrap()),
+            vec![
+                "%global%".to_string(),
+                "%virtual%/%test%".to_string(),
+                "/dev/null".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn import_nonexistent_module_returns_error() {
+        let mut env = Vm::new().build_env();
+        let res = env.eval_str(
+            MODULE,
+            &format!(
+                "(import \"{path}\")",
+                path = test_file_path("does_not_exist.spore")
+            ),
+        );
+        assert!(res.is_err(), "Expected error but no error encountered");
+        assert_eq!(
+            env.eval_str(MODULE, "(modules)").unwrap(),
+            vec![Val::List(Rc::new(vec![
+                "%global%".to_string().into(),
+                "%virtual%/%test%".to_string().into(),
+            ]))],
+            "Expecting the default set of modules with no other module removal/additions."
+        );
+    }
+
+    #[test]
+    fn import_module_with_runtime_error_returns_error() {
+        let mut env = Vm::new().build_env();
+        let res = env.eval_str(
+            MODULE,
+            &format!("(import \"{path}\")", path = test_file_path("bad.spore")),
+        );
+        assert!(res.is_err());
+        assert_eq!(
+            env.eval_str(MODULE, "(modules)").unwrap(),
+            vec![Val::List(Rc::new(vec![
+                "%global%".to_string().into(),
+                "%virtual%/%test%".to_string().into(),
+            ]))],
+        );
+    }
+
+    #[test]
+    fn import_module_allows_access_to_module() {
+        let mut env = Vm::new().build_env();
+        assert_eq!(
+            env.eval_str(
+                MODULE,
+                &format!(
+                    "(import \"{path}\") (modules) (aliases \"{MODULE}\") (circle/circle-area 2)",
+                    path = test_file_path("circle.spore")
+                ),
+            )
+            .unwrap(),
+            vec![
+                // Import statement.
+                Val::Void,
+                // List of all modules.
+                Val::List(Rc::new(vec![
+                    "%global%".to_string().into(),
+                    "%virtual%/%test%".to_string().into(),
+                    test_file_path("circle.spore").into(),
+                ])),
+                // List of all aliases in default module.
+                Val::List(Rc::new(vec!["circle".to_string().into(),])),
+                // Result of evaluating circle-area procedure.
+                Val::Float(12.56),
+            ],
+        );
     }
 }

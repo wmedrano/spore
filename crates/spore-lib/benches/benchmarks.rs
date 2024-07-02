@@ -2,45 +2,32 @@ use std::rc::Rc;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use spore_lib::parser::ast::Ast;
-use spore_lib::vm::compiler::Compiler;
+use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
+use spore_lib::vm::module::ModuleSource;
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::proc::bytecode::ByteCodeIter;
 use spore_lib::vm::Vm;
 
 const FIB_SRC: &str = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))";
+const MODULE: ModuleSource = ModuleSource::Virtual("bench");
 
 pub fn eval_benchmarks(c: &mut Criterion) {
     let mut env = spore_lib::vm::Vm::new().build_env();
     c.bench_function("eval_fib_20", |b| {
-        env.eval_str(FIB_SRC).unwrap();
-        let bytecode = Rc::new(
-            {
-                let this = Compiler::new();
-                let name = "eval-benchmark".to_string();
-                let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
-                let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-                ir.to_bytecode()
-            }
-            .unwrap(),
-        );
+        env.eval_str(MODULE, FIB_SRC).unwrap();
+        let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
+        let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
+        let bytecode = Rc::new(ir.to_proc(MODULE).unwrap());
         b.iter(|| {
             env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()
         })
     })
     .bench_function("eval_add_20_elements", |b| {
-        let bytecode = Rc::new(
-            {
-                let this = Compiler::new();
-                let name = "eval-benchmark".to_string();
-                let ast: &Ast =
-                    &Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)")
-                        .unwrap()[0];
-                let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-                ir.to_bytecode()
-            }
-            .unwrap(),
-        );
+        let ast =
+            Ast::from_sexp_str("(+ 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)").unwrap();
+        let ir = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter()).unwrap();
+        let bytecode = Rc::new(ir.to_proc(MODULE).unwrap());
         b.iter(|| {
             env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()
@@ -49,17 +36,9 @@ pub fn eval_benchmarks(c: &mut Criterion) {
 }
 
 pub fn eval_microbenchmarks(c: &mut Criterion) {
-    let ast = Ast::from_sexp_str(FIB_SRC).unwrap().pop().unwrap();
-    let proc = Rc::new(
-        {
-            let this = Compiler::new();
-            let name = "eval-benchmark".to_string();
-            let ast = &ast;
-            let ir = CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast))?;
-            ir.to_bytecode()
-        }
-        .unwrap(),
-    );
+    let ast = Ast::from_sexp_str(FIB_SRC).unwrap();
+    let ir = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter()).unwrap();
+    let proc = Rc::new(ir.to_proc(MODULE).unwrap());
     c.bench_function("iter_bytecode", |b| {
         let iter = ByteCodeIter::from_proc(proc.clone());
         b.iter(|| {
@@ -89,7 +68,6 @@ pub fn eval_microbenchmarks(c: &mut Criterion) {
 }
 
 pub fn compile_benchmarks(c: &mut Criterion) {
-    let fib_ast = &Ast::from_sexp_str(FIB_SRC).unwrap()[0];
     c.bench_function("init_env", |b| {
         let vm = Vm::new();
         b.iter(|| vm.build_env())
@@ -98,15 +76,10 @@ pub fn compile_benchmarks(c: &mut Criterion) {
         b.iter(|| Ast::from_sexp_str(FIB_SRC).unwrap())
     })
     .bench_function("compile_fib", |b| {
+        let fib_ast = black_box(Ast::from_sexp_str(FIB_SRC).unwrap());
         b.iter(|| {
-            {
-                let this = Compiler::new();
-                let name = "compile-benchmark".to_string();
-                let ir =
-                    CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(fib_ast))?;
-                ir.to_bytecode()
-            }
-            .unwrap()
+            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), fib_ast.iter()).unwrap();
+            ir.to_proc(MODULE).unwrap()
         })
     });
 }

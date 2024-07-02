@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use self::{
     environment::Environment,
-    module::Module,
+    module::{Module, ModuleSource},
     types::{proc::native::NativeProc, symbol::Symbol, Val},
 };
 
@@ -31,7 +31,7 @@ impl Vm {
     /// Create a new `Vm` with all the builtins.
     pub fn new() -> Vm {
         let mut vm = Vm {
-            globals: Module::new(),
+            globals: Module::new(ModuleSource::Global),
         };
         crate::builtins::register_all(&mut vm);
         vm

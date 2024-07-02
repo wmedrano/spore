@@ -12,6 +12,7 @@ pub enum Ast {
 #[derive(Clone, Debug, PartialEq)]
 pub enum AstLeaf {
     If,
+    Import,
     Lambda,
     Define,
     Identifier(String),
@@ -169,6 +170,7 @@ impl Ast {
                     } else {
                         match s.as_str() {
                             "if" => exps.push(Ast::Leaf(token.with_item(AstLeaf::If))),
+                            "import" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Import))),
                             "lambda" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Lambda))),
                             "define" => exps.push(Ast::Leaf(token.with_item(AstLeaf::Define))),
                             _ => exps
@@ -229,6 +231,7 @@ impl std::fmt::Display for AstLeaf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AstLeaf::If => write!(f, "<if>"),
+            AstLeaf::Import => write!(f, "<import>"),
             AstLeaf::Lambda => write!(f, "<lambda>"),
             AstLeaf::Define => write!(f, "<define>"),
             AstLeaf::Identifier(ident) => write!(f, "<identifier {ident}>"),
@@ -462,6 +465,33 @@ mod tests {
                 })
             ]
         );
+    }
+
+    #[test]
+    fn parse_special_tokens() {
+        use Ast::*;
+        use AstLeaf::*;
+        assert_eq!(
+            Ast::from_sexp_str("if import define lambda").unwrap(),
+            vec![
+                Leaf(Token {
+                    item: If,
+                    range: 0..2,
+                }),
+                Leaf(Token {
+                    item: Import,
+                    range: 3..9,
+                }),
+                Leaf(Token {
+                    item: Define,
+                    range: 10..16,
+                }),
+                Leaf(Token {
+                    item: Lambda,
+                    range: 17..23,
+                }),
+            ]
+        )
     }
 
     #[test]

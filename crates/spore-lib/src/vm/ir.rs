@@ -1,10 +1,21 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, path::PathBuf, rc::Rc, str::FromStr};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 
-use crate::parser::ast::{Ast, AstLeaf};
+use crate::parser::{
+    ast::{Ast, AstLeaf},
+    token::Token,
+};
 
-use super::types::{instruction::Instruction, proc::bytecode::ByteCodeProc, symbol::Symbol, Val};
+use super::{
+    module::ModuleSource,
+    types::{
+        instruction::{Instruction, ValRef},
+        proc::bytecode::ByteCodeProc,
+        symbol::Symbol,
+        Val,
+    },
+};
 
 /// Contains a set of high level instructions to execute. Can be converted to lower level
 /// instructions.
@@ -25,7 +36,7 @@ pub enum IrInstruction {
     /// Push a procedure value to the stack.
     PushProc(CodeBlock),
     /// Dereference an identifier and push it to the stack.
-    DerefIdentifier(String),
+    DerefIdentifier { symbol: String },
     /// Call a procedure with the given arguments.
     CallProc {
         proc: Box<IrInstruction>,
@@ -39,44 +50,85 @@ pub enum IrInstruction {
     },
     /// Set `sym` to `value` globally.
     Define {
-        sym: Symbol,
+        symbol: Symbol,
         value: Box<IrInstruction>,
     },
+    /// Ensure that a file has been imported.
+    Import { filepath: PathBuf },
+}
+
+#[derive(Debug, Clone)]
+pub struct CodeBlockArgs {
+    pub name: Option<String>,
+    pub arg_to_idx: HashMap<String, usize>,
+    pub is_subexpression: bool,
+}
+
+impl Default for CodeBlockArgs {
+    fn default() -> CodeBlockArgs {
+        CodeBlockArgs {
+            name: None,
+            arg_to_idx: HashMap::new(),
+            is_subexpression: false,
+        }
+    }
 }
 
 impl CodeBlock {
     /// Create a new code block with `asts`.
     pub fn with_ast<'a>(
-        name: Option<String>,
-        arg_to_idx: HashMap<String, usize>,
+        args: CodeBlockArgs,
         asts: impl Iterator<Item = &'a Ast>,
     ) -> Result<CodeBlock> {
-        let mut cb = CodeBlock::new(name, arg_to_idx);
+        let is_subexpression = args.is_subexpression;
+        let mut cb = CodeBlock {
+            name: args.name,
+            arg_to_idx: args.arg_to_idx,
+            instructions: Vec::new(),
+        };
         for ast in asts {
-            cb.add_ast(ast)?;
+            let instructions = cb.make_instruction(ast, is_subexpression)?;
+            cb.instructions.push(instructions);
         }
         Ok(cb)
     }
 
-    pub fn new(name: Option<String>, arg_to_idx: HashMap<String, usize>) -> CodeBlock {
-        CodeBlock {
-            name,
-            arg_to_idx,
-            instructions: Vec::new(),
-        }
+    /// Convert the codeblock into a procedure that defines a module.
+    pub fn to_module_definition(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+        self.to_proc_impl(module, true)
     }
 
-    fn add_ast(&mut self, ast: &Ast) -> Result<()> {
-        self.instructions.push(self.make_instruction(ast)?);
-        Ok(())
+    /// Convert the code block into bytecode that is attached to the given module.
+    pub fn to_proc(&self, module: ModuleSource) -> Result<ByteCodeProc> {
+        self.to_proc_impl(module, false)
     }
 
-    fn make_instruction(&self, ast: &Ast) -> Result<IrInstruction> {
+    fn to_proc_impl(
+        &self,
+        module: ModuleSource,
+        is_module_definition: bool,
+    ) -> Result<ByteCodeProc> {
+        let bytecode = self.to_bytecode_instructions(&module, self.instructions.iter())?;
+        Ok(ByteCodeProc {
+            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
+            arg_count: self.arg_to_idx.len(),
+            bytecode,
+            module,
+            is_module_definition,
+        })
+    }
+
+    /// Make a new `IrInstruction`. If `is_subexpression` is `true`, then some instructions such as
+    /// `define` and `import` will not be available.
+    fn make_instruction(&self, ast: &Ast, is_subexpression: bool) -> Result<IrInstruction> {
         let res = match ast {
             Ast::Leaf(l) => match &l.item {
                 AstLeaf::If => bail!(
                     "unexpected keyword if, did you mean (if <pred> <true-expr> <false-expr>)?"
                 ),
+                AstLeaf::Import => {
+                    bail!("unexpected keyword import, did you mean (import \"<file>\")")
+                }
                 AstLeaf::Lambda => {
                     bail!(
                         "unexpected keyword lambda, did you mean (lambda (<args>...) <exprs>...)?"
@@ -85,7 +137,9 @@ impl CodeBlock {
                 AstLeaf::Define => {
                     bail!("unexpected keyword define, did you mean (define <symbol> <value-expr>)?")
                 }
-                AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier(ident.clone()),
+                AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier {
+                    symbol: ident.clone(),
+                },
                 AstLeaf::Symbol(sym) => IrInstruction::PushConst(Symbol::from(sym.clone()).into()),
                 AstLeaf::String(s) => IrInstruction::PushConst(Val::String(Rc::new(s.clone()))),
                 AstLeaf::Float(f) => IrInstruction::PushConst(Val::Float(*f)),
@@ -101,68 +155,84 @@ impl CodeBlock {
                     None => bail!("Empty expression () is not valid"),
                 };
                 match first {
-                    Ast::Leaf(l) => {
-                        match &l.item {
-                            AstLeaf::If => {
-                                let pred = children.next().ok_or_else(|| anyhow!("if expected <pred>, <true-expr>, and optionally <false-expr>."))?;
-                                let true_expr = children.next().ok_or_else(|| {
-                                    anyhow!("if expected <true-expr>, and optionally <false-expr>.")
-                                })?;
-                                let false_expr = children.next();
-                                if children.next().is_some() {
-                                    bail!("if expression had too many args but expected only <pred>, <true-expr>, and optionally <false-expr>.");
-                                }
-                                self.make_if(pred, true_expr, false_expr)?
+                    Ast::Leaf(l) => match &l.item {
+                        AstLeaf::If => {
+                            let pred = children.next().ok_or_else(|| {
+                                anyhow!(
+                                    "if expected <pred>, <true-expr>, and optionally <false-expr>."
+                                )
+                            })?;
+                            let true_expr = children.next().ok_or_else(|| {
+                                anyhow!("if expected <true-expr>, and optionally <false-expr>.")
+                            })?;
+                            let false_expr = children.next();
+                            if children.next().is_some() {
+                                bail!("if expression had too many args but expected only <pred>, <true-expr>, and optionally <false-expr>.");
                             }
-                            AstLeaf::Lambda => {
-                                let args = match children.next().and_then(Ast::as_identifier_list) {
+                            self.make_if(pred, true_expr, false_expr)?
+                        }
+                        AstLeaf::Import => {
+                            ensure!(
+                                !is_subexpression,
+                                "(import ...) not allowed as a subexpression"
+                            );
+                            let filepath = children.next().ok_or_else(|| {
+                                anyhow!("expected expression of form (import \"filepath\")")
+                            })?;
+                            self.make_import(filepath)?
+                        }
+                        AstLeaf::Lambda => {
+                            let args = match children.next().and_then(Ast::as_identifier_list) {
                                     Some(args) => args,
                                     None => bail!("lambda expected form (lambda (<args>...) <exprs>...) but (<args>...) was malformed"),
                                 };
-                                self.make_lambda(None, &args, children)?
-                            }
-                            AstLeaf::Define => {
-                                let sym_expr = children.next();
-                                if let Some(sym) = sym_expr.and_then(Ast::as_identifier) {
-                                    let expr = children.next().ok_or_else(|| {
-                                        anyhow!("define expected form (define <identifier> <expr>)")
-                                    })?;
-                                    if children.next().is_some() {
-                                        bail!("define expected form (define <identifier> <expr>)")
-                                    }
-                                    self.make_define(Symbol::from(sym), expr)?
-                                } else if let Some(syms) =
-                                    sym_expr.and_then(Ast::as_identifier_list)
-                                {
-                                    match &syms[..] {
+                            self.make_lambda(None, &args, children)?
+                        }
+                        AstLeaf::Define => {
+                            ensure!(
+                                !is_subexpression,
+                                "(define ...) not allowed as a subexpression"
+                            );
+                            let sym_expr = children.next();
+                            if let Some(sym) = sym_expr.and_then(Ast::as_identifier) {
+                                let expr = children.next().ok_or_else(|| {
+                                    anyhow!("define expected form (define <identifier> <expr>)")
+                                })?;
+                                if children.next().is_some() {
+                                    bail!("define expected form (define <identifier> <expr>)")
+                                }
+                                self.make_define(Symbol::from(sym), expr)?
+                            } else if let Some(syms) = sym_expr.and_then(Ast::as_identifier_list) {
+                                match &syms[..] {
                                         [] => bail!("define form expected (<sym> <args>...) but found empty expression"),
                                         [name, args @ ..] => {
                                             let lambda = self.make_lambda(Some(name.to_string()), args, children)?;
                                             self.make_define_with_ir(Symbol::from(*name), lambda)
                                         },
                                     }
-                                } else {
-                                    bail!("define expected the form (define <sym> <expr>) or (define (<sym> <args>...) <exprs>...)");
-                                }
-                            }
-                            AstLeaf::Identifier(ident) => self.make_proc_call(
-                                IrInstruction::DerefIdentifier(ident.clone()),
-                                children,
-                            )?,
-                            AstLeaf::Symbol(_)
-                            | AstLeaf::String(_)
-                            | AstLeaf::Float(_)
-                            | AstLeaf::Int(_)
-                            | AstLeaf::Bool(_) => {
-                                bail!("atom is not callable")
-                            }
-                            AstLeaf::Comment(_) | AstLeaf::CommentDatum => {
-                                unreachable!("AST iterator produced unexpected comment")
+                            } else {
+                                bail!("define expected the form (define <sym> <expr>) or (define (<sym> <args>...) <exprs>...)");
                             }
                         }
-                    }
+                        AstLeaf::Identifier(ident) => self.make_proc_call(
+                            IrInstruction::DerefIdentifier {
+                                symbol: ident.clone(),
+                            },
+                            children,
+                        )?,
+                        AstLeaf::Symbol(_)
+                        | AstLeaf::String(_)
+                        | AstLeaf::Float(_)
+                        | AstLeaf::Int(_)
+                        | AstLeaf::Bool(_) => {
+                            bail!("atom is not callable")
+                        }
+                        AstLeaf::Comment(_) | AstLeaf::CommentDatum => {
+                            unreachable!("AST iterator produced unexpected comment")
+                        }
+                    },
                     proc_ast @ Ast::Tree(_) => {
-                        self.make_proc_call(self.make_instruction(proc_ast)?, children)?
+                        self.make_proc_call(self.make_instruction(proc_ast, true)?, children)?
                     }
                 }
             }
@@ -176,8 +246,8 @@ impl CodeBlock {
         true_expr: &Ast,
         false_expr: Option<&Ast>,
     ) -> Result<IrInstruction> {
-        let pred = Box::new(self.make_instruction(pred)?);
-        let true_expr = Box::new(self.make_instruction(true_expr)?);
+        let pred = Box::new(self.make_instruction(pred, true)?);
+        let true_expr = Box::new(self.make_instruction(true_expr, true)?);
         match false_expr {
             None => Ok(IrInstruction::If {
                 pred,
@@ -187,19 +257,32 @@ impl CodeBlock {
             Some(expr) => Ok(IrInstruction::If {
                 pred,
                 true_expr,
-                false_expr: Some(Box::new(self.make_instruction(expr)?)),
+                false_expr: Some(Box::new(self.make_instruction(expr, true)?)),
             }),
         }
     }
 
+    fn make_import(&self, filepath: &Ast) -> Result<IrInstruction> {
+        match filepath {
+            Ast::Leaf(Token {
+                item: AstLeaf::String(filepath),
+                ..
+            }) => {
+                let filepath = PathBuf::from_str(filepath)?;
+                Ok(IrInstruction::Import { filepath })
+            }
+            _ => bail!("Expected expression of form (import \"<filepath>\")"),
+        }
+    }
+
     fn make_define(&self, sym: Symbol, expr: &Ast) -> Result<IrInstruction> {
-        let value = self.make_instruction(expr)?;
+        let value = self.make_instruction(expr, true)?;
         Ok(self.make_define_with_ir(sym, value))
     }
 
     fn make_define_with_ir(&self, sym: Symbol, value: IrInstruction) -> IrInstruction {
         IrInstruction::Define {
-            sym,
+            symbol: sym,
             value: Box::new(value),
         }
     }
@@ -215,7 +298,14 @@ impl CodeBlock {
                 .enumerate()
                 .map(|(idx, sym)| (sym.to_string(), idx)),
         );
-        let body = CodeBlock::with_ast(name, arg_to_idx, exprs)?;
+        let body = CodeBlock::with_ast(
+            CodeBlockArgs {
+                name,
+                arg_to_idx,
+                is_subexpression: true,
+            },
+            exprs,
+        )?;
         if body.instructions.is_empty() {
             bail!("lambda definition requires at least one <expr>.");
         }
@@ -229,24 +319,20 @@ impl CodeBlock {
     ) -> Result<IrInstruction> {
         let mut args = Vec::new();
         for ast in arg_asts {
-            args.push(self.make_instruction(ast)?);
+            let instructions = self.make_instruction(ast, true)?;
+            args.push(instructions);
         }
         Ok(IrInstruction::CallProc {
             proc: Box::new(proc),
             args,
         })
     }
+}
 
-    pub fn to_bytecode(&self) -> Result<ByteCodeProc> {
-        Ok(ByteCodeProc {
-            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
-            arg_count: self.arg_to_idx.len(),
-            bytecode: self.to_bytecode_instructions(self.instructions.iter())?,
-        })
-    }
-
+impl CodeBlock {
     fn to_bytecode_instructions<'a>(
         &self,
+        default_module: &ModuleSource,
         irs: impl Iterator<Item = &'a IrInstruction>,
     ) -> Result<Vec<Instruction>> {
         let mut res: Vec<Instruction> = Vec::new();
@@ -254,19 +340,32 @@ impl CodeBlock {
             match ir {
                 IrInstruction::PushConst(val) => res.push(Instruction::PushVal(val.clone())),
                 IrInstruction::PushProc(codeblock) => {
-                    let bytecode = codeblock.to_bytecode()?;
+                    let bytecode = codeblock.to_proc(default_module.clone())?;
                     res.push(Instruction::PushVal(Val::ByteCodeProc(Rc::new(bytecode))));
                 }
-                IrInstruction::DerefIdentifier(ident) => {
-                    match self.arg_to_idx.get(ident.as_str()) {
+                IrInstruction::DerefIdentifier { symbol } => {
+                    match self.arg_to_idx.get(symbol.as_str()) {
                         Some(idx) => res.push(Instruction::GetArg(*idx)),
-                        None => res.push(Instruction::GetVal(Symbol::from(ident.as_str()))),
+                        None => {
+                            let (alias, sym) = split_alias(symbol.as_str());
+                            let val_ref = Box::new(ValRef {
+                                module: default_module.clone(),
+                                alias: alias.to_string(),
+                                symbol: sym.to_string(),
+                            });
+                            res.push(Instruction::GetVal(val_ref))
+                        }
                     }
                 }
                 IrInstruction::CallProc { proc, args } => {
-                    res.extend(self.to_bytecode_instructions(std::iter::once(proc.as_ref()))?);
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(proc.as_ref()),
+                    )?);
                     for arg in args {
-                        res.extend(self.to_bytecode_instructions(std::iter::once(arg))?);
+                        res.extend(
+                            self.to_bytecode_instructions(default_module, std::iter::once(arg))?,
+                        );
                     }
                     res.push(Instruction::Eval(args.len() + 1));
                 }
@@ -275,11 +374,19 @@ impl CodeBlock {
                     true_expr,
                     false_expr,
                 } => {
-                    res.extend(self.to_bytecode_instructions(std::iter::once(pred.as_ref()))?);
-                    let true_bytecode =
-                        self.to_bytecode_instructions(std::iter::once(true_expr.as_ref()))?;
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(pred.as_ref()),
+                    )?);
+                    let true_bytecode = self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(true_expr.as_ref()),
+                    )?;
                     let false_bytecode = match false_expr {
-                        Some(ir) => self.to_bytecode_instructions(std::iter::once(ir.as_ref()))?,
+                        Some(ir) => self.to_bytecode_instructions(
+                            default_module,
+                            std::iter::once(ir.as_ref()),
+                        )?,
                         None => vec![Instruction::PushVal(Val::Void)],
                     };
                     res.push(Instruction::JumpIf(false_bytecode.len() + 1));
@@ -287,12 +394,117 @@ impl CodeBlock {
                     res.push(Instruction::Jump(true_bytecode.len()));
                     res.extend(true_bytecode);
                 }
-                IrInstruction::Define { sym, value } => {
-                    res.extend(self.to_bytecode_instructions(std::iter::once(value.as_ref()))?);
+                IrInstruction::Define { symbol: sym, value } => {
+                    res.extend(self.to_bytecode_instructions(
+                        default_module,
+                        std::iter::once(value.as_ref()),
+                    )?);
                     res.push(Instruction::SetVal(sym.clone()));
+                }
+                IrInstruction::Import { filepath } => {
+                    res.push(Instruction::ImportModule(Box::new(filepath.clone())));
                 }
             };
         }
         Ok(res)
+    }
+}
+
+fn split_alias(s: &str) -> (&str, &str) {
+    match s.find('/') {
+        Some(idx) => (&s[0..idx], &s[idx + 1..]),
+        None => ("", s),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::vm::types::{instruction::Instruction, Val};
+
+    use super::*;
+
+    const MODULE: ModuleSource = ModuleSource::Virtual("test");
+
+    fn compile_to_codeblock(s: &str) -> anyhow::Result<CodeBlock> {
+        let asts = Ast::from_sexp_str(s).unwrap();
+        CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter())
+    }
+
+    fn compile_to_bytecode(s: &str) -> anyhow::Result<Vec<Instruction>> {
+        let asts = Ast::from_sexp_str(s).unwrap();
+        let codeblock = CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter()).unwrap();
+        Ok(codeblock.to_proc(MODULE)?.bytecode)
+    }
+
+    #[test]
+    fn lambda_compiles_to_val_with_bytecode() {
+        let instructions = compile_to_bytecode("(lambda (n) (+ n 1))")
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        let bytecode = match instructions {
+            Instruction::PushVal(Val::ByteCodeProc(proc)) => proc.bytecode.clone(),
+            v => panic!("Expected PushVal(ByteCodeProc) but found {v:?}"),
+        };
+        assert!(
+            matches!(
+                bytecode.as_slice(),
+                [
+                    Instruction::GetVal(_),
+                    Instruction::GetArg(0),
+                    Instruction::PushVal(Val::Int(1)),
+                    Instruction::Eval(3),
+                ]
+            ),
+            "Found {bytecode:?}",
+        );
+    }
+
+    #[test]
+    fn comment_next_datum_skips_datum() {
+        let bytecode = compile_to_bytecode("(+ 1 #; \"this is skipped\" #;2 3)").unwrap();
+        assert!(
+            matches!(
+                bytecode.as_slice(),
+                [
+                    Instruction::GetVal(_),
+                    Instruction::PushVal(Val::Int(1)),
+                    Instruction::PushVal(Val::Int(3)),
+                    Instruction::Eval(3),
+                ]
+            ),
+            "Found {bytecode:?}",
+        );
+    }
+
+    #[test]
+    fn define_not_allowed_in_subexpressions() {
+        assert!(compile_to_codeblock("(define a 4)").is_ok());
+        assert!(compile_to_codeblock("(do (define b 4))").is_err());
+    }
+
+    #[test]
+    fn import_not_allowed_in_subexpressions() {
+        assert!(compile_to_codeblock("(import \"my-file.spore\")").is_ok());
+        assert!(compile_to_codeblock("(do (import \"my-file.spore\"))").is_err());
+    }
+
+    #[test]
+    fn import_compiles_to_import_instruction() {
+        let asts = Ast::from_sexp_str("(import \"my-file.spore\")").unwrap();
+        let codeblock = CodeBlock::with_ast(CodeBlockArgs::default(), asts.iter()).unwrap();
+        let proc = codeblock.to_module_definition(MODULE).unwrap();
+
+        assert!(!codeblock.to_proc(MODULE).unwrap().is_module_definition);
+        assert!(proc.is_module_definition);
+
+        let bytecode = proc.bytecode;
+        assert!(
+            matches!(bytecode.as_slice(), [Instruction::ImportModule(p)] if p.as_ref() == Path::new("my-file.spore")),
+            "Got: {bytecode:?}"
+        );
     }
 }

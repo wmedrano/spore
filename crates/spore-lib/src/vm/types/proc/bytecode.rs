@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::vm::types::instruction::Instruction;
+use crate::vm::{module::ModuleSource, types::instruction::Instruction};
 
 /// A procedure that can be evaluated on an environment.
 #[derive(Clone)]
@@ -11,6 +11,10 @@ pub struct ByteCodeProc {
     pub arg_count: usize,
     /// The bytecode to run.
     pub bytecode: Vec<Instruction>,
+    /// The module for the procedure.
+    pub module: ModuleSource,
+    /// True if the procedure defines a module.
+    pub is_module_definition: bool,
 }
 
 impl PartialEq for ByteCodeProc {
@@ -23,6 +27,8 @@ impl std::fmt::Debug for ByteCodeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Procedure")
             .field("name", &self.name)
+            .field("module", &self.module)
+            .field("is_module_definition", &self.is_module_definition)
             .finish_non_exhaustive()
     }
 }
@@ -106,6 +112,8 @@ mod tests {
                 Instruction::Eval(10),
                 Instruction::Jump(10),
             ],
+            module: ModuleSource::Virtual(""),
+            is_module_definition: false,
         };
         assert_eq!(
             ByteCodeIter::from_proc(proc.into()).collect::<Vec<_>>(),
@@ -129,6 +137,8 @@ mod tests {
                 Instruction::PushVal(3.into()),
                 Instruction::PushVal(4.into()),
             ],
+            module: ModuleSource::Virtual(""),
+            is_module_definition: false,
         };
         let mut iter = ByteCodeIter::from_proc(proc.into());
         iter.jump(2);
@@ -150,6 +160,8 @@ mod tests {
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)
                 .collect(),
+            module: ModuleSource::Virtual(""),
+            is_module_definition: false,
         };
         let iter = ByteCodeIter::from_proc(proc.into());
         assert_eq!(iter.count(), 10);
@@ -163,6 +175,8 @@ mod tests {
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)
                 .collect(),
+            module: ModuleSource::Virtual(""),
+            is_module_definition: false,
         };
         let mut iter = ByteCodeIter::from_proc(proc.into());
         iter.next();
@@ -177,6 +191,8 @@ mod tests {
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)
                 .collect(),
+            module: ModuleSource::Virtual(""),
+            is_module_definition: false,
         };
         let mut iter = ByteCodeIter::from_proc(proc.into());
         while iter.next().is_some() {}

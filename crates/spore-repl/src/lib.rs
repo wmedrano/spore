@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{bail, Result};
@@ -8,7 +7,8 @@ use rustyline::DefaultEditor;
 use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::environment::Environment;
-use spore_lib::vm::ir::CodeBlock;
+use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
+use spore_lib::vm::module::{Module, ModuleSource};
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -17,28 +17,35 @@ use spore_lib::vm::types::{
 };
 use spore_lib::vm::Vm;
 
+/// Contains functionality for pasing commands.
 pub mod command;
 
+/// Represents the Read-Eval-Print Loop (REPL) for the Spore language.
 pub struct Repl {
     env: Environment,
     editor: DefaultEditor,
+    module: ModuleSource,
     repl_input: String,
     expression_count: usize,
 }
 
 impl Repl {
-    /// Create a new repl.
+    /// Creates a new Repl instance.
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
+        let module = ModuleSource::Virtual("repl");
+        let mut env = Vm::new().build_env();
+        env.modules_mut().add_module(Module::new(module.clone()));
         Ok(Repl {
-            env: Vm::new().build_env(),
+            env,
             editor,
+            module,
             repl_input: String::new(),
             expression_count: 0,
         })
     }
 
-    /// Run the REPL.
+    /// Runs teh REPL, accepting and evaluating user input.
     pub fn run(&mut self) -> Result<()> {
         println!(
             "{welcome}\n  {repo_link}\n",
@@ -85,7 +92,13 @@ impl Repl {
             }
         };
         match cmd {
-            "" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, false),
+            "" => eval_asts(
+                &self.module,
+                asts()?,
+                &mut self.env,
+                &mut self.expression_count,
+                false,
+            ),
             ",tokens" => {
                 for token in spore_lib::parser::lexer::tokenize(expr) {
                     println!("{token:?}");
@@ -99,24 +112,39 @@ impl Repl {
             ",ir" => {
                 for (idx, ast) in asts()?.iter().enumerate() {
                     let codeblock = CodeBlock::with_ast(
-                        Some(format!("{idx}")),
-                        HashMap::new(),
+                        CodeBlockArgs {
+                            name: Some(format!("{idx}")),
+                            ..CodeBlockArgs::default()
+                        },
                         std::iter::once(ast),
                     )?;
                     println!("{}", format!("{codeblock:#?}").blue());
                 }
             }
-            ",bytecode" => analyze_bytecode(&mut self.env, asts()?),
-            ",trace" => eval_asts(asts()?, &mut self.env, &mut self.expression_count, true),
+            ",bytecode" => analyze_bytecode(&self.module, &mut self.env, asts()?),
+            ",trace" => eval_asts(
+                &self.module,
+                asts()?,
+                &mut self.env,
+                &mut self.expression_count,
+                true,
+            ),
             ",help" => {
-                println!(",tokens   - Print the parsed tokens for the expression(s).");
-                println!(",ast      - Print the ast for the expression(s).");
-                println!(
-                    ",ir       - Print the intermediate representation for the expression(s)."
+                let print_cmd = |cmd: &str, doc| {
+                    println!("{cmd} - {doc}", cmd = cmd.blue());
+                };
+                print_cmd(",tokens", "Print the parsed tokens for the expression(s).");
+                print_cmd(",ast", "Print the ast for the expression(s).");
+                print_cmd(
+                    ",ir",
+                    "Print the intermediate representation for the expression(s).",
                 );
-                println!(",bytecode - Print the bytecode for the expression(s)");
-                println!(",trace    - Print the input and output of all function calls.");
-                println!(",help     - Print the help documentation.");
+                print_cmd(",bytecode", "Print the bytecode for the expression(s)");
+                print_cmd(
+                    ",trace",
+                    "Print the input and output of all function calls.",
+                );
+                print_cmd(",help", "Print the help documentation.");
             }
             unknown => bail!(
                 "unknown command \"{unknown}\", expected one if {:?}",
@@ -127,6 +155,7 @@ impl Repl {
     }
 }
 
+/// Returns `true` if the given input string is a complete expressions.
 fn line_is_complete(s: &str) -> bool {
     !matches!(
         Ast::from_sexp_str(s),
@@ -134,7 +163,21 @@ fn line_is_complete(s: &str) -> bool {
     )
 }
 
-fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trace: bool) {
+/// Evaluate `asts` under the given `env`.
+///
+/// # Params
+/// asts - The asts to run.
+/// env - The environment to evaluate under.
+/// expr_count - The number of expressions that have been evaluated in the REPL. This is incremented for each
+///   expression. This is also used to store variables (with names like $0, $1, $2, ...) under env.
+/// trace - If the trace output should be printed.
+fn eval_asts(
+    module: &ModuleSource,
+    asts: Vec<Ast>,
+    env: &mut Environment,
+    expr_count: &mut usize,
+    trace: bool,
+) {
     for ast in asts {
         let mut maybe_trace = if trace {
             Some(TraceDebugger::default())
@@ -142,11 +185,18 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             None
         };
         let res = {
-            let name = "repl-eval".to_string();
+            let code_block_args = CodeBlockArgs {
+                name: Some(format!("repl-proc-{n}", n = *expr_count + 1)),
+                ..CodeBlockArgs::default()
+            };
             let ast = &ast;
-            let ir =
-                CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
+            match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
+                Ok(ir) => ir.to_proc(module.clone()),
+                Err(err) => {
+                    println!("{}", err.to_string().red());
+                    return;
+                }
+            }
         }
         .and_then(|bc| match maybe_trace.as_mut() {
             Some(t) => env.eval_bytecode(bc.into(), &[], t),
@@ -160,7 +210,7 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                env.modules_mut().set_local(sym.clone(), v.clone());
+                env.modules_mut().set_value(module, sym.clone(), v.clone());
                 println!("{} = {}", sym.as_str().to_string().cyan(), v);
             }
             Err(errs) => {
@@ -172,22 +222,29 @@ fn eval_asts(asts: Vec<Ast>, env: &mut Environment, expr_count: &mut usize, trac
     }
 }
 
-fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
+/// Analyze the bytecode for `asts`.
+fn analyze_bytecode(module: &ModuleSource, env: &mut Environment, asts: Vec<Ast>) {
     for ast in asts {
-        let proc = match {
-            let name = "repl-analyze-bytecode".to_string();
-            let ast = &ast;
-            let ir =
-                CodeBlock::with_ast(name.into(), HashMap::new(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
-        } {
+        let code_block_args = CodeBlockArgs {
+            name: Some("repl-analyze-bytecode".to_string()),
+            ..CodeBlockArgs::default()
+        };
+        let ast = &ast;
+        let block_or_err = match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
+            Ok(ir) => ir.to_proc(module.clone()),
+            Err(err) => {
+                println!("{}", err.to_string().red());
+                return;
+            }
+        };
+        let proc = match block_or_err {
             Ok(b) => b,
             Err(err) => {
                 println!("{}", err.to_string().red());
                 continue;
             }
         };
-        let bytecode = maybe_expand_bytecode(env, proc);
+        let bytecode = analyze_bytecode_iter(env, proc);
         for (idx, bc) in bytecode.enumerate() {
             println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
         }
@@ -195,14 +252,19 @@ fn analyze_bytecode(env: &mut Environment, asts: Vec<Ast>) {
     }
 }
 
-fn maybe_expand_bytecode(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
+/// Get the `ByteCodeIter` for `proc`. If `proc` is a simple expression that returns a procedure or a symbol that refers
+/// to a procedure, then an iterator for that procedure is returned.
+fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
     let proc = Rc::new(proc);
     let mut iter = ByteCodeIter::from_proc(proc.clone());
     if iter.clone().count() == 1 {
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                if let Some(Val::ByteCodeProc(bc)) = env.modules().get(&sym) {
+                let maybe_val =
+                    env.modules()
+                        .get_value(&sym.module, sym.alias.as_str(), sym.symbol.as_str());
+                if let Some(Val::ByteCodeProc(bc)) = maybe_val {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
             }

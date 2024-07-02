@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, collections::HashMap};
+use std::{borrow::Borrow, collections::HashMap, path::PathBuf};
 
 use super::types::{symbol::Symbol, Val};
 
@@ -9,9 +9,7 @@ use super::types::{symbol::Symbol, Val};
 /// retrieving values associated with symbols across different namespaces.
 #[derive(Clone)]
 pub struct ModuleManager {
-    /// The global module, accessible from all other modules.
     global: Module,
-    /// The set of modules.
     modules: Vec<Module>,
 }
 
@@ -29,11 +27,63 @@ impl ModuleManager {
     ///
     /// A new ModuleManager instance.
     pub fn new(global: Module) -> ModuleManager {
-        let local_module = Module::new();
+        let mut global = global;
+        global.source = ModuleSource::Global;
         ModuleManager {
             global,
-            modules: vec![local_module],
+            modules: Vec::new(),
         }
+    }
+
+    /// Create a new empty module manager with an empty `global` module.
+    pub fn new_empty() -> ModuleManager {
+        ModuleManager::new(Module::new(ModuleSource::Global))
+    }
+
+    /// Iterate over all the modules.
+    pub fn iter(&self) -> impl Iterator<Item = &Module> {
+        std::iter::once(&self.global).chain(self.modules.iter())
+    }
+
+    /// Adds the given module to the `ModuleManager`. If the module already exists, then it is replaced.
+    pub fn add_module(&mut self, module: Module) {
+        assert_ne!(module.source, ModuleSource::Global);
+        for existing_module in self.modules.iter_mut() {
+            if existing_module.source == module.source {
+                *existing_module = module;
+                return;
+            }
+        }
+        self.modules.push(module);
+    }
+
+    /// Remove a module. If the module does not exist or is the global module, then nothing happens.
+    pub fn remove_module(&mut self, module: &ModuleSource) {
+        assert_ne!(module, &ModuleSource::Global);
+        self.modules.retain(|m| &m.source != module);
+    }
+
+    /// Get the module with the given source. If the module does not exist, then `None` is returned.
+    pub fn get_mut(&mut self, module: &ModuleSource) -> Option<&mut Module> {
+        if *module == ModuleSource::Global {
+            Some(&mut self.global)
+        } else {
+            self.modules.iter_mut().find(|m| m.source == *module)
+        }
+    }
+
+    /// Get the module with the given source. If the module does not exist, then `None` is returned.
+    pub fn get(&self, module: &ModuleSource) -> Option<&Module> {
+        if *module == ModuleSource::Global {
+            Some(&self.global)
+        } else {
+            self.modules.iter().find(|m| m.source == *module)
+        }
+    }
+
+    /// Returns `true` if `module` is registered.
+    pub fn has_module(&mut self, module: &ModuleSource) -> bool {
+        self.get(module).is_some()
     }
 
     /// Retrieves a value associated with a symbol from the current module or global module.
@@ -47,15 +97,27 @@ impl ModuleManager {
     /// # Returns
     ///
     /// An Option<Val> containing the value if found, or None if the symbol is not present in either module.
-    pub fn get(&self, sym: impl Borrow<str>) -> Option<Val> {
+    pub fn get_value(
+        &self,
+        module_source: &ModuleSource,
+        alias: &str,
+        sym: impl Borrow<str>,
+    ) -> Option<Val> {
         let sym = sym.borrow();
-        if let Some(v) = self.modules.first().and_then(|m| m.get(sym)) {
-            return Some(v);
+        if *module_source != ModuleSource::Global {
+            if let Some(mut module) = self.modules.iter().find(|m| *module_source == m.source) {
+                if let Some(ms) = module.module_aliases.get(alias) {
+                    module = self.modules.iter().find(|m| *ms == m.source).unwrap();
+                }
+                if let Some(v) = module.get(sym) {
+                    return Some(v);
+                }
+            }
         }
         self.global.get(sym)
     }
 
-    /// Sets a value for a symbol in the current local module.
+    /// Sets a value for a symbol in the given module. If the module does not exist, then it is created.
     ///
     /// # Arguments
     ///
@@ -65,40 +127,64 @@ impl ModuleManager {
     /// # Panics
     ///
     /// Panics if the current module does not exist in the modules HashMap.
-    pub fn set_local(&mut self, sym: Symbol, val: Val) {
-        let module = self.modules.first_mut().unwrap();
-        module.set(sym, val)
+    pub fn set_value(&mut self, module: &ModuleSource, sym: Symbol, val: Val) {
+        let module = match self.modules.iter_mut().find(|m| m.source == *module) {
+            Some(m) => m,
+            None => {
+                self.modules.push(Module::new(module.clone()));
+                self.modules.last_mut().unwrap()
+            }
+        };
+        module.set(sym, val);
     }
+}
+
+#[derive(Clone, Debug, Default, Hash, PartialEq, Eq)]
+pub enum ModuleSource {
+    /// The global module containing all the builtins.
+    #[default]
+    Global,
+    /// A module that is not backed by any file.
+    Virtual(&'static str),
+    /// A module that is backed by a file.
+    File(PathBuf),
 }
 
 /// A module that stores values associated with symbols.
 ///
 /// Modules are used to manage namespaces, allowing for the organization
 /// of variables and functions within a program.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct Module {
+    /// The source of the module.
+    source: ModuleSource,
+    /// Aliases to other modules.
+    module_aliases: HashMap<String, ModuleSource>,
     /// A map of symbols to their corresponding values.
     values: HashMap<Symbol, Val>,
 }
 
 impl Module {
-    /// Creates a new module with an optional name.
-    ///
-    /// The name is not used within this implementation but can be used
-    /// for debugging or logging purposes.
-    ///
-    /// # Arguments
-    ///
-    /// * `_name` - A value that can be converted into a `String`, representing
-    ///             the name of the module.
-    ///
-    /// # Returns
-    ///
-    /// A new `Module` instance.
-    pub fn new() -> Module {
+    /// Create a new empty module.
+    pub fn new(source: ModuleSource) -> Module {
         Module {
+            source,
+            module_aliases: HashMap::new(),
             values: HashMap::new(),
         }
+    }
+
+    /// Get the source of the module.
+    pub fn source(&self) -> &ModuleSource {
+        &self.source
+    }
+
+    pub fn aliases(&self) -> &HashMap<String, ModuleSource> {
+        &self.module_aliases
+    }
+
+    pub fn set_alias(&mut self, alias: String, module: ModuleSource) {
+        self.module_aliases.insert(alias, module);
     }
 
     /// Retrieves the value associated with a given symbol.
@@ -125,5 +211,20 @@ impl Module {
     /// * `val` - The `Val` to associate with the symbol.
     pub fn set(&mut self, sym: Symbol, val: Val) {
         self.values.insert(sym, val);
+    }
+}
+
+impl std::fmt::Display for ModuleSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleSource::Global => write!(f, "%global%"),
+            ModuleSource::Virtual(v) => write!(f, "%virtual%/{v}"),
+            ModuleSource::File(p) => match p.to_str() {
+                Some(s) => write!(f, "{s}"),
+                None => {
+                    write!(f, "{}", p.to_string_lossy())
+                }
+            },
+        }
     }
 }

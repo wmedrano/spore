@@ -7,7 +7,7 @@ use super::{
 
 pub trait Debugger {
     /// Called when a new procedure will be evaluated.
-    fn start_eval(&mut self, _env: &Environment) {}
+    fn eval_proc(&mut self, _env: &Environment) {}
 
     /// Called when a procedure returns its value.
     fn return_value(&mut self, _val: &Val) {}
@@ -92,7 +92,7 @@ impl std::fmt::Display for TraceCall {
 }
 
 impl Debugger for TraceDebugger {
-    fn start_eval(&mut self, env: &Environment) {
+    fn eval_proc(&mut self, env: &Environment) {
         if let Some(proc) = env.current_proc() {
             let args = env.frame_stack().to_vec();
             self.traces.push(TraceCall {
@@ -126,26 +126,32 @@ impl Debugger for TraceDebugger {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use crate::{
         parser::ast::Ast,
-        vm::{ir::CodeBlock, Vm},
+        vm::{
+            ir::{CodeBlock, CodeBlockArgs},
+            module::ModuleSource,
+            Vm,
+        },
     };
 
     use super::*;
     use pretty_assertions::assert_eq;
 
+    const MODULE: ModuleSource = ModuleSource::Virtual("test");
+
     #[test]
     fn trace_prints_out_entire_trace() {
         let mut env = Vm::new().build_env();
-        env.eval_str("(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))")
-            .unwrap();
+        env.eval_str(
+            MODULE,
+            "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
+        )
+        .unwrap();
         let proc = {
             let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
-            let ir =
-                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
+            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
+            ir.to_proc(MODULE)
         }
         .unwrap();
         let mut debugger = TraceDebugger::new();
@@ -169,15 +175,14 @@ mod tests {
     fn error_encountered_in_stack_returns_trace_up_to_that_point() {
         let mut env = Vm::new().build_env();
         // This version of fib has a runtime error in its base case (when n <= 2).
-        env.eval_str("(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))")
-            .unwrap();
-        let proc = {
-            let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
-            let ir =
-                CodeBlock::with_ast(None.into(), HashMap::new(), std::iter::once(ast)).unwrap();
-            ir.to_bytecode()
-        }
+        env.eval_str(
+            MODULE,
+            "(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))",
+        )
         .unwrap();
+        let ast: &Ast = &Ast::from_sexp_str("(fib 5)").unwrap()[0];
+        let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
+        let proc = ir.to_proc(MODULE).unwrap();
         let mut debugger = TraceDebugger::new();
         assert!(env.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
         assert_eq!(

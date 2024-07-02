@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 
 use crate::vm::{
+    module::ModuleManager,
     types::{proc::native::NativeProc, Val},
     Vm,
 };
@@ -10,11 +11,14 @@ use crate::vm::{
 /// Register all builtin functions.
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_procs([
-        NativeProc::new("%no-op", no_op_proc),
+        NativeProc::new("modules", modules_proc),
+        NativeProc::new("aliases", aliases_proc),
+        NativeProc::new("do", do_proc),
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
         NativeProc::new("first", first_proc),
         NativeProc::new("rest", rest_proc),
+        NativeProc::new("nth", nth_proc),
         NativeProc::new("len", len_proc),
         NativeProc::new("substring", substring_proc),
         NativeProc::new("string-concat", string_concat_proc),
@@ -31,6 +35,40 @@ pub fn register_all(vm: &mut Vm) {
     .unwrap()
 }
 
+fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    ensure!(
+        args.is_empty(),
+        "modules expected 0 args but got {n}",
+        n = args.len()
+    );
+    let module_names: Vec<_> = modules
+        .iter()
+        .map(|module| module.source().to_string())
+        .map(Val::from)
+        .collect();
+    Ok(Val::List(Rc::new(module_names)))
+}
+
+fn aliases_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    match args {
+        [module] => {
+            let module_str = module.try_str()?;
+            for module in modules.iter() {
+                if module.source().to_string() == module_str {
+                    let aliases = module
+                        .aliases()
+                        .keys()
+                        .map(|m| Val::from(m.clone()))
+                        .collect();
+                    return Ok(Val::List(Rc::new(aliases)));
+                }
+            }
+            bail!("module {module_str:?} not found");
+        }
+        _ => bail!("expected (aliases <module-str>)"),
+    }
+}
+
 fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
     for arg in args {
         match arg {
@@ -41,19 +79,19 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
     Ok(())
 }
 
-fn list_proc(args: &[Val]) -> Result<Val> {
+fn list_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     let ret = Val::List(Rc::from(args.to_vec()));
     Ok(ret)
 }
 
-fn listp_proc(args: &[Val]) -> Result<Val> {
+fn listp_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [Val::List(_)] => Ok(Val::Bool(matches!(args[0], Val::List(_)))),
         _ => bail!("listp expected 1 arg but found {}", args.len()),
     }
 }
 
-fn first_proc(args: &[Val]) -> Result<Val> {
+fn first_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [arg] => match arg.try_slice()? {
             [] => Ok(Val::Void),
@@ -66,7 +104,7 @@ fn first_proc(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn rest_proc(args: &[Val]) -> Result<Val> {
+fn rest_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [arg] => match arg.try_slice()? {
             [] | [_] => Ok(Val::List(Rc::new(Vec::new()))),
@@ -79,7 +117,26 @@ fn rest_proc(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn len_proc(args: &[Val]) -> Result<Val> {
+fn nth_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    match args {
+        [lst, nth] => {
+            let lst = lst.try_slice()?;
+            let nth = nth.try_usize()?;
+            lst.get(nth).cloned().ok_or_else(|| {
+                anyhow!(
+                    "<proc nth> failed to get element {nth} from list of length {len}",
+                    len = lst.len()
+                )
+            })
+        }
+        _ => bail!(
+            "<proc nth> expected an argument for list and nth but found {} arguments",
+            args.len()
+        ),
+    }
+}
+
+fn len_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [] => bail!("len expected at least 1 argument."),
         [arg] => match arg {
@@ -91,7 +148,7 @@ fn len_proc(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn substring_proc(args: &[Val]) -> Result<Val> {
+fn substring_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [s, start, end] => {
             let s = s.try_str()?;
@@ -115,19 +172,18 @@ fn substring_proc(args: &[Val]) -> Result<Val> {
     }
 }
 
-fn string_concat_proc(args: &[Val]) -> Result<Val> {
+fn string_concat_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     let strs: Result<Vec<_>> = args.iter().map(|v| v.try_str()).collect();
     let res = strs?.join("");
     Ok(Val::String(Rc::new(res)))
 }
 
-fn no_op_proc(args: &[Val]) -> Result<Val> {
-    let res = args.last().cloned().unwrap_or(Val::Void);
-    Ok(res)
+fn do_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    Ok(args.last().cloned().unwrap_or(Val::Void))
 }
 
 /// Add all the values in `args`. If no values are present in `args`, then `0` is returned.
-fn add_proc(args: &[Val]) -> Result<Val> {
+fn add_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("+", args)?;
     let res = match args {
         [] => 0.into(),
@@ -146,13 +202,13 @@ fn add_proc(args: &[Val]) -> Result<Val> {
 
 /// Subtract from the first argument all the rest of the arguments. If there is only a single
 /// argument, then it is negated.
-fn sub_proc(args: &[Val]) -> Result<Val> {
+fn sub_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("-", args)?;
     let res = match args {
         [] => bail!("- requires at least 1 arg"),
         [x] => negate(x),
         [x, ys @ ..] => {
-            let sub_part = add_proc(ys)?;
+            let sub_part = add_proc(_modules, ys)?;
             add_two(x, &negate(&sub_part))
         }
     };
@@ -161,19 +217,19 @@ fn sub_proc(args: &[Val]) -> Result<Val> {
 
 /// Divide the first argument by the rest of the arguments. If only a single argument is provided,
 /// then the reciprocal of it is returned.
-fn divide_proc(args: &[Val]) -> Result<Val> {
+fn divide_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("/", args)?;
     match args {
         [] => Err(anyhow!("/ requires at least 1 arg")),
         [x] => Ok(reciprocal(x)),
         [x, ys @ ..] => {
-            let denom = multiply_proc(ys)?;
+            let denom = multiply_proc(_modules, ys)?;
             Ok(multiply_two(x, &reciprocal(&denom)))
         }
     }
 }
 
-fn less_proc(args: &[Val]) -> Result<Val> {
+fn less_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("<", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x < y,
@@ -185,7 +241,7 @@ fn less_proc(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn less_eq_proc(args: &[Val]) -> Result<Val> {
+fn less_eq_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("<=", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x <= y,
@@ -197,7 +253,7 @@ fn less_eq_proc(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn greater_proc(args: &[Val]) -> Result<Val> {
+fn greater_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers(">", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x > y,
@@ -209,7 +265,7 @@ fn greater_proc(args: &[Val]) -> Result<Val> {
     Ok(res.into())
 }
 
-fn greater_eq_proc(args: &[Val]) -> Result<Val> {
+fn greater_eq_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers(">=", args)?;
     let res = match args {
         [Val::Int(x), Val::Int(y)] => x >= y,
@@ -222,7 +278,7 @@ fn greater_eq_proc(args: &[Val]) -> Result<Val> {
 }
 
 /// Multiply all arguments in `args`. If there are no values, then `1` is returned.
-fn multiply_proc(args: &[Val]) -> Result<Val> {
+fn multiply_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("*", args)?;
     let res = match args {
         [] => 1.into(),
@@ -239,7 +295,7 @@ fn multiply_proc(args: &[Val]) -> Result<Val> {
     Ok(res)
 }
 
-fn equalp_proc(args: &[Val]) -> Result<Val> {
+fn equalp_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [a, b] => Ok(Val::Bool(a == b)),
         _ => Err(anyhow!(

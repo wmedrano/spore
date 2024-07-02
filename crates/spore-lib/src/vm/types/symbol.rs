@@ -16,12 +16,6 @@ impl Borrow<str> for Symbol {
     }
 }
 
-impl Borrow<str> for &Symbol {
-    fn borrow(&self) -> &str {
-        self.as_str()
-    }
-}
-
 impl<'a> From<&'a str> for Symbol {
     fn from(s: &'a str) -> Symbol {
         Symbol::from(s.to_string())
