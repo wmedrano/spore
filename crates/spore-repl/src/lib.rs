@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::rc::Rc;
 
 use anyhow::{bail, Result};
@@ -25,7 +26,6 @@ pub struct Repl {
     env: Environment,
     editor: DefaultEditor,
     module: ModuleSource,
-    repl_input: String,
     expression_count: usize,
 }
 
@@ -40,40 +40,39 @@ impl Repl {
             env,
             editor,
             module,
-            repl_input: String::new(),
             expression_count: 0,
         })
     }
 
     /// Runs teh REPL, accepting and evaluating user input.
-    pub fn run(&mut self) -> Result<()> {
-        println!(
+    pub fn run(&mut self, out: &mut impl Write) -> Result<()> {
+        let mut repl_input = String::new();
+        writeln!(
+            out,
             "{welcome}\n  {repo_link}\n",
             welcome = "Welcome to Spore!".cyan(),
             repo_link = "https://github.com/wmedrano/spore".cyan()
-        );
+        )?;
         loop {
-            let readline = self.editor.readline(if self.repl_input.is_empty() {
-                ">> "
-            } else {
-                ".. "
-            });
+            let readline = self
+                .editor
+                .readline(if repl_input.is_empty() { ">> " } else { ".. " });
             match readline {
                 Ok(line) => {
-                    self.repl_input += line.as_str();
-                    if line_is_complete(&self.repl_input) {
-                        self.editor.add_history_entry(self.repl_input.as_str())?;
-                        if let Err(err) = self.eval_input() {
-                            println!("{error}\n{err}", error = "Error:".to_string().red());
+                    repl_input += line.as_str();
+                    if line_is_complete(&repl_input) {
+                        if let Err(err) = self.eval_input(out, std::mem::take(&mut repl_input)) {
+                            writeln!(out, "{error}\n{err}", error = "Error:".to_string().red())
+                                .unwrap();
                         }
                     }
                 }
                 Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
-                    println!();
+                    writeln!(out).unwrap();
                     break;
                 }
                 Err(err) => {
-                    println!("{}\n{:?}", "Error".red(), err);
+                    writeln!(out, "{}\n{:?}", "Error".red(), err).unwrap();
                     break;
                 }
             }
@@ -81,10 +80,10 @@ impl Repl {
         Ok(())
     }
 
-    /// Evaluate the current input.
-    fn eval_input(&mut self) -> Result<()> {
-        let input = std::mem::take(&mut self.repl_input);
-        let (cmd, expr) = command::parse_command(input.as_str());
+    /// Evaluate the input.
+    pub fn eval_input(&mut self, out: &mut impl Write, input: String) -> Result<()> {
+        self.editor.add_history_entry(input.as_str())?;
+        let (cmd, expr) = command::parse_command(&input);
         let asts = || match Ast::from_sexp_str(expr) {
             Ok(ast) => Ok(ast),
             Err(err) => {
@@ -93,6 +92,7 @@ impl Repl {
         };
         match cmd {
             "" => eval_asts(
+                out,
                 &self.module,
                 asts()?,
                 &mut self.env,
@@ -101,12 +101,12 @@ impl Repl {
             ),
             ",tokens" => {
                 for token in spore_lib::parser::lexer::tokenize(expr) {
-                    println!("{token:?}");
+                    writeln!(out, "{token:?}")?;
                 }
             }
             ",ast" => {
                 for ast in asts()? {
-                    println!("{}", format!("{ast}").blue());
+                    writeln!(out, "{}", format!("{ast}").blue())?;
                 }
             }
             ",ir" => {
@@ -118,11 +118,12 @@ impl Repl {
                         },
                         std::iter::once(ast),
                     )?;
-                    println!("{}", format!("{codeblock:#?}").blue());
+                    writeln!(out, "{}", format!("{codeblock:#?}").blue())?;
                 }
             }
-            ",bytecode" => analyze_bytecode(&self.module, &mut self.env, asts()?),
+            ",bytecode" => analyze_bytecode(out, &self.module, &mut self.env, asts()?),
             ",trace" => eval_asts(
+                out,
                 &self.module,
                 asts()?,
                 &mut self.env,
@@ -130,21 +131,20 @@ impl Repl {
                 true,
             ),
             ",help" => {
-                let print_cmd = |cmd: &str, doc| {
-                    println!("{cmd} - {doc}", cmd = cmd.blue());
-                };
-                print_cmd(",tokens", "Print the parsed tokens for the expression(s).");
-                print_cmd(",ast", "Print the ast for the expression(s).");
+                let mut print_cmd =
+                    |cmd: &str, doc| writeln!(out, "{cmd} - {doc}", cmd = cmd.blue());
+                print_cmd(",tokens", "Print the parsed tokens for the expression(s).")?;
+                print_cmd(",ast", "Print the ast for the expression(s).")?;
                 print_cmd(
                     ",ir",
                     "Print the intermediate representation for the expression(s).",
-                );
-                print_cmd(",bytecode", "Print the bytecode for the expression(s)");
+                )?;
+                print_cmd(",bytecode", "Print the bytecode for the expression(s)")?;
                 print_cmd(
                     ",trace",
                     "Print the input and output of all function calls.",
-                );
-                print_cmd(",help", "Print the help documentation.");
+                )?;
+                print_cmd(",help", "Print the help documentation.")?;
             }
             unknown => bail!(
                 "unknown command \"{unknown}\", expected one if {:?}",
@@ -172,6 +172,7 @@ fn line_is_complete(s: &str) -> bool {
 ///   expression. This is also used to store variables (with names like $0, $1, $2, ...) under env.
 /// trace - If the trace output should be printed.
 fn eval_asts(
+    out: &mut impl Write,
     module: &ModuleSource,
     asts: Vec<Ast>,
     env: &mut Environment,
@@ -193,7 +194,7 @@ fn eval_asts(
             match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
                 Ok(ir) => ir.to_proc(module.clone()),
                 Err(err) => {
-                    println!("{}", err.to_string().red());
+                    writeln!(out, "{}", err.to_string().red()).unwrap();
                     return;
                 }
             }
@@ -203,7 +204,7 @@ fn eval_asts(
             None => env.eval_bytecode(bc.into(), &[], &mut ()),
         });
         if let Some(trace) = maybe_trace {
-            println!("{trace}");
+            writeln!(out, "{trace}").unwrap();
         }
         match res {
             Ok(Val::Void) => (),
@@ -211,11 +212,11 @@ fn eval_asts(
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
                 env.modules_mut().set_value(module, sym.clone(), v.clone());
-                println!("{} = {}", sym.as_str().to_string().cyan(), v);
+                writeln!(out, "{} = {}", sym.as_str().to_string().cyan(), v).unwrap();
             }
             Err(errs) => {
                 for err in errs.chain() {
-                    println!("{}", err.to_string().red());
+                    writeln!(out, "{}", err.to_string().red()).unwrap();
                 }
             }
         }
@@ -223,7 +224,12 @@ fn eval_asts(
 }
 
 /// Analyze the bytecode for `asts`.
-fn analyze_bytecode(module: &ModuleSource, env: &mut Environment, asts: Vec<Ast>) {
+fn analyze_bytecode(
+    out: &mut impl Write,
+    module: &ModuleSource,
+    env: &mut Environment,
+    asts: Vec<Ast>,
+) {
     for ast in asts {
         let code_block_args = CodeBlockArgs {
             name: Some("repl-analyze-bytecode".to_string()),
@@ -233,22 +239,22 @@ fn analyze_bytecode(module: &ModuleSource, env: &mut Environment, asts: Vec<Ast>
         let block_or_err = match CodeBlock::with_ast(code_block_args, std::iter::once(ast)) {
             Ok(ir) => ir.to_proc(module.clone()),
             Err(err) => {
-                println!("{}", err.to_string().red());
+                writeln!(out, "{}", err.to_string().red()).unwrap();
                 return;
             }
         };
         let proc = match block_or_err {
             Ok(b) => b,
             Err(err) => {
-                println!("{}", err.to_string().red());
+                writeln!(out, "{}", err.to_string().red()).unwrap();
                 continue;
             }
         };
         let bytecode = analyze_bytecode_iter(env, proc);
         for (idx, bc) in bytecode.enumerate() {
-            println!("  {:02} - {bc}", format!("{:02}", idx + 1).blue(),);
+            writeln!(out, "  {:02} - {bc}", format!("{:02}", idx + 1).blue()).unwrap();
         }
-        println!();
+        writeln!(out).unwrap();
     }
 }
 

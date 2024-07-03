@@ -11,6 +11,7 @@ use crate::vm::{
 /// Register all builtin functions.
 pub fn register_all(vm: &mut Vm) {
     vm.register_global_procs([
+        NativeProc::new("print", print_proc),
         NativeProc::new("modules", modules_proc),
         NativeProc::new("list-imports", list_imports_proc),
         NativeProc::new("do", do_proc),
@@ -33,6 +34,17 @@ pub fn register_all(vm: &mut Vm) {
         NativeProc::new("equal?", equalp_proc),
     ])
     .unwrap()
+}
+
+fn print_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    for (idx, arg) in args.iter().enumerate() {
+        if idx > 0 {
+            print!(" ");
+        }
+        print!("{arg}");
+    }
+    println!();
+    Ok(Val::Void)
 }
 
 fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {

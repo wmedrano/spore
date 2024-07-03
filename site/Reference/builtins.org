@@ -288,6 +288,18 @@ element of a list. If the list is empty, then an error is raised.
 :CUSTOM_ID: Misc-3g1ah5a0e7k0
 :END:
 
+** print
+:PROPERTIES:
+:CUSTOM_ID: Miscprint-y8vhci4109k0
+:END:
+
+~print~ prints out all values and returns nothing.
+
+#+BEGIN_SRC lisp
+(print (list 1 2 3) "hello" 5)
+;; (1 2 3) "hello" 5
+#+END_SRC
+
 ** do
 :PROPERTIES:
 :CUSTOM_ID: Miscdo-zxbl4sa0e7k0

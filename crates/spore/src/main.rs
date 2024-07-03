@@ -2,5 +2,5 @@ use spore_repl::Repl;
 
 fn main() {
     let mut repl = Repl::new().unwrap();
-    repl.run().unwrap();
+    repl.run(&mut std::io::stdout()).unwrap();
 }
