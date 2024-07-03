@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use crate::vm::{module::ModuleSource, types::instruction::Instruction};
 
-/// A procedure that can be evaluated on an environment.
+/// A procedure that can be evaluated in a vm.
 #[derive(Clone)]
 pub struct ByteCodeProc {
     /// The name of the procedure.

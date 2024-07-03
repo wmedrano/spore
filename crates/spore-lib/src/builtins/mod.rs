@@ -3,14 +3,14 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, ensure, Result};
 
 use crate::vm::{
-    module::ModuleManager,
+    module::{Module, ModuleManager, ModuleSource},
     types::{proc::native::NativeProc, Val},
-    Vm,
 };
 
 /// Register all builtin functions.
-pub fn register_all(vm: &mut Vm) {
-    vm.register_global_procs([
+pub fn global_module() -> Module {
+    let mut module = Module::new(ModuleSource::Global);
+    for proc in [
         NativeProc::new("print", print_proc),
         NativeProc::new("modules", modules_proc),
         NativeProc::new("list-imports", list_imports_proc),
@@ -32,8 +32,12 @@ pub fn register_all(vm: &mut Vm) {
         NativeProc::new(">", greater_proc),
         NativeProc::new(">=", greater_eq_proc),
         NativeProc::new("equal?", equalp_proc),
-    ])
-    .unwrap()
+    ]
+    .into_iter()
+    {
+        module.set(proc.name().into(), Val::NativeProc(proc));
+    }
+    module
 }
 
 fn print_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {

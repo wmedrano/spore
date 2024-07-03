@@ -4,21 +4,23 @@ use anyhow::{anyhow, bail, ensure, Context, Result};
 
 use crate::parser::ast::Ast;
 
-use super::{
-    debugger::Debugger,
-    ir::{CodeBlock, CodeBlockArgs},
-    module::{Module, ModuleManager, ModuleSource},
-    types::{
-        instruction::Instruction,
-        proc::bytecode::{ByteCodeIter, ByteCodeProc},
-        symbol::Symbol,
-        Val,
-    },
-    Vm,
+use debugger::Debugger;
+use ir::{CodeBlock, CodeBlockArgs};
+use module::{Module, ModuleManager, ModuleSource};
+use types::{
+    instruction::Instruction,
+    proc::bytecode::{ByteCodeIter, ByteCodeProc},
+    symbol::Symbol,
+    Val,
 };
 
+pub mod debugger;
+pub mod ir;
+pub mod module;
+pub mod types;
+
 /// An environment to evaluate bytecode on.
-pub struct Environment {
+pub struct Vm {
     /// All the modules.
     modules: ModuleManager,
     /// The processing stack.
@@ -39,11 +41,11 @@ struct StackTrace {
     trace: Vec<String>,
 }
 
-impl Environment {
-    /// Create a new environment.
-    pub fn new(vm: &Vm) -> Environment {
-        Environment {
-            modules: ModuleManager::new(vm.globals.clone()),
+impl Vm {
+    /// Create a new vm.
+    pub fn new() -> Vm {
+        Vm {
+            modules: ModuleManager::new(crate::builtins::global_module()),
             stack: Vec::with_capacity(4096),
             frames: Vec::with_capacity(128),
         }
@@ -332,8 +334,6 @@ impl std::fmt::Display for StackTrace {
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::vm::Vm;
-
     use super::*;
 
     const MODULE: ModuleSource = ModuleSource::Virtual("test");
@@ -358,10 +358,7 @@ mod tests {
     #[test]
     fn can_execute_ast() {
         assert_eq!(
-            Vm::new()
-                .build_env()
-                .eval_str(MODULE, "(+ 1 2 (- 3 4))")
-                .unwrap(),
+            Vm::new().eval_str(MODULE, "(+ 1 2 (- 3 4))").unwrap(),
             vec![2.into()]
         );
     }
@@ -370,7 +367,6 @@ mod tests {
     fn if_with_true_returns_first_expr_result() {
         assert_eq!(
             Vm::new()
-                .build_env()
                 .eval_str(MODULE, "(if true (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![20.into()],
@@ -381,7 +377,6 @@ mod tests {
     fn if_with_false_returns_second_expr_result() {
         assert_eq!(
             Vm::new()
-                .build_env()
                 .eval_str(MODULE, "(if false (* 10 2) (+ 10 2))")
                 .unwrap(),
             vec![12.into()],
@@ -391,10 +386,7 @@ mod tests {
     #[test]
     fn if_with_true_and_single_arm_returns_true() {
         assert_eq!(
-            Vm::new()
-                .build_env()
-                .eval_str(MODULE, "(if true (* 10 2))")
-                .unwrap(),
+            Vm::new().eval_str(MODULE, "(if true (* 10 2))").unwrap(),
             vec![20.into()],
         )
     }
@@ -402,34 +394,31 @@ mod tests {
     #[test]
     fn if_with_false_and_single_arm_returns_void() {
         assert_eq!(
-            Vm::new()
-                .build_env()
-                .eval_str(MODULE, "(if false (* 10 2))")
-                .unwrap(),
+            Vm::new().eval_str(MODULE, "(if false (* 10 2))").unwrap(),
             vec![Val::Void],
         )
     }
 
     #[test]
     fn recursive_function_definition_calls_recursively() {
-        let mut env = Vm::new().build_env();
         assert_eq!(
-            env.eval_str(
-                MODULE,
-                r#"
+            Vm::new()
+                .eval_str(
+                    MODULE,
+                    r#"
 (define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
 (fib 10)
 "#
-            )
-            .unwrap(),
+                )
+                .unwrap(),
             vec![Val::Void, 55.into()],
         );
     }
 
     #[test]
     fn eval_with_wrong_number_of_args_returns_error() {
-        let mut env = Vm::new().build_env();
-        let proc_val = env
+        let mut vm = Vm::new();
+        let proc_val = vm
             .eval_str(MODULE, "(lambda (x) (+ 1 x))")
             .unwrap()
             .into_iter()
@@ -440,26 +429,26 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!(
-            env.eval_bytecode(proc.clone(), &[Val::Int(1)], &mut ())
+            vm.eval_bytecode(proc.clone(), &[Val::Int(1)], &mut ())
                 .unwrap(),
             Val::Int(2)
         );
-        assert!(env.eval_bytecode(proc.clone(), &[], &mut ()).is_err());
-        assert!(env
+        assert!(vm.eval_bytecode(proc.clone(), &[], &mut ()).is_err());
+        assert!(vm
             .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)], &mut ())
             .is_err());
     }
 
     #[test]
     fn import_module_creates_new_module() {
-        let mut env = Vm::new().build_env();
-        let before_modules = env.eval_str(MODULE, "(modules)").unwrap();
+        let mut vm = Vm::new();
+        let before_modules = vm.eval_str(MODULE, "(modules)").unwrap();
         assert_eq!(
             string_list_to_vec(before_modules.first().unwrap()),
             vec!["%global%".to_string(), "%virtual%/test".to_string()]
         );
 
-        let after_modules = env
+        let after_modules = vm
             .eval_str(MODULE, "(import \"/dev/null\") (modules)")
             .unwrap();
         assert_eq!(
@@ -474,8 +463,8 @@ mod tests {
 
     #[test]
     fn import_nonexistent_module_returns_error() {
-        let mut env = Vm::new().build_env();
-        let res = env.eval_str(
+        let mut vm = Vm::new();
+        let res = vm.eval_str(
             MODULE,
             &format!(
                 "(import \"{path}\")",
@@ -484,7 +473,7 @@ mod tests {
         );
         assert!(res.is_err(), "Expected error but no error encountered");
         assert_eq!(
-            env.eval_str(MODULE, "(modules)").unwrap(),
+            vm.eval_str(MODULE, "(modules)").unwrap(),
             vec![Val::List(Rc::new(vec![
                 "%global%".to_string().into(),
                 "%virtual%/test".to_string().into(),
@@ -495,14 +484,14 @@ mod tests {
 
     #[test]
     fn import_module_with_runtime_error_returns_error() {
-        let mut env = Vm::new().build_env();
-        let res = env.eval_str(
+        let mut vm = Vm::new();
+        let res = vm.eval_str(
             MODULE,
             &format!("(import \"{path}\")", path = test_file_path("bad.spore")),
         );
         assert!(res.is_err());
         assert_eq!(
-            env.eval_str(MODULE, "(modules)").unwrap(),
+            vm.eval_str(MODULE, "(modules)").unwrap(),
             vec![Val::List(Rc::new(vec![
                 "%global%".to_string().into(),
                 "%virtual%/test".to_string().into(),
@@ -512,9 +501,9 @@ mod tests {
 
     #[test]
     fn import_module_allows_access_to_module() {
-        let mut env = Vm::new().build_env();
+        let mut vm = Vm::new();
         assert_eq!(
-            env.eval_str(
+            vm.eval_str(
                 MODULE,
                 &format!(
                     "(import \"{path}\") (modules) (list-imports \"{MODULE}\") (circle/circle-area 2)",

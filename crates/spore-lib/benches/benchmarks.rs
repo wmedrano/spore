@@ -12,14 +12,14 @@ const FIB_SRC: &str = "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n
 const MODULE: ModuleSource = ModuleSource::Virtual("bench");
 
 pub fn eval_benchmarks(c: &mut Criterion) {
-    let mut env = spore_lib::vm::Vm::new().build_env();
+    let mut vm = Vm::new();
     c.bench_function("eval_fib_20", |b| {
-        env.eval_str(MODULE, FIB_SRC).unwrap();
+        vm.eval_str(MODULE, FIB_SRC).unwrap();
         let ast: &Ast = &Ast::from_sexp_str("(fib 20)").unwrap()[0];
         let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
         let bytecode = Rc::new(ir.to_proc(MODULE).unwrap());
         b.iter(|| {
-            env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
+            vm.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()
         })
     })
@@ -29,7 +29,7 @@ pub fn eval_benchmarks(c: &mut Criterion) {
         let ir = CodeBlock::with_ast(CodeBlockArgs::default(), ast.iter()).unwrap();
         let bytecode = Rc::new(ir.to_proc(MODULE).unwrap());
         b.iter(|| {
-            env.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
+            vm.eval_bytecode(black_box(bytecode.clone()), &[], &mut ())
                 .unwrap()
         })
     });
@@ -68,20 +68,17 @@ pub fn eval_microbenchmarks(c: &mut Criterion) {
 }
 
 pub fn compile_benchmarks(c: &mut Criterion) {
-    c.bench_function("init_env", |b| {
-        let vm = Vm::new();
-        b.iter(|| vm.build_env())
-    })
-    .bench_function("ast_fib", |b| {
-        b.iter(|| Ast::from_sexp_str(FIB_SRC).unwrap())
-    })
-    .bench_function("compile_fib", |b| {
-        let fib_ast = black_box(Ast::from_sexp_str(FIB_SRC).unwrap());
-        b.iter(|| {
-            let ir = CodeBlock::with_ast(CodeBlockArgs::default(), fib_ast.iter()).unwrap();
-            ir.to_proc(MODULE).unwrap()
+    c.bench_function("init_vm", |b| b.iter(Vm::new))
+        .bench_function("ast_fib", |b| {
+            b.iter(|| Ast::from_sexp_str(FIB_SRC).unwrap())
         })
-    });
+        .bench_function("compile_fib", |b| {
+            let fib_ast = black_box(Ast::from_sexp_str(FIB_SRC).unwrap());
+            b.iter(|| {
+                let ir = CodeBlock::with_ast(CodeBlockArgs::default(), fib_ast.iter()).unwrap();
+                ir.to_proc(MODULE).unwrap()
+            })
+        });
 }
 
 criterion_group!(

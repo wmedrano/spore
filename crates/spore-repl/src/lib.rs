@@ -7,7 +7,6 @@ use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
-use spore_lib::vm::environment::Environment;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
 use spore_lib::vm::module::{Module, ModuleSource};
 use spore_lib::vm::types::instruction::Instruction;
@@ -23,7 +22,7 @@ pub mod command;
 
 /// Represents the Read-Eval-Print Loop (REPL) for the Spore language.
 pub struct Repl {
-    env: Environment,
+    vm: Vm,
     editor: DefaultEditor,
     module: ModuleSource,
     expression_count: usize,
@@ -34,10 +33,10 @@ impl Repl {
     pub fn new() -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         let module = ModuleSource::Virtual("repl");
-        let mut env = Vm::new().build_env();
-        env.modules_mut().add_module(Module::new(module.clone()));
+        let mut vm = Vm::new();
+        vm.modules_mut().add_module(Module::new(module.clone()));
         Ok(Repl {
-            env,
+            vm,
             editor,
             module,
             expression_count: 0,
@@ -95,7 +94,7 @@ impl Repl {
                 out,
                 &self.module,
                 asts()?,
-                &mut self.env,
+                &mut self.vm,
                 &mut self.expression_count,
                 false,
             ),
@@ -121,12 +120,12 @@ impl Repl {
                     writeln!(out, "{}", format!("{codeblock:#?}").blue())?;
                 }
             }
-            ",bytecode" => analyze_bytecode(out, &self.module, &mut self.env, asts()?),
+            ",bytecode" => analyze_bytecode(out, &self.module, &mut self.vm, asts()?),
             ",trace" => eval_asts(
                 out,
                 &self.module,
                 asts()?,
-                &mut self.env,
+                &mut self.vm,
                 &mut self.expression_count,
                 true,
             ),
@@ -163,19 +162,19 @@ fn line_is_complete(s: &str) -> bool {
     )
 }
 
-/// Evaluate `asts` under the given `env`.
+/// Evaluate `asts` under the given `vm`.
 ///
 /// # Params
 /// asts - The asts to run.
-/// env - The environment to evaluate under.
+/// vm - The vm to evaluate under.
 /// expr_count - The number of expressions that have been evaluated in the REPL. This is incremented for each
-///   expression. This is also used to store variables (with names like $0, $1, $2, ...) under env.
+///   expression. This is also used to store variables (with names like $0, $1, $2, ...) under vm.
 /// trace - If the trace output should be printed.
 fn eval_asts(
     out: &mut impl Write,
     module: &ModuleSource,
     asts: Vec<Ast>,
-    env: &mut Environment,
+    vm: &mut Vm,
     expr_count: &mut usize,
     trace: bool,
 ) {
@@ -200,8 +199,8 @@ fn eval_asts(
             }
         }
         .and_then(|bc| match maybe_trace.as_mut() {
-            Some(t) => env.eval_bytecode(bc.into(), &[], t),
-            None => env.eval_bytecode(bc.into(), &[], &mut ()),
+            Some(t) => vm.eval_bytecode(bc.into(), &[], t),
+            None => vm.eval_bytecode(bc.into(), &[], &mut ()),
         });
         if let Some(trace) = maybe_trace {
             writeln!(out, "{trace}").unwrap();
@@ -211,7 +210,7 @@ fn eval_asts(
             Ok(v) => {
                 *expr_count += 1;
                 let sym = Symbol::from(format!("${expr_count}"));
-                env.modules_mut().set_value(module, sym.clone(), v.clone());
+                vm.modules_mut().set_value(module, sym.clone(), v.clone());
                 writeln!(out, "{} = {}", sym.as_str().to_string().cyan(), v).unwrap();
             }
             Err(errs) => {
@@ -224,12 +223,7 @@ fn eval_asts(
 }
 
 /// Analyze the bytecode for `asts`.
-fn analyze_bytecode(
-    out: &mut impl Write,
-    module: &ModuleSource,
-    env: &mut Environment,
-    asts: Vec<Ast>,
-) {
+fn analyze_bytecode(out: &mut impl Write, module: &ModuleSource, vm: &mut Vm, asts: Vec<Ast>) {
     for ast in asts {
         let code_block_args = CodeBlockArgs {
             name: Some("repl-analyze-bytecode".to_string()),
@@ -250,7 +244,7 @@ fn analyze_bytecode(
                 continue;
             }
         };
-        let bytecode = analyze_bytecode_iter(env, proc);
+        let bytecode = analyze_bytecode_iter(vm, proc);
         for (idx, bc) in bytecode.enumerate() {
             writeln!(out, "  {:02} - {bc}", format!("{:02}", idx + 1).blue()).unwrap();
         }
@@ -260,7 +254,7 @@ fn analyze_bytecode(
 
 /// Get the `ByteCodeIter` for `proc`. If `proc` is a simple expression that returns a procedure or a symbol that refers
 /// to a procedure, then an iterator for that procedure is returned.
-fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeIter {
+fn analyze_bytecode_iter(vm: &mut Vm, proc: ByteCodeProc) -> ByteCodeIter {
     let proc = Rc::new(proc);
     let mut iter = ByteCodeIter::from_proc(proc.clone());
     if iter.clone().count() == 1 {
@@ -268,7 +262,7 @@ fn analyze_bytecode_iter(env: &mut Environment, proc: ByteCodeProc) -> ByteCodeI
         match instruction {
             Instruction::GetVal(sym) => {
                 let maybe_val =
-                    env.modules()
+                    vm.modules()
                         .get_value(&sym.module, sym.sub_module, sym.symbol.as_str());
                 if let Some(Val::ByteCodeProc(bc)) = maybe_val {
                     return ByteCodeIter::from_proc(bc.clone());

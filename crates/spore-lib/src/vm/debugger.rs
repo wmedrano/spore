@@ -1,19 +1,19 @@
 use std::rc::Rc;
 
 use super::{
-    environment::Environment,
     types::{proc::bytecode::ByteCodeProc, symbol::Symbol, Val},
+    Vm,
 };
 
 pub trait Debugger {
     /// Called when a new procedure will be evaluated.
-    fn eval_proc(&mut self, _env: &Environment) {}
+    fn eval_proc(&mut self, _vm: &Vm) {}
 
     /// Called when a procedure returns its value.
     fn return_value(&mut self, _val: &Val) {}
 
     /// Called when a new symbol is defined.
-    fn define(&mut self, _env: &Environment, _sym: &Symbol, _val: &Val) {}
+    fn define(&mut self, _vm: &Vm, _sym: &Symbol, _val: &Val) {}
 }
 
 impl Debugger for () {}
@@ -92,14 +92,14 @@ impl std::fmt::Display for TraceCall {
 }
 
 impl Debugger for TraceDebugger {
-    fn eval_proc(&mut self, env: &Environment) {
-        if let Some(proc) = env.current_proc() {
-            let args = env.frame_stack().to_vec();
+    fn eval_proc(&mut self, vm: &Vm) {
+        if let Some(proc) = vm.current_proc() {
+            let args = vm.frame_stack().to_vec();
             self.traces.push(TraceCall {
                 proc: Proc::ByteCode(proc.clone()),
                 args,
                 return_val: None,
-                depth: env.frame_depth(),
+                depth: vm.frame_depth(),
             })
         }
     }
@@ -113,13 +113,13 @@ impl Debugger for TraceDebugger {
         }
     }
 
-    fn define(&mut self, env: &Environment, sym: &Symbol, val: &Val) {
+    fn define(&mut self, vm: &Vm, sym: &Symbol, val: &Val) {
         let args = vec![sym.clone().into(), val.clone()];
         self.traces.push(TraceCall {
             proc: Proc::Define,
             args,
             return_val: Some(Val::Void),
-            depth: env.frame_depth(),
+            depth: vm.frame_depth(),
         })
     }
 }
@@ -131,7 +131,6 @@ mod tests {
         vm::{
             ir::{CodeBlock, CodeBlockArgs},
             module::ModuleSource,
-            Vm,
         },
     };
 
@@ -142,8 +141,8 @@ mod tests {
 
     #[test]
     fn trace_prints_out_entire_trace() {
-        let mut env = Vm::new().build_env();
-        env.eval_str(
+        let mut vm = Vm::new();
+        vm.eval_str(
             MODULE,
             "(define (fib n) (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))",
         )
@@ -155,7 +154,7 @@ mod tests {
         }
         .unwrap();
         let mut debugger = TraceDebugger::new();
-        env.eval_bytecode(proc.into(), &[], &mut debugger).unwrap();
+        vm.eval_bytecode(proc.into(), &[], &mut debugger).unwrap();
         assert_eq!(
             debugger.to_string(),
             r#"(<proc _>) => 5
@@ -173,9 +172,9 @@ mod tests {
 
     #[test]
     fn error_encountered_in_stack_returns_trace_up_to_that_point() {
-        let mut env = Vm::new().build_env();
+        let mut vm = Vm::new();
         // This version of fib has a runtime error in its base case (when n <= 2).
-        env.eval_str(
+        vm.eval_str(
             MODULE,
             "(define (fib n) (if (<= n 2) (+ +) (+ (fib (- n 1)) (fib (- n 2)))))",
         )
@@ -184,7 +183,7 @@ mod tests {
         let ir = CodeBlock::with_ast(CodeBlockArgs::default(), std::iter::once(ast)).unwrap();
         let proc = ir.to_proc(MODULE).unwrap();
         let mut debugger = TraceDebugger::new();
-        assert!(env.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
+        assert!(vm.eval_bytecode(proc.into(), &[], &mut debugger).is_err());
         assert_eq!(
             debugger.to_string(),
             r#"(<proc _>) => _
