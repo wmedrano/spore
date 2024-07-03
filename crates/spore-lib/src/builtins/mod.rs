@@ -79,7 +79,10 @@ fn list_imports_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
                     return Ok(Val::List(Rc::new(imports)));
                 }
             }
-            bail!("module {module_str:?} not found");
+            bail!(
+                "module {module_str:?} not found, available modules are {mods}",
+                mods = modules_proc(modules, &[])?
+            );
         }
         _ => bail!("expected (list-imports <module-str>)"),
     }

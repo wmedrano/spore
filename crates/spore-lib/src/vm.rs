@@ -1,4 +1,7 @@
-use std::{path::PathBuf, rc::Rc};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
 
@@ -28,6 +31,8 @@ pub struct Vm {
     /// Contains the current call frame. This includes the instructions that should be run and the
     /// base of the frame's stack.
     frames: Vec<Frame>,
+    /// The directory to pull libraries from.
+    root: PathBuf,
 }
 
 pub struct Frame {
@@ -48,6 +53,7 @@ impl Vm {
             modules: ModuleManager::new(crate::builtins::global_module()),
             stack: Vec::with_capacity(4096),
             frames: Vec::with_capacity(128),
+            root: std::env::current_dir().unwrap(),
         }
     }
 
@@ -291,6 +297,9 @@ impl Vm {
     }
 
     fn import_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
+        let filepath = self
+            .resolve_path(&filepath)
+            .with_context(|| anyhow!("failed to resolve absolute path for {filepath:?}"))?;
         let module_source = ModuleSource::File(filepath.clone());
         if let Some(frame) = self.frames.last_mut() {
             if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
@@ -307,16 +316,25 @@ impl Vm {
         }
         let contents = std::fs::read_to_string(&filepath)
             .with_context(|| format!("filepath: {filepath:?}"))?;
-        let asts = Ast::from_sexp_str(&contents)?;
+        let asts = Ast::from_sexp_str(&contents)
+            .with_context(|| anyhow!("failed to make AST for {filepath:?}"))?;
         let args = CodeBlockArgs {
             name: Some(format!("init-module-{filepath:?}")),
             ..CodeBlockArgs::default()
         };
-        let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())?
-            .to_module_definition(module_source.clone())?;
+        let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())
+            .with_context(|| anyhow!("failed to analyze AST for {filepath:?}"))?
+            .to_module_definition(module_source.clone())
+            .with_context(|| anyhow!("failed to create bytecode for {filepath:?}"))?;
         self.modules.add_module(Module::new(module_source.clone()));
         self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
+    }
+
+    fn resolve_path(&self, path: &Path) -> Result<PathBuf> {
+        let mut resolved_path = self.root.clone();
+        resolved_path.extend(path);
+        Ok(std::fs::canonicalize(&resolved_path)?)
     }
 }
 
@@ -346,13 +364,6 @@ mod tests {
             .map(Result::unwrap)
             .map(str::to_string)
             .collect()
-    }
-
-    fn test_file_path(p: &str) -> String {
-        let mut full_path = std::env::current_dir().unwrap();
-        full_path.push("test_data");
-        full_path.push(p);
-        full_path.to_str().unwrap().to_string()
     }
 
     #[test]
@@ -464,13 +475,7 @@ mod tests {
     #[test]
     fn import_nonexistent_module_returns_error() {
         let mut vm = Vm::new();
-        let res = vm.eval_str(
-            MODULE,
-            &format!(
-                "(import \"{path}\")",
-                path = test_file_path("does_not_exist.spore")
-            ),
-        );
+        let res = vm.eval_str(MODULE, "(import \"test_data/does_not_exist.spore\")");
         assert!(res.is_err(), "Expected error but no error encountered");
         assert_eq!(
             vm.eval_str(MODULE, "(modules)").unwrap(),
@@ -485,10 +490,7 @@ mod tests {
     #[test]
     fn import_module_with_runtime_error_returns_error() {
         let mut vm = Vm::new();
-        let res = vm.eval_str(
-            MODULE,
-            &format!("(import \"{path}\")", path = test_file_path("bad.spore")),
-        );
+        let res = vm.eval_str(MODULE, &format!("(import \"test_data/bad.spore\")"));
         assert!(res.is_err());
         assert_eq!(
             vm.eval_str(MODULE, "(modules)").unwrap(),
@@ -502,12 +504,19 @@ mod tests {
     #[test]
     fn import_module_allows_access_to_module() {
         let mut vm = Vm::new();
+        let root = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         assert_eq!(
             vm.eval_str(
                 MODULE,
                 &format!(
-                    "(import \"{path}\") (modules) (list-imports \"{MODULE}\") (circle/circle-area 2)",
-                    path = test_file_path("circle.spore")
+                    r#"
+(import "test_data/circle.spore")
+(modules)
+(list-imports "{MODULE}")
+(circle/circle-area 2)"#,
                 ),
             )
             .unwrap(),
@@ -518,7 +527,7 @@ mod tests {
                 Val::List(Rc::new(vec![
                     "%global%".to_string().into(),
                     "%virtual%/test".to_string().into(),
-                    test_file_path("circle.spore").into(),
+                    format!("{root}/test_data/circle.spore").into(),
                 ])),
                 // List of all modules imported into the default module.
                 Val::List(Rc::new(vec!["circle".to_string().into(),])),
