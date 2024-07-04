@@ -165,7 +165,7 @@ impl Ast {
                     }
                     if let Some(sym) = s.strip_prefix('\'') {
                         exps.push(Ast::Leaf(
-                            token.with_item(AstLeaf::Symbol(sym.trim().to_string())),
+                            token.with_item(AstLeaf::Symbol(sym.trim().into())),
                         ));
                     } else {
                         match s.as_str() {
@@ -429,7 +429,7 @@ mod tests {
             Ast::from_sexp_str("'hello \"to\" 'the 'world").unwrap(),
             vec![
                 Leaf(Token {
-                    item: Symbol("hello".to_string()),
+                    item: Symbol("hello".into()),
                     range: 0..6,
                 },),
                 Leaf(Token {
@@ -437,11 +437,11 @@ mod tests {
                     range: 7..11,
                 },),
                 Leaf(Token {
-                    item: Symbol("the".to_string()),
+                    item: Symbol("the".into()),
                     range: 12..16,
                 },),
                 Leaf(Token {
-                    item: Symbol("world".to_string()),
+                    item: Symbol("world".into()),
                     range: 17..23,
                 },),
             ],
@@ -456,11 +456,11 @@ mod tests {
             Ast::from_sexp_str("'hello 'world").unwrap(),
             vec![
                 Leaf(Token {
-                    item: Symbol("hello".to_string()),
+                    item: Symbol("hello".into()),
                     range: 0..6,
                 }),
                 Leaf(Token {
-                    item: Symbol("world".to_string()),
+                    item: Symbol("world".into()),
                     range: 7..13,
                 })
             ]

@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use smol_str::SmolStr;
+
 use crate::vm::module::ModuleSource;
 
 use super::{symbol::Symbol, Val};
@@ -31,9 +33,9 @@ pub struct ValRef {
     /// The module the value is referenced from.
     pub module: ModuleSource,
     /// The sub module that the value should be taken from.
-    pub sub_module: Option<String>,
+    pub sub_module: Option<SmolStr>,
     /// The symbol for the value.
-    pub symbol: String,
+    pub symbol: SmolStr,
 }
 
 impl std::fmt::Display for Instruction {
@@ -54,7 +56,10 @@ impl std::fmt::Display for Instruction {
 
 impl std::fmt::Display for ValRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{mod}/{sym}", mod=self.module, sym = self.symbol)
+        match &self.sub_module {
+            Some(sub) => write!(f, "{mod}/{sub}/{sym}", mod=self.module, sym=self.symbol),
+            None => write!(f, "{mod}/{sym}", mod=self.module, sym = self.symbol),
+        }
     }
 }
 

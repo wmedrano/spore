@@ -25,7 +25,7 @@ pub struct CodeBlock {
     /// The name of the code block or `None` if it has no name.
     pub name: Option<SmolStr>,
     /// A map from a symbol name to its index at the frame stack.
-    pub arg_to_idx: HashMap<String, usize>,
+    pub arg_to_idx: HashMap<SmolStr, usize>,
     /// The IR instructions for the codeblock.
     pub instructions: Vec<IrInstruction>,
 }
@@ -64,7 +64,7 @@ pub struct CodeBlockArgs {
     /// procedure.
     pub name: Option<SmolStr>,
     /// A map from argument name to the index it should appear on the stack frame.
-    pub arg_to_idx: HashMap<String, usize>,
+    pub arg_to_idx: HashMap<SmolStr, usize>,
     /// If the code block defines a subexpression. Certain features (such as import and define) are
     /// not available as a subexpression.
     pub is_subexpression: bool,
@@ -295,7 +295,7 @@ impl CodeBlock {
         let arg_to_idx = HashMap::from_iter(
             args.iter()
                 .enumerate()
-                .map(|(idx, sym)| (sym.to_string(), idx)),
+                .map(|(idx, sym)| (SmolStr::new(sym), idx)),
         );
         let body = CodeBlock::with_ast(
             CodeBlockArgs {
@@ -349,8 +349,8 @@ impl CodeBlock {
                             let (module_ident, symbol) = split_identifier(symbol.as_str());
                             let val_ref = Box::new(ValRef {
                                 module: default_module.clone(),
-                                sub_module: module_ident,
-                                symbol,
+                                sub_module: module_ident.map(SmolStr::new),
+                                symbol: SmolStr::new(symbol),
                             });
                             res.push(Instruction::GetVal(val_ref))
                         }
@@ -411,8 +411,8 @@ impl CodeBlock {
 
 fn split_identifier(s: &str) -> (Option<String>, String) {
     match s.find('/') {
-        Some(idx) => (Some(s[0..idx].to_string()), s[idx + 1..].to_string()),
-        None => (None, s.to_string()),
+        Some(idx) if idx > 0 => (Some(s[0..idx].to_string()), s[idx + 1..].to_string()),
+        _ => (None, s.to_string()),
     }
 }
 
@@ -503,6 +503,30 @@ mod tests {
         let bytecode = proc.bytecode;
         assert!(
             matches!(bytecode.as_slice(), [Instruction::ImportModule(p)] if p.as_ref() == Path::new("my-file.spore")),
+            "Got: {bytecode:?}"
+        );
+    }
+
+    #[test]
+    fn slash_separated_identifier_splits_module_and_symbol() {
+        let bytecode = compile_to_bytecode("sub_module/symbol").unwrap();
+        assert!(
+            matches!(
+                bytecode.as_slice(),
+                [Instruction::GetVal(val_ref)] if matches!(val_ref.as_ref(), ValRef{module: MODULE, sub_module: Some(sub_module), symbol } if sub_module == "sub_module" && symbol == "symbol")
+            ),
+            "Got: {bytecode:?}"
+        );
+    }
+
+    #[test]
+    fn slash_converts_to_division_symbol() {
+        let bytecode = compile_to_bytecode("/").unwrap();
+        assert!(
+            matches!(
+                bytecode.as_slice(),
+                [Instruction::GetVal(val_ref)] if matches!(val_ref.as_ref(), ValRef{module: MODULE, sub_module: None, symbol } if symbol == "/")
+            ),
             "Got: {bytecode:?}"
         );
     }
