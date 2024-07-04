@@ -8,7 +8,7 @@
   "Build spore website.
 
 The static site is output into the site directory."
-  (let ((norg-src-fontify-natively t)
+  (let ((org-src-fontify-natively t)
         (org-publish-project-alist
          `(("spore" :components ("spore-main"))
            ("spore-main"
@@ -23,8 +23,12 @@ The static site is output into the site directory."
             :html-link-home "../"
             :html-link-up "../"
             )))
-        (org-html-validation-link nil))
-    (org-publish-project "spore")))
+        (org-html-validation-link nil)
+        (org-html-head "<link rel=\"stylesheet\" type=\"text/css\" href=\"https://wmedrano.github.io/spore/style.css\"/>")
+        (org-export-with-author nil)
+        (org-export-with-date nil))
+    (org-publish-project "spore")
+    (copy-file "./site/style.css" "./target/site/style.css" t)))
 
 (defun build-spore-site-any-buffer ()
   "Build the spore site by switching to site.el."

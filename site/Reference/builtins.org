@@ -296,8 +296,8 @@ element of a list. If the list is empty, then an error is raised.
 ~print~ prints out all values and returns nothing.
 
 #+BEGIN_SRC lisp
-(print (list 1 2 3) "hello" 5)
-;; (1 2 3) "hello" 5
+(print (list 1 2 3) " summed is " (+ 1 2 3))
+;; (1 2 3) summed is 6
 #+END_SRC
 
 ** do
@@ -319,25 +319,26 @@ element of a list. If the list is empty, then an error is raised.
 
 ~modules~ returns all loaded modules by name as a list of strings.
 
+In a default REPL, there are 2 modules. The global module ~"%global%"~
+and ~"%virtual%/repl"~ for items defined in the REPL.
+
 #+BEGIN_SRC lisp
   (modules) ;; ("%global%" "%virtual%/repl")
 #+END_SRC
 
-** list-imports
+** module-info
 :PROPERTIES:
-:CUSTOM_ID: Misclistimports-c1y4k3u0z8k0
+:CUSTOM_ID: Miscmoduleinfo-khb4ab4129k0
 :END:
 
-~list-imports~ returns the list of modules that have been imported into the
-given module.
+~module-info~ returns a ~string~ that has module details such as the
+name, imports, and defined values.
 
 #+BEGIN_SRC lisp
-  (list-imports "%global%") ;; ()
-#+END_SRC
-
-Repl loading module example:
-
-#+BEGIN_SRC lisp
-  (import "path/to/my/module.spore")
-  (list-imports "%virtual%/repl") ;; ("module")
+>> (define pi 3.14)
+>> (import "mylib.spore")
+>> (print (module-info "%virtual%/repl"))
+Module: %virtual%/repl
+  Import /home/wmedrano/src/spore/mylib.spore as mylib
+  'pi => 3.14
 #+END_SRC

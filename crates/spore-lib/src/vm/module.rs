@@ -218,6 +218,19 @@ impl Module {
     }
 }
 
+impl std::fmt::Display for Module {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Module: {}", self.source)?;
+        for (alias, import) in self.imported_modules.iter() {
+            writeln!(f, "  Import {import} as {alias}")?;
+        }
+        for (sym, val) in self.values.iter() {
+            writeln!(f, "  {sym} => {val}")?;
+        }
+        Ok(())
+    }
+}
+
 impl std::fmt::Display for ModuleSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

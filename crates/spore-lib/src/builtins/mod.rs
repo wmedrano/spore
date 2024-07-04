@@ -13,7 +13,7 @@ pub fn global_module() -> Module {
     for proc in [
         NativeProc::new("print", print_proc),
         NativeProc::new("modules", modules_proc),
-        NativeProc::new("list-imports", list_imports_proc),
+        NativeProc::new("module-info", module_info_proc),
         NativeProc::new("do", do_proc),
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
@@ -41,13 +41,12 @@ pub fn global_module() -> Module {
 }
 
 fn print_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
-    for (idx, arg) in args.iter().enumerate() {
-        if idx > 0 {
-            print!(" ");
+    for arg in args.iter() {
+        match arg {
+            Val::String(s) => print!("{s}"),
+            v => print!("{v}"),
         }
-        print!("{arg}");
     }
-    println!();
     Ok(Val::Void)
 }
 
@@ -65,18 +64,14 @@ fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     Ok(Val::List(Rc::new(module_names)))
 }
 
-fn list_imports_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+fn module_info_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [module] => {
             let module_str = module.try_str()?;
             for module in modules.iter() {
                 if module.source().to_string() == module_str {
-                    let imports = module
-                        .imports()
-                        .keys()
-                        .map(|m| Val::from(m.clone()))
-                        .collect();
-                    return Ok(Val::List(Rc::new(imports)));
+                    let info = module.to_string();
+                    return Ok(Val::String(info.into()));
                 }
             }
             bail!(

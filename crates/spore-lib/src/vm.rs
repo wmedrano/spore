@@ -191,7 +191,9 @@ impl Vm {
     fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<()> {
         ensure!(
             proc.arg_count == args.len(),
-            "Wrong number of args to {proc}"
+            "Wrong number of args to {proc}. Expected {expected} but got {got}.",
+            expected = proc.arg_count,
+            got = args.len(),
         );
         if !self.modules.has_module(&proc.module) {
             self.modules.add_module(Module::new(proc.module.clone()));
@@ -254,7 +256,7 @@ impl Vm {
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
         ensure!(
             n <= self.stack.len(),
-            "interpretter stuck is corrupt, expected stack with minimum stack size {n} but found {stack_len}.",
+            "Interpretter stuck is corrupt, expected stack with minimum stack size {n} but found {stack_len}.",
             stack_len = self.stack.len()
         );
         let proc_idx = self.stack.len() - n;
@@ -270,7 +272,7 @@ impl Vm {
                 debugger.eval_proc(self);
                 if expected_args != actual_args {
                     bail!(
-                        "{name} expected {expected_args} but found {actual_args}",
+                        "{name} expected {expected_args} but found {actual_args}.",
                         name = self.current_proc().map(|p| p.name.as_str()).unwrap_or("_")
                     );
                 }
@@ -284,7 +286,7 @@ impl Vm {
                 *self.stack.last_mut().unwrap() = res;
             }
             v => bail!(
-                "expected procedure but found {v}\nStack: {stack:?}",
+                "Expected procedure but found {v}.\nStack: {stack:?}",
                 stack = self.stack
             ),
         };
@@ -304,9 +306,7 @@ impl Vm {
     }
 
     fn import_module(&mut self, filepath: PathBuf, debugger: &mut impl Debugger) -> Result<()> {
-        let filepath = self
-            .resolve_path(&filepath)
-            .with_context(|| anyhow!("failed to resolve absolute path for {filepath:?}"))?;
+        let filepath = self.resolve_path(&filepath)?;
         let module_source = ModuleSource::File(filepath.clone());
         if let Some(frame) = self.frames.last_mut() {
             if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
@@ -322,17 +322,17 @@ impl Vm {
             return Ok(());
         }
         let contents = std::fs::read_to_string(&filepath)
-            .with_context(|| format!("filepath: {filepath:?}"))?;
+            .with_context(|| format!("Failed to read file {filepath:?} to string."))?;
         let asts = Ast::from_sexp_str(&contents)
-            .with_context(|| anyhow!("failed to make AST for {filepath:?}"))?;
+            .with_context(|| anyhow!("Failed to make AST for file {filepath:?}."))?;
         let args = CodeBlockArgs {
             name: Some(format!("init-module-{filepath:?}")),
             ..CodeBlockArgs::default()
         };
         let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())
-            .with_context(|| anyhow!("failed to analyze AST for {filepath:?}"))?
+            .with_context(|| anyhow!("Failed to analyze AST for {filepath:?}."))?
             .to_module_definition(module_source.clone())
-            .with_context(|| anyhow!("failed to create bytecode for {filepath:?}"))?;
+            .with_context(|| anyhow!("Failed to create bytecode for {filepath:?}."))?;
         self.modules.add_module(Module::new(module_source.clone()));
         self.stack.push(bytecode.into());
         self.execute_eval_n(1, debugger)
@@ -341,7 +341,12 @@ impl Vm {
     fn resolve_path(&self, path: &Path) -> Result<PathBuf> {
         let mut resolved_path = self.root.clone();
         resolved_path.extend(path);
-        Ok(std::fs::canonicalize(&resolved_path)?)
+        Ok(std::fs::canonicalize(&resolved_path).with_context(|| {
+            anyhow!(
+                "Falied to resolve {path:?} with working directory {root:?}.",
+                root = self.root
+            )
+        })?)
     }
 }
 
