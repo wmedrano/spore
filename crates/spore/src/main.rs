@@ -7,6 +7,7 @@ use spore_repl::Repl;
 
 /// The Spore programming language.
 #[derive(Parser, Debug)]
+#[command(version, about)]
 struct Args {
     /// Run a file as a script. This essentially runs the file as a Spore program in the REPL and
     /// exits on completion.

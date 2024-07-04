@@ -2,6 +2,59 @@
 
 An interpretted programming language used for Rust.
 
+## Installation
+
+### Prerequisites
+
+Before installing Spore, ensure you have the following prerequisites:
+
+- Rust and Cargo (Rust's package manager) installed on your system. If
+  you don't have Rust installed, you can get it from
+  [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install).
+- Git (optional, but recommended for cloning the repository)
+
+## Installation Steps
+
+1. Clone the Spore repository (or download the source code):
+
+   ```
+   git clone https://github.com/spore-lang/spore.git
+   cd spore
+   ```
+
+2. Run the installation script:
+
+   ```
+   sh install.sh
+   ```
+
+   This script will:
+   - Build Spore using Cargo in release mode
+   - Create a `.spore/bin` directory in your home folder
+   - Copy the Spore executable to `$HOME/.spore/bin/spore`
+
+3. Add Spore to your PATH:
+
+   To use Spore from any location, add the following line to your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`, or `~/.profile`):
+
+   ```
+   export PATH="$HOME/.spore/bin:$PATH"
+   ```
+
+   After modifying the file, reload your shell configuration:
+
+   ```
+   source ~/.bashrc  # or the appropriate file for your shell
+   ```
+
+4. Verify the installation:
+
+   ```
+   spore --version
+   ```
+
+   This should display the version of Spore you've installed.
+
 ## Getting Started
 
 ### REPL

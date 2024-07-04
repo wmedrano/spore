@@ -3,6 +3,7 @@
 ;;;   Builds website by converting .org files into html.
 ;;; Code:
 (require 'ox-publish)
+(require 'htmlize)
 
 (defun build-spore-site ()
   "Build spore website.
