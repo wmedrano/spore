@@ -46,6 +46,12 @@ struct StackTrace {
     trace: Vec<String>,
 }
 
+impl Default for Vm {
+    fn default() -> Vm {
+        Vm::new()
+    }
+}
+
 impl Vm {
     /// Create a new vm.
     pub fn new() -> Vm {
@@ -86,14 +92,11 @@ impl Vm {
         args: &[Val],
         debugger: &mut impl Debugger,
     ) -> Result<Val> {
-        self.eval_bytecode_impl(proc, args, debugger)
+        self.prepare(proc.clone(), args)?;
+        debugger.eval_proc(self);
+        self.eval_bytecode_impl(debugger)
             .inspect_err(|_| {
-                for frame in self.frames.iter_mut() {
-                    let bytecode = frame.bytecode.inner();
-                    if bytecode.is_module_definition {
-                        self.modules.remove_module(&bytecode.module);
-                    }
-                }
+                self.clean_failed_modules();
             })
             .with_context(|| self.stack_trace())
     }
@@ -126,15 +129,37 @@ impl Vm {
         self.frames.last().map(|f| f.bytecode.inner())
     }
 
+    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<()> {
+        ensure!(
+            proc.arg_count == args.len(),
+            "Wrong number of args to {proc}. Expected {expected} but got {got}.",
+            expected = proc.arg_count,
+            got = args.len(),
+        );
+        if !self.modules.has_module(&proc.module) {
+            self.modules.add_module(Module::new(proc.module.clone()));
+        }
+        self.frames.clear();
+        self.stack.clear();
+        self.stack.extend_from_slice(args);
+        self.frames.push(Frame {
+            bytecode: ByteCodeIter::from_proc(proc),
+            stack_start_idx: 0,
+        });
+        Ok(())
+    }
+
+    fn clean_failed_modules(&mut self) {
+        for frame in self.frames.iter_mut() {
+            let bytecode = frame.bytecode.inner();
+            if bytecode.is_module_definition {
+                self.modules.remove_module(&bytecode.module);
+            }
+        }
+    }
+
     /// Evaluate a sequence of bytecode.
-    fn eval_bytecode_impl(
-        &mut self,
-        proc: Rc<ByteCodeProc>,
-        args: &[Val],
-        debugger: &mut impl Debugger,
-    ) -> Result<Val> {
-        self.prepare(proc.clone(), args)?;
-        debugger.eval_proc(self);
+    fn eval_bytecode_impl(&mut self, debugger: &mut impl Debugger) -> Result<Val> {
         while let Some(frame) = self.frames.last_mut() {
             let instruction = frame.bytecode.next_instruction();
             match instruction {
@@ -153,12 +178,12 @@ impl Vm {
                 Instruction::GetVal(s) => {
                     let maybe_value = self.modules.get_value(
                         &s.module,
-                        s.sub_module.as_ref().map(String::as_str),
+                        s.sub_module.as_deref(),
                         s.symbol.as_str(),
                     );
                     match maybe_value {
                         Some(v) => self.stack.push(v),
-                        None => bail!("value for {s} is not defined"),
+                        None => bail!("Value for {s} is not defined."),
                     }
                 }
                 Instruction::JumpIf(n) => {
@@ -186,26 +211,6 @@ impl Vm {
         let ret = self.stack.pop().unwrap_or_default();
         debugger.return_value(&ret);
         Ok(ret)
-    }
-
-    fn prepare(&mut self, proc: Rc<ByteCodeProc>, args: &[Val]) -> Result<()> {
-        ensure!(
-            proc.arg_count == args.len(),
-            "Wrong number of args to {proc}. Expected {expected} but got {got}.",
-            expected = proc.arg_count,
-            got = args.len(),
-        );
-        if !self.modules.has_module(&proc.module) {
-            self.modules.add_module(Module::new(proc.module.clone()));
-        }
-        self.frames.clear();
-        self.stack.clear();
-        self.stack.extend_from_slice(args);
-        self.frames.push(Frame {
-            bytecode: ByteCodeIter::from_proc(proc),
-            stack_start_idx: 0,
-        });
-        Ok(())
     }
 
     #[cold]
@@ -278,9 +283,9 @@ impl Vm {
                 }
             }
             Val::NativeProc(proc) => {
-                let stack_base = proc_idx + 1;
+                let stack_start_idx = proc_idx + 1;
                 let res = {
-                    let args = self.stack.drain(stack_base..);
+                    let args = self.stack.drain(stack_start_idx..);
                     proc.eval(&self.modules, args.as_slice())?
                 };
                 *self.stack.last_mut().unwrap() = res;
@@ -312,7 +317,7 @@ impl Vm {
             if let Some(current_module) = self.modules.get_mut(&frame.bytecode.inner().module) {
                 let module_identifier = filepath
                     .file_stem()
-                    .ok_or_else(|| anyhow!("Could not parse file stem for filename {filepath:?}"))?
+                    .ok_or_else(|| anyhow!("Could not parse file stem for filename {filepath:?}."))?
                     .to_string_lossy()
                     .to_string();
                 current_module.add_import(module_identifier, module_source.clone());
@@ -341,12 +346,12 @@ impl Vm {
     fn resolve_path(&self, path: &Path) -> Result<PathBuf> {
         let mut resolved_path = self.root.clone();
         resolved_path.extend(path);
-        Ok(std::fs::canonicalize(&resolved_path).with_context(|| {
+        std::fs::canonicalize(&resolved_path).with_context(|| {
             anyhow!(
                 "Falied to resolve {path:?} with working directory {root:?}.",
                 root = self.root
             )
-        })?)
+        })
     }
 }
 

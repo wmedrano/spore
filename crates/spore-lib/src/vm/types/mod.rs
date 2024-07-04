@@ -31,7 +31,7 @@ impl Val {
         match self {
             Val::Bool(v) => Ok(*v),
             Val::Void => Ok(false),
-            v => Err(anyhow!("expected true/false, but found {}", v)),
+            v => Err(anyhow!("Expected true/false, but found {}.", v)),
         }
     }
 
@@ -62,7 +62,7 @@ impl Val {
     pub fn try_int(&self) -> Result<isize> {
         match self {
             Val::Int(v) => Ok(*v),
-            _ => bail!("expected <int> but found {}", self.type_name()),
+            _ => bail!("Expected <int> but found {}.", self.type_name()),
         }
     }
 
@@ -76,7 +76,7 @@ impl Val {
     pub fn try_usize(&self) -> Result<usize> {
         let i = self.try_int()?;
         if i < 0 {
-            bail!("{} found unexpected negative number", self);
+            bail!("{} found unexpected negative number.", self);
         }
         Ok(i as usize)
     }
@@ -91,7 +91,7 @@ impl Val {
     pub fn try_str(&self) -> Result<&str> {
         match self {
             Val::String(v) => Ok(v.as_str()),
-            _ => bail!("expected <string> but found {}", self.type_name()),
+            _ => bail!("Expected <string> but found {}.", self.type_name()),
         }
     }
 

@@ -53,7 +53,7 @@ fn print_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn modules_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure!(
         args.is_empty(),
-        "modules expected 0 args but got {n}",
+        "<proc modules> expected 0 args but got {n}.",
         n = args.len()
     );
     let module_names: Vec<_> = modules
@@ -75,11 +75,11 @@ fn module_info_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
                 }
             }
             bail!(
-                "module {module_str:?} not found, available modules are {mods}",
+                "Module {module_str:?} not found, available modules are {mods}.",
                 mods = modules_proc(modules, &[])?
             );
         }
-        _ => bail!("expected (list-imports <module-str>)"),
+        _ => bail!("Expected expression of form (module-info <module-str>)"),
     }
 }
 
@@ -87,7 +87,7 @@ fn ensure_numbers(op: &str, args: &[Val]) -> Result<()> {
     for arg in args {
         match arg {
             Val::Int(_) | Val::Float(_) => (),
-            _ => bail!("{op} expected number but got {arg}",),
+            _ => bail!("Operation {op} expected number but got {arg}.",),
         }
     }
     Ok(())
@@ -101,7 +101,7 @@ fn list_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn listp_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [Val::List(_)] => Ok(Val::Bool(matches!(args[0], Val::List(_)))),
-        _ => bail!("listp expected 1 arg but found {}", args.len()),
+        _ => bail!("Procedure listp expected 1 arg but found {}.", args.len()),
     }
 }
 
@@ -121,12 +121,12 @@ fn first_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn rest_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [arg] => match arg.try_slice()? {
-            [] => bail!("attempted to call procedure rest on empty list"),
+            [] => bail!("Attempted to call procedure rest on empty list."),
             [_] => Ok(Val::List(Rc::new(Vec::new()))),
             [_, rest @ ..] => Ok(Val::List(Rc::new(Vec::from_iter(rest.iter().cloned())))),
         },
         _ => bail!(
-            "<proc rest> expected a single argument but found {}",
+            "<proc rest> expected a single argument but found {}.",
             args.len()
         ),
     }
@@ -139,13 +139,13 @@ fn nth_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
             let nth = nth.try_usize()?;
             lst.get(nth).cloned().ok_or_else(|| {
                 anyhow!(
-                    "<proc nth> failed to get element {nth} from list of length {len}",
+                    "<proc nth> failed to get element {nth} from list of length {len}.",
                     len = lst.len()
                 )
             })
         }
         _ => bail!(
-            "<proc nth> expected an argument for list and nth but found {} arguments",
+            "<proc nth> expected an argument for list and nth but found {} arguments.",
             args.len()
         ),
     }
@@ -153,13 +153,16 @@ fn nth_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 
 fn len_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
-        [] => bail!("len expected at least 1 argument."),
+        [] => bail!("<proc len> expected at least 1 argument."),
         [arg] => match arg {
             Val::List(lst) => Ok(Val::Int(lst.len() as isize)),
             Val::String(s) => Ok(Val::Int(s.len() as isize)),
-            v => bail!("expected <list> or <string> but found {}", v.type_name()),
+            v => bail!(
+                "<proc len> expected <list> or <string> but found {}.",
+                v.type_name()
+            ),
         },
-        _ => bail!("len expected only 1 argument."),
+        _ => bail!("<proc len> expected only 1 argument."),
     }
 }
 
@@ -235,7 +238,7 @@ fn sub_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn divide_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     ensure_numbers("/", args)?;
     match args {
-        [] => Err(anyhow!("/ requires at least 1 arg")),
+        [] => Err(anyhow!("<proc /> requires at least 1 arg.")),
         [x] => Ok(reciprocal(x)),
         [x, ys @ ..] => {
             let denom = multiply_proc(_modules, ys)?;
@@ -251,7 +254,7 @@ fn less_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
         [Val::Float(x), Val::Float(y)] => x < y,
         [Val::Int(x), Val::Float(y)] => (*x as f64) < *y,
         [Val::Float(x), Val::Int(y)] => *x < (*y as f64),
-        _ => bail!("< requires 2 numbers but found {:?}", args),
+        _ => bail!("<proc <> requires 2 numbers but found {:?}.", args),
     };
     Ok(res.into())
 }
@@ -263,7 +266,7 @@ fn less_eq_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
         [Val::Float(x), Val::Float(y)] => x <= y,
         [Val::Int(x), Val::Float(y)] => (*x as f64) <= *y,
         [Val::Float(x), Val::Int(y)] => *x <= (*y as f64),
-        _ => bail!("< requires 2 numbers but found {:?}", args),
+        _ => bail!("<proc <=> requires 2 numbers but found {:?}.", args),
     };
     Ok(res.into())
 }
@@ -275,7 +278,7 @@ fn greater_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
         [Val::Float(x), Val::Float(y)] => x > y,
         [Val::Int(x), Val::Float(y)] => (*x as f64) > *y,
         [Val::Float(x), Val::Int(y)] => *x > (*y as f64),
-        _ => bail!("> requires 2 args but found {}", args.len()),
+        _ => bail!("<proc >> requires 2 args but found {}.", args.len()),
     };
     Ok(res.into())
 }
@@ -287,7 +290,7 @@ fn greater_eq_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
         [Val::Float(x), Val::Float(y)] => x >= y,
         [Val::Int(x), Val::Float(y)] => (*x as f64) >= *y,
         [Val::Float(x), Val::Int(y)] => *x >= (*y as f64),
-        _ => bail!("> requires 2 args but found {}", args.len()),
+        _ => bail!("<proc >=> requires 2 args but found {}.", args.len()),
     };
     Ok(res.into())
 }
@@ -314,7 +317,7 @@ fn equalp_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
         [a, b] => Ok(Val::Bool(a == b)),
         _ => Err(anyhow!(
-            "equal? expects 2 arguments but found {}",
+            "<proc equal?> expects 2 arguments but found {}.",
             args.len()
         )),
     }

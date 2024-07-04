@@ -57,7 +57,7 @@ pub enum IrInstruction {
     Import { filepath: PathBuf },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct CodeBlockArgs {
     /// The name of the codeblock. This is used to populate the name of the produced bytecode
     /// procedure.
@@ -67,16 +67,6 @@ pub struct CodeBlockArgs {
     /// If the code block defines a subexpression. Certain features (such as import and define) are
     /// not available as a subexpression.
     pub is_subexpression: bool,
-}
-
-impl Default for CodeBlockArgs {
-    fn default() -> CodeBlockArgs {
-        CodeBlockArgs {
-            name: None,
-            arg_to_idx: HashMap::new(),
-            is_subexpression: false,
-        }
-    }
 }
 
 impl CodeBlock {
@@ -129,18 +119,18 @@ impl CodeBlock {
         let res = match ast {
             Ast::Leaf(l) => match &l.item {
                 AstLeaf::If => bail!(
-                    "unexpected keyword if, did you mean (if <pred> <true-expr> <false-expr>)?"
+                    "Unexpected keyword if, did you mean (if <pred> <true-expr> <false-expr>)?"
                 ),
                 AstLeaf::Import => {
-                    bail!("unexpected keyword import, did you mean (import \"<file>\")")
+                    bail!("Unexpected keyword import, did you mean (import \"<file>\").")
                 }
                 AstLeaf::Lambda => {
                     bail!(
-                        "unexpected keyword lambda, did you mean (lambda (<args>...) <exprs>...)?"
+                        "Unexpected keyword lambda, did you mean (lambda (<args>...) <exprs>...)?"
                     )
                 }
                 AstLeaf::Define => {
-                    bail!("unexpected keyword define, did you mean (define <symbol> <value-expr>)?")
+                    bail!("Unexpected keyword define, did you mean (define <symbol> <value-expr>)?")
                 }
                 AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier {
                     symbol: ident.clone(),
@@ -179,44 +169,44 @@ impl CodeBlock {
                         AstLeaf::Import => {
                             ensure!(
                                 !is_subexpression,
-                                "(import ...) not allowed as a subexpression"
+                                "(import ...) not allowed as a subexpression."
                             );
                             let filepath = children.next().ok_or_else(|| {
-                                anyhow!("expected expression of form (import \"filepath\")")
+                                anyhow!("expected expression of form (import \"filepath\").")
                             })?;
                             self.make_import(filepath)?
                         }
                         AstLeaf::Lambda => {
                             let args = match children.next().and_then(Ast::as_identifier_list) {
                                     Some(args) => args,
-                                    None => bail!("lambda expected form (lambda (<args>...) <exprs>...) but (<args>...) was malformed"),
+                                    None => bail!("lambda expected form (lambda (<args>...) <exprs>...) but (<args>...) was malformed."),
                                 };
                             self.make_lambda(None, &args, children)?
                         }
                         AstLeaf::Define => {
                             ensure!(
                                 !is_subexpression,
-                                "(define ...) not allowed as a subexpression"
+                                "(define ...) not allowed as a subexpression."
                             );
                             let sym_expr = children.next();
                             if let Some(sym) = sym_expr.and_then(Ast::as_identifier) {
                                 let expr = children.next().ok_or_else(|| {
-                                    anyhow!("define expected form (define <identifier> <expr>)")
+                                    anyhow!("define expected form (define <identifier> <expr>).")
                                 })?;
                                 if children.next().is_some() {
-                                    bail!("define expected form (define <identifier> <expr>)")
+                                    bail!("define expected form (define <identifier> <expr>).")
                                 }
                                 self.make_define(Symbol::from(sym), expr)?
                             } else if let Some(syms) = sym_expr.and_then(Ast::as_identifier_list) {
                                 match &syms[..] {
-                                        [] => bail!("define form expected (<sym> <args>...) but found empty expression"),
+                                        [] => bail!("define form expected (<sym> <args>...) but found empty expression."),
                                         [name, args @ ..] => {
                                             let lambda = self.make_lambda(Some(name.to_string()), args, children)?;
                                             self.make_define_with_ir(Symbol::from(*name), lambda)
                                         },
                                     }
                             } else {
-                                bail!("define expected the form (define <sym> <expr>) or (define (<sym> <args>...) <exprs>...)");
+                                bail!("define expected the form (define <sym> <expr>) or (define (<sym> <args>...) <exprs>...).");
                             }
                         }
                         AstLeaf::Identifier(ident) => self.make_proc_call(
@@ -230,10 +220,13 @@ impl CodeBlock {
                         | AstLeaf::Float(_)
                         | AstLeaf::Int(_)
                         | AstLeaf::Bool(_) => {
-                            bail!("atom is not callable")
+                            bail!(
+                                "Expected value of type <proc>, {v} is not callable.",
+                                v = first,
+                            )
                         }
                         AstLeaf::Comment(_) | AstLeaf::CommentDatum => {
-                            unreachable!("AST iterator produced unexpected comment")
+                            unreachable!("AST iterator produced unexpected comment.")
                         }
                     },
                     proc_ast @ Ast::Tree(_) => {
@@ -276,7 +269,7 @@ impl CodeBlock {
                 let filepath = PathBuf::from_str(filepath)?;
                 Ok(IrInstruction::Import { filepath })
             }
-            _ => bail!("Expected expression of form (import \"<filepath>\")"),
+            _ => bail!("Expected expression of form (import \"<filepath>\")."),
         }
     }
 
@@ -308,7 +301,6 @@ impl CodeBlock {
                 name,
                 arg_to_idx,
                 is_subexpression: true,
-                ..CodeBlockArgs::default()
             },
             exprs,
         )?;

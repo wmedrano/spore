@@ -141,7 +141,7 @@ impl Repl {
             ),
             ",help" => print_help(out)?,
             unknown => bail!(
-                "unknown command \"{unknown}\", expected one if {:?}",
+                "Unknown command \"{unknown}\", expected one if {:?}.",
                 [",tokens", ",ast", ",ir", ",bytecode", ",trace", ",help"]
             ),
         }
