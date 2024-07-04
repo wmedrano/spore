@@ -152,18 +152,15 @@ impl Repl {
 fn print_help(out: &mut impl Write) -> Result<()> {
     writeln!(out, "{}", "Commands".blue())?;
     let mut print_cmd = |cmd: &str, doc| writeln!(out, "  {cmd} - {doc}", cmd = cmd.blue());
-    print_cmd(",tokens", "Print the parsed tokens for the expression(s).")?;
-    print_cmd(",ast", "Print the ast for the expression(s).")?;
-    print_cmd(
-        ",ir",
-        "Print the intermediate representation for the expression(s).",
-    )?;
-    print_cmd(",bytecode", "Print the bytecode for the expression(s)")?;
+    print_cmd(",tokens", "Parsed tokens for the expression(s).")?;
+    print_cmd(",ast", "Ast for the expression(s).")?;
+    print_cmd(",ir", "Intermediate representation for the expression(s).")?;
+    print_cmd(",bytecode", "Bytecode for the expression(s)")?;
     print_cmd(
         ",trace",
-        "Print the input and output of all function calls.",
+        "Trace the input and output of all function calls.",
     )?;
-    print_cmd(",help", "Print the help documentation.")?;
+    print_cmd(",help", "Show the help documentation.")?;
     writeln!(out)?;
     Ok(())
 }
