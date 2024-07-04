@@ -156,7 +156,7 @@ pub enum ModuleSource {
 ///
 /// Modules are used to manage namespaces, allowing for the organization
 /// of variables and functions within a program.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq)]
 pub struct Module {
     /// The source of the module.
     source: ModuleSource,

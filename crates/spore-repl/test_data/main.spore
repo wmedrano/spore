@@ -1,3 +1,2 @@
 (define x 10)
-(* x x)
-(+ x x)
+(define y 20)

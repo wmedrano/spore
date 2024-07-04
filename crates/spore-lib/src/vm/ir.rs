@@ -59,8 +59,13 @@ pub enum IrInstruction {
 
 #[derive(Debug, Clone)]
 pub struct CodeBlockArgs {
+    /// The name of the codeblock. This is used to populate the name of the produced bytecode
+    /// procedure.
     pub name: Option<String>,
+    /// A map from argument name to the index it should appear on the stack frame.
     pub arg_to_idx: HashMap<String, usize>,
+    /// If the code block defines a subexpression. Certain features (such as import and define) are
+    /// not available as a subexpression.
     pub is_subexpression: bool,
 }
 
@@ -303,6 +308,7 @@ impl CodeBlock {
                 name,
                 arg_to_idx,
                 is_subexpression: true,
+                ..CodeBlockArgs::default()
             },
             exprs,
         )?;

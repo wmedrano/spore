@@ -2,3 +2,7 @@
 
 (define (circle-area radius)
   (* radius radius pi))
+
+;; Inserted here to test that importing the module returns <void> and
+;; not 100.
+100

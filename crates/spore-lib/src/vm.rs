@@ -57,6 +57,11 @@ impl Vm {
         }
     }
 
+    /// Get the working directory for the VM.
+    pub fn working_directory(&self) -> &Path {
+        &self.root
+    }
+
     /// Evaluate an S-Expression string and return the last value. If there are no expression, than
     /// `Val::Void` is returned.
     pub fn eval_str(&mut self, module: ModuleSource, s: &str) -> Result<Vec<Val>> {
@@ -94,7 +99,7 @@ impl Vm {
     }
 
     /// Get all the modules.
-    pub fn modules(&mut self) -> &ModuleManager {
+    pub fn modules(&self) -> &ModuleManager {
         &self.modules
     }
 
@@ -217,7 +222,9 @@ impl Vm {
     /// local stack.
     fn pop_frame(&mut self, debugger: &mut impl Debugger) -> Result<()> {
         let frame = self.frames.pop().unwrap();
-        let return_val = if self.stack.len() > frame.stack_start_idx {
+        let has_return_value = self.stack.len() > frame.stack_start_idx
+            && !frame.bytecode.inner().is_module_definition;
+        let return_val = if has_return_value {
             self.stack.pop().unwrap_or_default()
         } else {
             Val::Void
@@ -356,16 +363,6 @@ mod tests {
 
     const MODULE: ModuleSource = ModuleSource::Virtual("test");
 
-    fn string_list_to_vec(lst: &Val) -> Vec<String> {
-        lst.try_slice()
-            .unwrap()
-            .into_iter()
-            .map(|v| v.try_str())
-            .map(Result::unwrap)
-            .map(str::to_string)
-            .collect()
-    }
-
     #[test]
     fn can_execute_ast() {
         assert_eq!(
@@ -453,21 +450,24 @@ mod tests {
     #[test]
     fn import_module_creates_new_module() {
         let mut vm = Vm::new();
-        let before_modules = vm.eval_str(MODULE, "(modules)").unwrap();
         assert_eq!(
-            string_list_to_vec(before_modules.first().unwrap()),
-            vec!["%global%".to_string(), "%virtual%/test".to_string()]
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<Vec<_>>(),
+            vec![ModuleSource::Global]
         );
 
-        let after_modules = vm
-            .eval_str(MODULE, "(import \"/dev/null\") (modules)")
-            .unwrap();
+        vm.eval_str(MODULE, "(import \"/dev/null\")").unwrap();
         assert_eq!(
-            string_list_to_vec(after_modules.last().unwrap()),
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<Vec<_>>(),
             vec![
-                "%global%".to_string(),
-                "%virtual%/test".to_string(),
-                "/dev/null".to_string()
+                ModuleSource::Global,
+                MODULE,
+                ModuleSource::File(PathBuf::from("/dev/null"))
             ]
         );
     }
@@ -478,12 +478,11 @@ mod tests {
         let res = vm.eval_str(MODULE, "(import \"test_data/does_not_exist.spore\")");
         assert!(res.is_err(), "Expected error but no error encountered");
         assert_eq!(
-            vm.eval_str(MODULE, "(modules)").unwrap(),
-            vec![Val::List(Rc::new(vec![
-                "%global%".to_string().into(),
-                "%virtual%/test".to_string().into(),
-            ]))],
-            "Expecting the default set of modules with no other module removal/additions."
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<Vec<_>>(),
+            vec![ModuleSource::Global, MODULE]
         );
     }
 
@@ -493,47 +492,47 @@ mod tests {
         let res = vm.eval_str(MODULE, &format!("(import \"test_data/bad.spore\")"));
         assert!(res.is_err());
         assert_eq!(
-            vm.eval_str(MODULE, "(modules)").unwrap(),
-            vec![Val::List(Rc::new(vec![
-                "%global%".to_string().into(),
-                "%virtual%/test".to_string().into(),
-            ]))],
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<Vec<_>>(),
+            vec![ModuleSource::Global, MODULE]
+        );
+    }
+
+    #[test]
+    fn import_module_return_void() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str(MODULE, &"(import \"test_data/circle.spore\")")
+                .unwrap(),
+            vec![Val::Void,],
         );
     }
 
     #[test]
     fn import_module_allows_access_to_module() {
         let mut vm = Vm::new();
-        let root = std::env::current_dir()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        vm.eval_str(MODULE, &format!("(import \"test_data/circle.spore\")"))
+            .unwrap();
         assert_eq!(
-            vm.eval_str(
-                MODULE,
-                &format!(
-                    r#"
-(import "test_data/circle.spore")
-(modules)
-(list-imports "{MODULE}")
-(circle/circle-area 2)"#,
-                ),
-            )
-            .unwrap(),
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<Vec<_>>(),
             vec![
-                // Import statement.
-                Val::Void,
-                // List of all modules.
-                Val::List(Rc::new(vec![
-                    "%global%".to_string().into(),
-                    "%virtual%/test".to_string().into(),
-                    format!("{root}/test_data/circle.spore").into(),
-                ])),
-                // List of all modules imported into the default module.
-                Val::List(Rc::new(vec!["circle".to_string().into(),])),
-                // Result of evaluating circle-area procedure.
-                Val::Float(12.56),
-            ],
+                ModuleSource::Global,
+                MODULE,
+                ModuleSource::File(PathBuf::from_iter([
+                    vm.working_directory(),
+                    Path::new("test_data/circle.spore")
+                ]))
+            ]
+        );
+        assert_eq!(
+            vm.eval_str(MODULE, &format!("(circle/circle-area 2)",),)
+                .unwrap(),
+            vec![Val::Float(12.56),],
         );
     }
 }

@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Result};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -23,7 +23,7 @@ pub mod command;
 
 /// Represents the Read-Eval-Print Loop (REPL) for the Spore language.
 pub struct Repl {
-    vm: Vm,
+    pub vm: Vm,
     editor: DefaultEditor,
     module: ModuleSource,
     expression_count: usize,
@@ -84,10 +84,10 @@ impl Repl {
 
     /// Run the given file in the REPL.
     pub fn eval_file(&mut self, out: &mut impl Write, filename: impl AsRef<Path>) -> Result<()> {
-        let filename = filename.as_ref();
-        let script = std::fs::read_to_string(filename)
-            .with_context(|| anyhow!("failed to read {filename:?} to string"))?;
-        self.eval_input(out, &script)
+        self.eval_input(
+            out,
+            &format!("(import {filename:?})", filename = filename.as_ref()),
+        )
     }
 
     /// Evaluate the input.
@@ -293,25 +293,37 @@ fn analyze_bytecode_iter(vm: &mut Vm, proc: ByteCodeProc) -> ByteCodeIter {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use spore_lib::vm::module::Module;
+
     use super::*;
 
     #[test]
-    fn eval_empty_file_produces_nothing() {
+    fn eval_empty_string_produces_nothing() {
         let mut repl = Repl::new(Vm::new()).unwrap();
         let mut out = Vec::new();
-        repl.eval_file(&mut out, "/dev/null").unwrap();
+        repl.eval_input(&mut out, "").unwrap();
         assert_eq!(String::from_utf8(out).unwrap().as_str(), "");
     }
 
     #[test]
-    fn eval_test_file_produces_numbered_outputs() {
+    fn eval_test_file_loads_as_module() {
         let mut repl = Repl::new(Vm::new()).unwrap();
         let mut out = Vec::new();
         repl.eval_file(&mut out, "test_data/main.spore").unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "");
+
+        let mut expected_module = Module::new(ModuleSource::File(PathBuf::from_iter([
+            repl.vm.working_directory(),
+            Path::new("test_data/main.spore"),
+        ])));
+        expected_module.set(Symbol::from("x"), Val::Int(10));
+        expected_module.set(Symbol::from("y"), Val::Int(20));
         assert_eq!(
-            String::from_utf8(out).unwrap(),
-            format!("{} = 100\n{} = 20\n", "$1".cyan(), "$2".cyan())
-        );
+            repl.vm.modules().get(expected_module.source()),
+            Some(&expected_module),
+        )
     }
 
     #[test]
