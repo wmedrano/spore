@@ -11,7 +11,7 @@ use crate::vm::{
 pub fn global_module() -> Module {
     let mut module = Module::new(ModuleSource::Global);
     for proc in [
-        NativeProc::new("print", print_proc),
+        NativeProc::new("println", println_proc),
         NativeProc::new("modules", modules_proc),
         NativeProc::new("module-info", module_info_proc),
         NativeProc::new("do", do_proc),
@@ -40,13 +40,14 @@ pub fn global_module() -> Module {
     module
 }
 
-fn print_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+fn println_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     for arg in args.iter() {
         match arg {
             Val::String(s) => print!("{s}"),
             v => print!("{v}"),
         }
     }
+    println!();
     Ok(Val::Void)
 }
 

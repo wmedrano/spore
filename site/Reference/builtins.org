@@ -288,12 +288,13 @@ element of a list. If the list is empty, then an error is raised.
 :CUSTOM_ID: Misc-3g1ah5a0e7k0
 :END:
 
-** print
+** println
 :PROPERTIES:
 :CUSTOM_ID: Miscprint-y8vhci4109k0
 :END:
 
-~print~ prints out all values and returns nothing.
+~println~ prints out all values (+ a newline character) and returns
+nothing.
 
 #+BEGIN_SRC lisp
 (print (list 1 2 3) " summed is " (+ 1 2 3))

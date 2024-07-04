@@ -387,6 +387,8 @@ impl std::fmt::Display for StackTrace {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -484,8 +486,8 @@ mod tests {
             vm.modules()
                 .iter()
                 .map(|m| m.source().clone())
-                .collect::<Vec<_>>(),
-            vec![ModuleSource::Global]
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([ModuleSource::Global])
         );
 
         vm.eval_str(MODULE, "(import \"/dev/null\")").unwrap();
@@ -493,12 +495,12 @@ mod tests {
             vm.modules()
                 .iter()
                 .map(|m| m.source().clone())
-                .collect::<Vec<_>>(),
-            vec![
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([
                 ModuleSource::Global,
                 MODULE,
                 ModuleSource::File(PathBuf::from("/dev/null"))
-            ]
+            ])
         );
     }
 
@@ -511,8 +513,8 @@ mod tests {
             vm.modules()
                 .iter()
                 .map(|m| m.source().clone())
-                .collect::<Vec<_>>(),
-            vec![ModuleSource::Global, MODULE]
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([ModuleSource::Global, MODULE])
         );
     }
 
@@ -525,8 +527,8 @@ mod tests {
             vm.modules()
                 .iter()
                 .map(|m| m.source().clone())
-                .collect::<Vec<_>>(),
-            vec![ModuleSource::Global, MODULE]
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([ModuleSource::Global, MODULE])
         );
     }
 
@@ -536,7 +538,7 @@ mod tests {
         assert_eq!(
             vm.eval_str(MODULE, &"(import \"test_data/circle.spore\")")
                 .unwrap(),
-            vec![Val::Void,],
+            vec![Val::Void],
         );
     }
 
@@ -549,15 +551,15 @@ mod tests {
             vm.modules()
                 .iter()
                 .map(|m| m.source().clone())
-                .collect::<Vec<_>>(),
-            vec![
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([
                 ModuleSource::Global,
                 MODULE,
                 ModuleSource::File(PathBuf::from_iter([
                     vm.working_directory(),
                     Path::new("test_data/circle.spore")
                 ]))
-            ]
+            ])
         );
         assert_eq!(
             vm.eval_str(MODULE, &format!("(circle/circle-area 2)",),)

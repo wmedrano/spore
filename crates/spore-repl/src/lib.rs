@@ -2,14 +2,14 @@ use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
-use spore_lib::vm::module::ModuleSource;
+use spore_lib::vm::module::{Module, ModuleSource};
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -31,9 +31,12 @@ pub struct Repl {
 
 impl Repl {
     /// Creates a new Repl instance.
-    pub fn new(vm: Vm) -> Result<Repl> {
+    pub fn new(vm: Vm, module: ModuleSource) -> Result<Repl> {
+        let mut vm = vm;
+        if !vm.modules_mut().has_module(&module) {
+            vm.modules_mut().add_module(Module::new(module.clone()));
+        }
         let editor = DefaultEditor::new()?;
-        let module = ModuleSource::Virtual("repl");
         Ok(Repl {
             vm,
             editor,
@@ -84,10 +87,9 @@ impl Repl {
 
     /// Run the given file in the REPL.
     pub fn eval_file(&mut self, out: &mut impl Write, filename: impl AsRef<Path>) -> Result<()> {
-        self.eval_input(
-            out,
-            &format!("(import {filename:?})", filename = filename.as_ref()),
-        )
+        let filename = filename.as_ref();
+        self.eval_input(out, &format!("(import {filename:?})"))
+            .with_context(|| anyhow!("Failed to run script from file {filename:?}."))
     }
 
     /// Evaluate the input.
@@ -273,9 +275,11 @@ fn analyze_bytecode_iter(vm: &mut Vm, proc: ByteCodeProc) -> ByteCodeIter {
         let instruction = iter.next().unwrap();
         match instruction {
             Instruction::GetVal(sym) => {
-                let maybe_val =
-                    vm.modules()
-                        .get_value(&sym.module, sym.sub_module, sym.symbol.as_str());
+                let maybe_val = vm.modules().get_value(
+                    &sym.module,
+                    sym.sub_module.as_ref().map(|s| s.as_str()),
+                    sym.symbol.as_str(),
+                );
                 if let Some(Val::ByteCodeProc(bc)) = maybe_val {
                     return ByteCodeIter::from_proc(bc.clone());
                 }
@@ -291,15 +295,39 @@ fn analyze_bytecode_iter(vm: &mut Vm, proc: ByteCodeProc) -> ByteCodeIter {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{collections::HashSet, path::PathBuf};
 
     use spore_lib::vm::module::Module;
 
     use super::*;
 
+    const REPL_MODULE: ModuleSource = ModuleSource::Virtual("%test-repl%");
+
+    #[test]
+    fn creating_repl_initializes_module() {
+        let vm = Vm::new();
+        assert_eq!(
+            vm.modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([ModuleSource::Global]),
+        );
+
+        let repl = Repl::new(vm, REPL_MODULE).unwrap();
+        assert_eq!(
+            repl.vm
+                .modules()
+                .iter()
+                .map(|m| m.source().clone())
+                .collect::<HashSet<_>>(),
+            HashSet::from_iter([ModuleSource::Global, REPL_MODULE]),
+        );
+    }
+
     #[test]
     fn eval_empty_string_produces_nothing() {
-        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut repl = Repl::new(Vm::new(), REPL_MODULE).unwrap();
         let mut out = Vec::new();
         repl.eval_input(&mut out, "").unwrap();
         assert_eq!(String::from_utf8(out).unwrap().as_str(), "");
@@ -307,7 +335,7 @@ mod tests {
 
     #[test]
     fn eval_test_file_loads_as_module() {
-        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut repl = Repl::new(Vm::new(), REPL_MODULE).unwrap();
         let mut out = Vec::new();
         repl.eval_file(&mut out, "test_data/main.spore").unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "");
@@ -326,7 +354,7 @@ mod tests {
 
     #[test]
     fn eval_string_produces_numbered_outputs() {
-        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut repl = Repl::new(Vm::new(), REPL_MODULE).unwrap();
         let mut out = Vec::new();
         repl.eval_input(&mut out, "(+ 1 2) (* 3 4)").unwrap();
         assert_eq!(
@@ -337,7 +365,7 @@ mod tests {
 
     #[test]
     fn eval_string_increases_counts() {
-        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut repl = Repl::new(Vm::new(), REPL_MODULE).unwrap();
         repl.eval_input(&mut Vec::new(), "1 2 3").unwrap();
         let mut out = Vec::new();
         repl.eval_input(&mut out, "(+ 1 2) (* 3 4)").unwrap();
@@ -353,7 +381,7 @@ mod tests {
         print_help(&mut help).unwrap();
         assert!(!help.is_empty());
 
-        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut repl = Repl::new(Vm::new(), REPL_MODULE).unwrap();
         let mut out = Vec::new();
         repl.eval_input(&mut out, ",help").unwrap();
         assert_eq!(out, help);

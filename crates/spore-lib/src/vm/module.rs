@@ -96,14 +96,14 @@ impl ModuleManager {
     pub fn get_value(
         &self,
         module_source: &ModuleSource,
-        import_module: Option<impl AsRef<str>>,
+        import_module: Option<&str>,
         sym: impl Borrow<str>,
     ) -> Option<Val> {
         let sym = sym.borrow();
         if *module_source != ModuleSource::Global {
             if let Some(mut module) = self.modules.get(module_source) {
                 if let Some(import_module) = import_module {
-                    if let Some(ms) = module.imported_modules.get(import_module.as_ref()) {
+                    if let Some(ms) = module.imported_modules.get(import_module) {
                         module = self.modules.get(ms).unwrap();
                     }
                 }

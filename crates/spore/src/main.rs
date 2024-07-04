@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use spore_lib::vm::Vm;
+use spore_lib::vm::{module::ModuleSource, Vm};
 use spore_repl::Repl;
 
 /// The Spore programming language.
@@ -17,9 +17,27 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let mut repl = Repl::new(Vm::new()).unwrap();
+    let vm = Vm::new();
     match args.script {
-        Some(filename) => repl.eval_file(&mut std::io::stdout(), &filename),
-        None => repl.run(),
+        Some(filename) => {
+            let mut repl = Repl::new(vm, ModuleSource::Virtual("%script%"))?;
+            repl.eval_file(&mut std::io::stdout(), &filename)?;
+            if repl
+                .vm
+                .modules()
+                .get_value(&ModuleSource::File(filename.clone()), None, "main")
+                .is_some()
+            {
+                repl.eval_input(
+                    &mut std::io::stdout(),
+                    &format!(
+                        "({prefix}/main)",
+                        prefix = filename.file_stem().unwrap().to_string_lossy()
+                    ),
+                )?;
+            }
+        }
+        None => Repl::new(vm, ModuleSource::Virtual("%repl%"))?.run()?,
     }
+    Ok(())
 }
