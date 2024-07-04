@@ -1,12 +1,14 @@
 use std::rc::Rc;
 
+use smol_str::SmolStr;
+
 use crate::vm::{module::ModuleSource, types::instruction::Instruction};
 
 /// A procedure that can be evaluated in a vm.
 #[derive(Clone)]
 pub struct ByteCodeProc {
     /// The name of the procedure.
-    pub name: String,
+    pub name: SmolStr,
     /// The number of arguments to the procedure.
     pub arg_count: usize,
     /// The bytecode to run.
@@ -48,21 +50,6 @@ pub struct ByteCodeIter {
 }
 
 impl ByteCodeIter {
-    /// Create a new iterator with the given `name` that returns immediately.
-    pub fn new(name: String) -> ByteCodeIter {
-        ByteCodeIter {
-            proc: Rc::new(ByteCodeProc {
-                name,
-                arg_count: 0,
-                bytecode: Vec::new(),
-                module: ModuleSource::Global,
-                is_module_definition: false,
-            }),
-            next_ptr: std::ptr::null(),
-            end_ptr: std::ptr::null(),
-        }
-    }
-
     pub fn inner(&self) -> &Rc<ByteCodeProc> {
         &self.proc
     }
@@ -120,7 +107,7 @@ mod tests {
     #[test]
     fn iter_returns_all_elements() {
         let proc = ByteCodeProc {
-            name: "".to_string(),
+            name: SmolStr::new_static(""),
             arg_count: 0,
             bytecode: vec![
                 Instruction::PushVal(Val::Void),
@@ -143,7 +130,7 @@ mod tests {
     #[test]
     fn jump_skips_elements() {
         let proc = ByteCodeProc {
-            name: "".to_string(),
+            name: SmolStr::new_static(""),
             arg_count: 0,
             bytecode: vec![
                 Instruction::PushVal(0.into()),
@@ -170,7 +157,7 @@ mod tests {
     #[test]
     fn count_returns_number_of_instructions() {
         let proc = ByteCodeProc {
-            name: "".to_string(),
+            name: SmolStr::new_static(""),
             arg_count: 0,
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)
@@ -185,7 +172,7 @@ mod tests {
     #[test]
     fn next_and_count_returns_remaining_number_of_instructions() {
         let proc = ByteCodeProc {
-            name: "".to_string(),
+            name: SmolStr::new_static(""),
             arg_count: 0,
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)
@@ -201,7 +188,7 @@ mod tests {
     #[test]
     fn count_with_no_more_elements_returns_0() {
         let proc = ByteCodeProc {
-            name: "".to_string(),
+            name: SmolStr::new_static(""),
             arg_count: 0,
             bytecode: std::iter::repeat(Instruction::PushVal(Val::Void))
                 .take(10)

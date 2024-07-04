@@ -1,13 +1,19 @@
 use std::rc::Rc;
 
 use anyhow::Result;
+use smol_str::SmolStr;
 
-use crate::vm::{module::ModuleManager, types::Val};
+use crate::vm::{
+    module::{ModuleManager, ModuleSource},
+    types::Val,
+};
+
+use super::bytecode::{ByteCodeIter, ByteCodeProc};
 
 type NativeProcFn = dyn 'static + Send + Sync + Fn(&ModuleManager, &[Val]) -> Result<Val>;
 
 pub struct NativeProc {
-    name: &'static str,
+    placeholder_bytecode: Rc<ByteCodeProc>,
     f: Box<NativeProcFn>,
 }
 
@@ -18,12 +24,26 @@ impl NativeProc {
         proc: P,
     ) -> Rc<NativeProc> {
         let f = Box::new(proc);
-        Rc::new(NativeProc { name, f })
+        let placeholder_bytecode = Rc::new(ByteCodeProc {
+            name: SmolStr::new_static(name),
+            arg_count: 0,
+            bytecode: Vec::new(),
+            module: ModuleSource::Global,
+            is_module_definition: false,
+        });
+        Rc::new(NativeProc {
+            placeholder_bytecode,
+            f,
+        })
+    }
+
+    pub fn placeholder_bytecode_iter(&self) -> ByteCodeIter {
+        ByteCodeIter::from_proc(self.placeholder_bytecode.clone())
     }
 
     /// Get the name of the native procedure.
     pub fn name(&self) -> &str {
-        self.name
+        self.placeholder_bytecode.name.as_str()
     }
 
     /// Evaluate the native procedure.
@@ -43,13 +63,14 @@ impl PartialEq for NativeProc {
 impl std::fmt::Debug for NativeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Procedure")
-            .field("name", &self.name)
+            .field("name", &self.name())
+            .field("module", &self.placeholder_bytecode.module)
             .finish_non_exhaustive()
     }
 }
 
 impl std::fmt::Display for NativeProc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<proc {name}>", name = &self.name)
+        write!(f, "<proc {name}>", name = &self.name())
     }
 }

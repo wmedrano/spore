@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use smol_str::SmolStr;
 
 use crate::parser::ast::Ast;
 
@@ -45,7 +46,7 @@ pub struct Frame {
 /// Contains information about a stack frame.
 struct StackFrameInfo {
     /// The name of the procedure.
-    proc_name: String,
+    proc_name: SmolStr,
     /// The module for the procedure.
     module: ModuleSource,
 }
@@ -83,7 +84,7 @@ impl Vm {
             .into_iter()
             .map(|ast| {
                 let code_block_args = CodeBlockArgs {
-                    name: Some("eval-str".to_string()),
+                    name: Some(SmolStr::new_static("eval-str")),
                     ..CodeBlockArgs::default()
                 };
                 let ir = CodeBlock::with_ast(code_block_args, std::iter::once(&ast))?;
@@ -203,9 +204,9 @@ impl Vm {
                     frame.bytecode.jump(n);
                 }
                 Instruction::SetVal(s) => {
-                    let s = s.clone();
+                    let s: Symbol = s.as_ref().clone();
                     let module = frame.bytecode.inner().module.clone();
-                    self.execute_set_val(&module, s, debugger)?;
+                    self.execute_set_val(module, s, debugger)?;
                 }
                 Instruction::ImportModule(filepath) => {
                     let filepath = filepath.as_ref().clone();
@@ -296,14 +297,11 @@ impl Vm {
             }
             Val::NativeProc(proc) => {
                 self.frames.push(Frame {
-                    bytecode: ByteCodeIter::new(proc.name().to_string()),
+                    bytecode: proc.placeholder_bytecode_iter(),
                     stack_start_idx,
                 });
                 debugger.eval_proc(self);
-                let res = {
-                    let args = self.stack.drain(stack_start_idx..);
-                    proc.eval(&self.modules, args.as_slice())?
-                };
+                let res = proc.eval(&self.modules, &self.stack[stack_start_idx..])?;
                 self.stack.push(res);
                 self.pop_frame(debugger)?;
             }
@@ -317,7 +315,7 @@ impl Vm {
 
     fn execute_set_val(
         &mut self,
-        module: &ModuleSource,
+        module: ModuleSource,
         s: Symbol,
         debugger: &mut impl Debugger,
     ) -> Result<()> {
@@ -348,7 +346,7 @@ impl Vm {
         let asts = Ast::from_sexp_str(&contents)
             .with_context(|| anyhow!("Failed to make AST for file {filepath:?}."))?;
         let args = CodeBlockArgs {
-            name: Some(format!("init-module-{filepath:?}")),
+            name: Some(SmolStr::new(format!("init-module-{filepath:?}"))),
             ..CodeBlockArgs::default()
         };
         let bytecode = CodeBlock::with_ast(args.clone(), asts.iter())

@@ -1,8 +1,10 @@
-use std::{borrow::Borrow, rc::Rc};
+use std::borrow::Borrow;
+
+use smol_str::SmolStr;
 
 /// A symbol.
 #[derive(Clone, Debug, PartialEq, Hash, Eq)]
-pub struct Symbol(pub Rc<String>);
+pub struct Symbol(pub SmolStr);
 
 impl Symbol {
     pub fn as_str(&self) -> &str {
@@ -18,13 +20,7 @@ impl Borrow<str> for Symbol {
 
 impl<'a> From<&'a str> for Symbol {
     fn from(s: &'a str) -> Symbol {
-        Symbol::from(s.to_string())
-    }
-}
-
-impl From<String> for Symbol {
-    fn from(s: String) -> Symbol {
-        Symbol(Rc::new(s))
+        Symbol(s.into())
     }
 }
 

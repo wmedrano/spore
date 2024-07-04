@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, collections::HashMap, path::PathBuf};
 
+use smol_str::SmolStr;
+
 use super::types::{symbol::Symbol, Val};
 
 /// Manages multiple modules and provides access to global and local variables.
@@ -10,7 +12,7 @@ use super::types::{symbol::Symbol, Val};
 #[derive(Clone)]
 pub struct ModuleManager {
     global: Module,
-    modules: Vec<Module>,
+    modules: HashMap<ModuleSource, Module>,
 }
 
 impl ModuleManager {
@@ -31,7 +33,7 @@ impl ModuleManager {
         global.source = ModuleSource::Global;
         ModuleManager {
             global,
-            modules: Vec::new(),
+            modules: HashMap::new(),
         }
     }
 
@@ -42,25 +44,19 @@ impl ModuleManager {
 
     /// Iterate over all the modules.
     pub fn iter(&self) -> impl Iterator<Item = &Module> {
-        std::iter::once(&self.global).chain(self.modules.iter())
+        std::iter::once(&self.global).chain(self.modules.values())
     }
 
     /// Adds the given module to the `ModuleManager`. If the module already exists, then it is replaced.
     pub fn add_module(&mut self, module: Module) {
         assert_ne!(module.source, ModuleSource::Global);
-        for existing_module in self.modules.iter_mut() {
-            if existing_module.source == module.source {
-                *existing_module = module;
-                return;
-            }
-        }
-        self.modules.push(module);
+        self.modules.insert(module.source.clone(), module);
     }
 
     /// Remove a module. If the module does not exist or is the global module, then nothing happens.
     pub fn remove_module(&mut self, module: &ModuleSource) {
         assert_ne!(module, &ModuleSource::Global);
-        self.modules.retain(|m| &m.source != module);
+        self.modules.remove(module);
     }
 
     /// Get the module with the given source. If the module does not exist, then `None` is returned.
@@ -68,7 +64,7 @@ impl ModuleManager {
         if *module == ModuleSource::Global {
             Some(&mut self.global)
         } else {
-            self.modules.iter_mut().find(|m| m.source == *module)
+            self.modules.get_mut(module)
         }
     }
 
@@ -77,7 +73,7 @@ impl ModuleManager {
         if *module == ModuleSource::Global {
             Some(&self.global)
         } else {
-            self.modules.iter().find(|m| m.source == *module)
+            self.modules.get(module)
         }
     }
 
@@ -105,10 +101,10 @@ impl ModuleManager {
     ) -> Option<Val> {
         let sym = sym.borrow();
         if *module_source != ModuleSource::Global {
-            if let Some(mut module) = self.modules.iter().find(|m| *module_source == m.source) {
+            if let Some(mut module) = self.modules.get(module_source) {
                 if let Some(import_module) = import_module {
                     if let Some(ms) = module.imported_modules.get(import_module.as_ref()) {
-                        module = self.modules.iter().find(|m| *ms == m.source).unwrap();
+                        module = self.modules.get(ms).unwrap();
                     }
                 }
                 if let Some(v) = module.get(sym) {
@@ -129,14 +125,9 @@ impl ModuleManager {
     /// # Panics
     ///
     /// Panics if the current module does not exist in the modules HashMap.
-    pub fn set_value(&mut self, module: &ModuleSource, sym: Symbol, val: Val) {
-        let module = match self.modules.iter_mut().find(|m| m.source == *module) {
-            Some(m) => m,
-            None => {
-                self.modules.push(Module::new(module.clone()));
-                self.modules.last_mut().unwrap()
-            }
-        };
+    pub fn set_value(&mut self, module: ModuleSource, sym: Symbol, val: Val) {
+        let module_entry = self.modules.entry(module);
+        let module = module_entry.or_insert_with_key(|k| Module::new(k.clone()));
         module.set(sym, val);
     }
 }
@@ -161,7 +152,7 @@ pub struct Module {
     /// The source of the module.
     source: ModuleSource,
     /// A map from identifier to the module that has been imported into the current module.
-    imported_modules: HashMap<String, ModuleSource>,
+    imported_modules: HashMap<SmolStr, ModuleSource>,
     /// A map of symbols to their corresponding values.
     values: HashMap<Symbol, Val>,
 }
@@ -182,13 +173,14 @@ impl Module {
     }
 
     /// Get a map from an import identifier to the module it points to.
-    pub fn imports(&self) -> &HashMap<String, ModuleSource> {
+    pub fn imports(&self) -> &HashMap<SmolStr, ModuleSource> {
         &self.imported_modules
     }
 
     /// Add an import
-    pub fn add_import(&mut self, module_identifier: String, module: ModuleSource) {
-        self.imported_modules.insert(module_identifier, module);
+    pub fn add_import(&mut self, module_identifier: impl Into<SmolStr>, module: ModuleSource) {
+        self.imported_modules
+            .insert(module_identifier.into(), module);
     }
 
     /// Retrieves the value associated with a given symbol.

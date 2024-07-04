@@ -19,7 +19,7 @@ pub enum Instruction {
     /// Jump ahead by the given number of bytecode instructions.
     Jump(usize),
     /// Set the value of Symbol to be what is at the top of the stack.
-    SetVal(Symbol),
+    SetVal(Box<Symbol>),
     /// Load a module.
     ImportModule(Box<PathBuf>),
     /// Pops the current frame and returns the value at the top of the current frame stack.

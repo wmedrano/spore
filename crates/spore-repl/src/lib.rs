@@ -122,7 +122,7 @@ impl Repl {
                 for (idx, ast) in asts()?.iter().enumerate() {
                     let codeblock = CodeBlock::with_ast(
                         CodeBlockArgs {
-                            name: Some(format!("{idx}")),
+                            name: Some(format!("{idx}").into()),
                             ..CodeBlockArgs::default()
                         },
                         std::iter::once(ast),
@@ -197,7 +197,7 @@ fn eval_asts(
         };
         let res = {
             let code_block_args = CodeBlockArgs {
-                name: Some(format!("repl-proc-{n}", n = *expr_count + 1)),
+                name: Some(format!("repl-proc-{n}", n = *expr_count + 1).into()),
                 ..CodeBlockArgs::default()
             };
             let ast = &ast;
@@ -220,8 +220,9 @@ fn eval_asts(
             Ok(Val::Void) => (),
             Ok(v) => {
                 *expr_count += 1;
-                let sym = Symbol::from(format!("${expr_count}"));
-                vm.modules_mut().set_value(module, sym.clone(), v.clone());
+                let sym = Symbol::from(format!("${expr_count}").as_str());
+                vm.modules_mut()
+                    .set_value(module.clone(), sym.clone(), v.clone());
                 writeln!(out, "{} = {}", sym.as_str().to_string().cyan(), v).unwrap();
             }
             Err(errs) => {
@@ -237,7 +238,7 @@ fn eval_asts(
 fn analyze_bytecode(out: &mut impl Write, module: &ModuleSource, vm: &mut Vm, asts: Vec<Ast>) {
     for ast in asts {
         let code_block_args = CodeBlockArgs {
-            name: Some("repl-analyze-bytecode".to_string()),
+            name: Some("repl-analyze-bytecode".into()),
             ..CodeBlockArgs::default()
         };
         let ast = &ast;

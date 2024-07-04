@@ -21,7 +21,7 @@ pub enum Val {
     ByteCodeProc(Rc<ByteCodeProc>),
     NativeProc(Rc<NativeProc>),
     String(Rc<String>),
-    Symbol(Symbol),
+    Symbol(Rc<Symbol>),
     List(Rc<Vec<Val>>),
 }
 

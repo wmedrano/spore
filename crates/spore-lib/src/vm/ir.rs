@@ -1,6 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, rc::Rc, str::FromStr};
 
 use anyhow::{anyhow, bail, ensure, Result};
+use smol_str::SmolStr;
 
 use crate::parser::{
     ast::{Ast, AstLeaf},
@@ -22,7 +23,7 @@ use super::{
 #[derive(Debug, PartialEq)]
 pub struct CodeBlock {
     /// The name of the code block or `None` if it has no name.
-    pub name: Option<String>,
+    pub name: Option<SmolStr>,
     /// A map from a symbol name to its index at the frame stack.
     pub arg_to_idx: HashMap<String, usize>,
     /// The IR instructions for the codeblock.
@@ -61,7 +62,7 @@ pub enum IrInstruction {
 pub struct CodeBlockArgs {
     /// The name of the codeblock. This is used to populate the name of the produced bytecode
     /// procedure.
-    pub name: Option<String>,
+    pub name: Option<SmolStr>,
     /// A map from argument name to the index it should appear on the stack frame.
     pub arg_to_idx: HashMap<String, usize>,
     /// If the code block defines a subexpression. Certain features (such as import and define) are
@@ -105,7 +106,7 @@ impl CodeBlock {
     ) -> Result<ByteCodeProc> {
         let bytecode = self.to_bytecode_instructions(&module, self.instructions.iter())?;
         Ok(ByteCodeProc {
-            name: self.name.clone().unwrap_or_else(|| "_".to_string()),
+            name: self.name.clone().unwrap_or(SmolStr::new_static("_")),
             arg_count: self.arg_to_idx.len(),
             bytecode,
             module,
@@ -135,7 +136,7 @@ impl CodeBlock {
                 AstLeaf::Identifier(ident) => IrInstruction::DerefIdentifier {
                     symbol: ident.clone(),
                 },
-                AstLeaf::Symbol(sym) => IrInstruction::PushConst(Symbol::from(sym.clone()).into()),
+                AstLeaf::Symbol(sym) => IrInstruction::PushConst(Symbol::from(sym.as_str()).into()),
                 AstLeaf::String(s) => IrInstruction::PushConst(Val::String(Rc::new(s.clone()))),
                 AstLeaf::Float(f) => IrInstruction::PushConst(Val::Float(*f)),
                 AstLeaf::Int(i) => IrInstruction::PushConst(Val::Int(*i)),
@@ -201,7 +202,7 @@ impl CodeBlock {
                                 match &syms[..] {
                                         [] => bail!("define form expected (<sym> <args>...) but found empty expression."),
                                         [name, args @ ..] => {
-                                            let lambda = self.make_lambda(Some(name.to_string()), args, children)?;
+                                            let lambda = self.make_lambda(Some(SmolStr::new(name)), args, children)?;
                                             self.make_define_with_ir(Symbol::from(*name), lambda)
                                         },
                                     }
@@ -287,7 +288,7 @@ impl CodeBlock {
 
     fn make_lambda<'a>(
         &self,
-        name: Option<String>,
+        name: Option<SmolStr>,
         args: &[&str],
         exprs: impl Iterator<Item = &'a Ast>,
     ) -> Result<IrInstruction> {
@@ -397,7 +398,7 @@ impl CodeBlock {
                         default_module,
                         std::iter::once(value.as_ref()),
                     )?);
-                    res.push(Instruction::SetVal(sym.clone()));
+                    res.push(Instruction::SetVal(Box::new(sym.clone())));
                 }
                 IrInstruction::Import { filepath } => {
                     res.push(Instruction::ImportModule(Box::new(filepath.clone())));
