@@ -1,14 +1,15 @@
 use std::io::Write;
+use std::path::Path;
 use std::rc::Rc;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use colored::Colorize;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use spore_lib::parser::ast::{Ast, ParseAstError};
 use spore_lib::vm::debugger::TraceDebugger;
 use spore_lib::vm::ir::{CodeBlock, CodeBlockArgs};
-use spore_lib::vm::module::{Module, ModuleSource};
+use spore_lib::vm::module::ModuleSource;
 use spore_lib::vm::types::instruction::Instruction;
 use spore_lib::vm::types::{
     proc::bytecode::{ByteCodeIter, ByteCodeProc},
@@ -30,11 +31,9 @@ pub struct Repl {
 
 impl Repl {
     /// Creates a new Repl instance.
-    pub fn new() -> Result<Repl> {
+    pub fn new(vm: Vm) -> Result<Repl> {
         let editor = DefaultEditor::new()?;
         let module = ModuleSource::Virtual("repl");
-        let mut vm = Vm::new();
-        vm.modules_mut().add_module(Module::new(module.clone()));
         Ok(Repl {
             vm,
             editor,
@@ -44,7 +43,8 @@ impl Repl {
     }
 
     /// Runs teh REPL, accepting and evaluating user input.
-    pub fn run(&mut self, out: &mut impl Write) -> Result<()> {
+    pub fn run(&mut self) -> Result<()> {
+        let mut out = std::io::stdout();
         let mut repl_input = String::new();
         writeln!(
             out,
@@ -52,6 +52,7 @@ impl Repl {
             welcome = "Welcome to Spore!".cyan(),
             repo_link = "https://github.com/wmedrano/spore".cyan()
         )?;
+        print_help(&mut out)?;
         loop {
             let readline = self
                 .editor
@@ -60,10 +61,12 @@ impl Repl {
                 Ok(line) => {
                     repl_input += line.as_str();
                     if line_is_complete(&repl_input) {
-                        if let Err(err) = self.eval_input(out, std::mem::take(&mut repl_input)) {
+                        if let Err(err) = self.eval_input(&mut out, repl_input.as_str()) {
                             writeln!(out, "{error}\n{err}", error = "Error:".to_string().red())
                                 .unwrap();
                         }
+                        self.editor
+                            .add_history_entry(std::mem::take(&mut repl_input))?;
                     }
                 }
                 Err(ReadlineError::Eof | ReadlineError::Interrupted) => {
@@ -79,10 +82,17 @@ impl Repl {
         Ok(())
     }
 
+    /// Run the given file in the REPL.
+    pub fn eval_file(&mut self, out: &mut impl Write, filename: impl AsRef<Path>) -> Result<()> {
+        let filename = filename.as_ref();
+        let script = std::fs::read_to_string(filename)
+            .with_context(|| anyhow!("failed to read {filename:?} to string"))?;
+        self.eval_input(out, &script)
+    }
+
     /// Evaluate the input.
-    pub fn eval_input(&mut self, out: &mut impl Write, input: String) -> Result<()> {
-        self.editor.add_history_entry(input.as_str())?;
-        let (cmd, expr) = command::parse_command(&input);
+    pub fn eval_input(&mut self, out: &mut impl Write, input: &str) -> Result<()> {
+        let (cmd, expr) = command::parse_command(input);
         let asts = || match Ast::from_sexp_str(expr) {
             Ok(ast) => Ok(ast),
             Err(err) => {
@@ -129,22 +139,7 @@ impl Repl {
                 &mut self.expression_count,
                 true,
             ),
-            ",help" => {
-                let mut print_cmd =
-                    |cmd: &str, doc| writeln!(out, "{cmd} - {doc}", cmd = cmd.blue());
-                print_cmd(",tokens", "Print the parsed tokens for the expression(s).")?;
-                print_cmd(",ast", "Print the ast for the expression(s).")?;
-                print_cmd(
-                    ",ir",
-                    "Print the intermediate representation for the expression(s).",
-                )?;
-                print_cmd(",bytecode", "Print the bytecode for the expression(s)")?;
-                print_cmd(
-                    ",trace",
-                    "Print the input and output of all function calls.",
-                )?;
-                print_cmd(",help", "Print the help documentation.")?;
-            }
+            ",help" => print_help(out)?,
             unknown => bail!(
                 "unknown command \"{unknown}\", expected one if {:?}",
                 [",tokens", ",ast", ",ir", ",bytecode", ",trace", ",help"]
@@ -152,6 +147,25 @@ impl Repl {
         }
         Ok(())
     }
+}
+
+fn print_help(out: &mut impl Write) -> Result<()> {
+    writeln!(out, "{}", "Commands".blue())?;
+    let mut print_cmd = |cmd: &str, doc| writeln!(out, "  {cmd} - {doc}", cmd = cmd.blue());
+    print_cmd(",tokens", "Print the parsed tokens for the expression(s).")?;
+    print_cmd(",ast", "Print the ast for the expression(s).")?;
+    print_cmd(
+        ",ir",
+        "Print the intermediate representation for the expression(s).",
+    )?;
+    print_cmd(",bytecode", "Print the bytecode for the expression(s)")?;
+    print_cmd(
+        ",trace",
+        "Print the input and output of all function calls.",
+    )?;
+    print_cmd(",help", "Print the help documentation.")?;
+    writeln!(out)?;
+    Ok(())
 }
 
 /// Returns `true` if the given input string is a complete expressions.
@@ -275,4 +289,63 @@ fn analyze_bytecode_iter(vm: &mut Vm, proc: ByteCodeProc) -> ByteCodeIter {
         }
     }
     ByteCodeIter::from_proc(proc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eval_empty_file_produces_nothing() {
+        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut out = Vec::new();
+        repl.eval_file(&mut out, "/dev/null").unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().as_str(), "");
+    }
+
+    #[test]
+    fn eval_test_file_produces_numbered_outputs() {
+        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut out = Vec::new();
+        repl.eval_file(&mut out, "test_data/main.spore").unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!("{} = 100\n{} = 20\n", "$1".cyan(), "$2".cyan())
+        );
+    }
+
+    #[test]
+    fn eval_string_produces_numbered_outputs() {
+        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut out = Vec::new();
+        repl.eval_input(&mut out, "(+ 1 2) (* 3 4)").unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!("{} = 3\n{} = 12\n", "$1".cyan(), "$2".cyan())
+        );
+    }
+
+    #[test]
+    fn eval_string_increases_counts() {
+        let mut repl = Repl::new(Vm::new()).unwrap();
+        repl.eval_input(&mut Vec::new(), "1 2 3").unwrap();
+        let mut out = Vec::new();
+        repl.eval_input(&mut out, "(+ 1 2) (* 3 4)").unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!("{} = 3\n{} = 12\n", "$4".cyan(), "$5".cyan())
+        );
+    }
+
+    #[test]
+    fn help_command_prints_help() {
+        let mut help = Vec::new();
+        print_help(&mut help).unwrap();
+        assert!(!help.is_empty());
+
+        let mut repl = Repl::new(Vm::new()).unwrap();
+        let mut out = Vec::new();
+        repl.eval_input(&mut out, ",help").unwrap();
+        assert_eq!(out, help);
+    }
 }
