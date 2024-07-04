@@ -6,7 +6,8 @@ use super::{
 };
 
 pub trait Debugger {
-    /// Called when a new procedure will be evaluated.
+    /// Called when a new procedure will be evaluated. The new procedure will be the top frame in
+    /// the `Vm`.
     fn eval_proc(&mut self, _vm: &Vm) {}
 
     /// Called when a procedure returns its value.
@@ -159,14 +160,35 @@ mod tests {
             debugger.to_string(),
             r#"(<proc _>) => 5
   (<proc fib> 5) => 5
+    (<proc <=> 5 2) => false
+    (<proc -> 5 1) => 4
     (<proc fib> 4) => 3
+      (<proc <=> 4 2) => false
+      (<proc -> 4 1) => 3
       (<proc fib> 3) => 2
+        (<proc <=> 3 2) => false
+        (<proc -> 3 1) => 2
         (<proc fib> 2) => 1
+          (<proc <=> 2 2) => true
+        (<proc -> 3 2) => 1
         (<proc fib> 1) => 1
+          (<proc <=> 1 2) => true
+        (<proc +> 1 1) => 2
+      (<proc -> 4 2) => 2
       (<proc fib> 2) => 1
+        (<proc <=> 2 2) => true
+      (<proc +> 2 1) => 3
+    (<proc -> 5 2) => 3
     (<proc fib> 3) => 2
+      (<proc <=> 3 2) => false
+      (<proc -> 3 1) => 2
       (<proc fib> 2) => 1
-      (<proc fib> 1) => 1"#
+        (<proc <=> 2 2) => true
+      (<proc -> 3 2) => 1
+      (<proc fib> 1) => 1
+        (<proc <=> 1 2) => true
+      (<proc +> 1 1) => 2
+    (<proc +> 3 2) => 5"#
         );
     }
 
@@ -188,9 +210,17 @@ mod tests {
             debugger.to_string(),
             r#"(<proc _>) => _
   (<proc fib> 5) => _
+    (<proc <=> 5 2) => false
+    (<proc -> 5 1) => 4
     (<proc fib> 4) => _
+      (<proc <=> 4 2) => false
+      (<proc -> 4 1) => 3
       (<proc fib> 3) => _
-        (<proc fib> 2) => _"#
+        (<proc <=> 3 2) => false
+        (<proc -> 3 1) => 2
+        (<proc fib> 2) => _
+          (<proc <=> 2 2) => true
+          (<proc +> <proc +>) => _"#,
         );
     }
 }

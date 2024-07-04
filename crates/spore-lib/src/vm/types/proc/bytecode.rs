@@ -48,6 +48,21 @@ pub struct ByteCodeIter {
 }
 
 impl ByteCodeIter {
+    /// Create a new iterator with the given `name` that returns immediately.
+    pub fn new(name: String) -> ByteCodeIter {
+        ByteCodeIter {
+            proc: Rc::new(ByteCodeProc {
+                name,
+                arg_count: 0,
+                bytecode: Vec::new(),
+                module: ModuleSource::Global,
+                is_module_definition: false,
+            }),
+            next_ptr: std::ptr::null(),
+            end_ptr: std::ptr::null(),
+        }
+    }
+
     pub fn inner(&self) -> &Rc<ByteCodeProc> {
         &self.proc
     }

@@ -42,8 +42,16 @@ pub struct Frame {
     stack_start_idx: usize,
 }
 
+/// Contains information about a stack frame.
+struct StackFrameInfo {
+    /// The name of the procedure.
+    proc_name: String,
+    /// The module for the procedure.
+    module: ModuleSource,
+}
+
 struct StackTrace {
-    trace: Vec<String>,
+    trace: Vec<StackFrameInfo>,
 }
 
 impl Default for Vm {
@@ -169,7 +177,7 @@ impl Vm {
                 }
                 Instruction::Eval(n) => {
                     let n = *n;
-                    self.execute_eval_n(n, debugger)?
+                    self.execute_eval_n(n, debugger)?;
                 }
                 Instruction::GetArg(n) => {
                     let n = *n;
@@ -219,7 +227,10 @@ impl Vm {
             trace: self
                 .frames
                 .iter()
-                .map(|f| f.bytecode.inner().name.clone())
+                .map(|f| StackFrameInfo {
+                    proc_name: f.bytecode.inner().name.clone(),
+                    module: f.bytecode.inner().module.clone(),
+                })
                 .collect(),
         }
     }
@@ -265,6 +276,7 @@ impl Vm {
             stack_len = self.stack.len()
         );
         let proc_idx = self.stack.len() - n;
+        let stack_start_idx = proc_idx + 1;
         let proc_val = std::mem::take(&mut self.stack[proc_idx]);
         match proc_val {
             Val::ByteCodeProc(proc) => {
@@ -272,7 +284,7 @@ impl Vm {
                 let actual_args = n - 1;
                 self.frames.push(Frame {
                     bytecode: ByteCodeIter::from_proc(proc),
-                    stack_start_idx: proc_idx + 1,
+                    stack_start_idx,
                 });
                 debugger.eval_proc(self);
                 if expected_args != actual_args {
@@ -283,12 +295,17 @@ impl Vm {
                 }
             }
             Val::NativeProc(proc) => {
-                let stack_start_idx = proc_idx + 1;
+                self.frames.push(Frame {
+                    bytecode: ByteCodeIter::new(proc.name().to_string()),
+                    stack_start_idx,
+                });
+                debugger.eval_proc(self);
                 let res = {
                     let args = self.stack.drain(stack_start_idx..);
                     proc.eval(&self.modules, args.as_slice())?
                 };
-                *self.stack.last_mut().unwrap() = res;
+                self.stack.push(res);
+                self.pop_frame(debugger)?;
             }
             v => bail!(
                 "Expected procedure but found {v}.\nStack: {stack:?}",
@@ -348,7 +365,7 @@ impl Vm {
         resolved_path.extend(path);
         std::fs::canonicalize(&resolved_path).with_context(|| {
             anyhow!(
-                "Falied to resolve {path:?} with working directory {root:?}.",
+                "Failed to resolve {path:?} with working directory {root:?}.",
                 root = self.root
             )
         })
@@ -359,7 +376,12 @@ impl std::fmt::Display for StackTrace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Stack trace:")?;
         for trace in self.trace.iter() {
-            writeln!(f, "  {}", trace)?;
+            writeln!(
+                f,
+                "  - {module}/{proc}",
+                module = trace.module,
+                proc = trace.proc_name,
+            )?;
         }
         Ok(())
     }
