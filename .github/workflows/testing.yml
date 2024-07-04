@@ -20,5 +20,7 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Rust Build
         run: cargo build
+      - name: Rust Benchmark Build
+        run: cargo bench --no-run
       - name: Rust Test
         run: cargo test
