@@ -1,0 +1,15 @@
+title: Spore
+email: will.s.medrano@gmail.com
+description: >- # this means to ignore newlines until "baseurl:"
+  The spore programming language.
+baseurl: "/" # the subpath of your site, e.g. /blog
+url: "https://wmedrano.github.io/spore" # the base hostname & protocol for your site, e.g. http://example.com
+github_username:  wmedrano
+
+# Build settings
+theme: just-the-docs
+mermaid:
+  src: 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js'
+plugins:
+  - jekyll-feed
+  - jekyll-mermaid
