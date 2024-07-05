@@ -170,11 +170,11 @@ impl Repl {
 fn print_help(out: &mut impl Write) -> Result<()> {
     writeln!(out, "{}", "Commands".blue())?;
     let mut print_cmd = |cmd: &str, doc| writeln!(out, "  {cmd} - {doc}", cmd = cmd.blue());
+    print_cmd(",time", "Show the evaluation time for each expression.")?;
     print_cmd(
         ",trace",
         "Trace the input and output of all function calls.",
     )?;
-    print_cmd(",time", "Show the evaluation time for each expression.")?;
     print_cmd(",tokens", "Parsed tokens for the expression(s).")?;
     print_cmd(",ast", "Ast for the expression(s).")?;
     print_cmd(",ir", "Intermediate representation for the expression(s).")?;

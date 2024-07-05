@@ -2,9 +2,11 @@
 
 An interpretted programming language used for Rust.
 
+[Documentation](https://wmedrano.github.io/spore)
+
 ## Installation
 
-### Prerequisites
+[Detailed Installation Documentation](https://wmedrano.github.io/spore/installation.html)
 
 Before installing Spore, ensure you have the following prerequisites:
 
@@ -13,91 +15,53 @@ Before installing Spore, ensure you have the following prerequisites:
   [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install).
 - Git (optional, but recommended for cloning the repository)
 
-## Installation Steps
-
-1. Clone the Spore repository (or download the source code):
-
-   ```
-   git clone https://github.com/spore-lang/spore.git
-   cd spore
-   ```
-
-2. Run the installation script:
-
-   ```
-   sh install.sh
-   ```
-
-   This script will:
-   - Build Spore using Cargo in release mode
-   - Create a `.spore/bin` directory in your home folder
-   - Copy the Spore executable to `$HOME/.spore/bin/spore`
-
-3. Add Spore to your PATH:
-
-   To use Spore from any location, add the following line to your shell configuration file (e.g., `~/.bashrc`, `~/.zshrc`, or `~/.profile`):
-
-   ```
-   export PATH="$HOME/.spore/bin:$PATH"
-   ```
-
-   After modifying the file, reload your shell configuration:
-
-   ```
-   source ~/.bashrc  # or the appropriate file for your shell
-   ```
-
-4. Verify the installation:
-
-   ```
-   spore --version
-   ```
-
-   This should display the version of Spore you've installed.
-
-## Getting Started
-
-### REPL
-
-The REPL (Read-Evaluate-Print-Loop) can be used to run code and
-inspect the virtual machine.
-
-The REPL can be started by running:
-
-```shell
-cargo run --example spore
+```sh
+# Download
+git clone https://github.com/wmedrano/spore.git
+cd spore
+# Run install script
+sh install.sh
+# Add to path for current session.
+# Extra work is needed to make always have spore in $PATH.
+export PATH="$HOME/.spore/bin:$PATH"
+# Run Spore
+spore
 ```
 
-Expressions can be evaluated interactively.
+## Syntax
 
-```shell
->> (+ 1 2)
-$1 = 3
+Spore uses a lispy syntax. All expressions are surrounded by
+parentheses with the first identifier as the operator/procedure and
+subsequent identifiers as the arguments.
+
+Expressions:
+
+- `1`
+- `"Hello World!"`
+- `1.4`
+- `1.4e4`
+- `(+ 1 2 3)`
+
+
+### Defining Variables
+
+```lisp
+(define pi 3.14)
 ```
 
-#### Commands
+### Defining Procedures
 
-Commands can be used to provide more meta functionality. For example, the bytecode for the expression `(+ 1 2)`
-can be examined:
-
-```shell
->> ,bytecode (+ 1 2)
-  01 - get value for %virtual%/repl/+
-  02 - push value 1
-  03 - push value 2
-  04 - evaluate last 3
+```lisp
+(define (circle-area radius)
+  (* radius radius pi))
 ```
 
-| Command   | Description                                        | Output                                                            |
-|-----------|----------------------------------------------------|-------------------------------------------------------------------|
-|           | Evaluate an expression.                            | `3`                                                               |
-| ,tokens   | Parsed tokens for the expression(s).               | `Token { item LeftParen ...`                                      |
-| ,ast      | Ast for the expression(s).                         | `<identifier +>`<br>`  <int 1>`<br>`  <int 2>`                    |
-| ,ir       | Intermediate representation for the expression(s). | `CodeBlock {`<br>`  name: ...`                                    |
-| ,bytecode | Bytecode for the expression(s)                     | `  01 - get value for %virtual%/repl/+`<br>`02 - push value 1...` |
-| ,trace    | Trace the input and output of all function calls.  | `(<proc repl-proc-1>) => 3`                                       |
-| ,help     | Show the help documentation.                       | `Commands`<br>`...`                                               |
+### Calling Procedures
 
+```lisp
+>> (println (circle-area 2))
+12.56
+```
 
 ## FAQ
 
@@ -110,21 +74,5 @@ can be examined:
 
 > Spore is a Lisp which means it uses parentheses. While the syntax
 > may not be elegant, it is simple to understand. The simple syntax
-> also allows me to focus more on the VM.
-
-## Design
-
-```mermaid
-flowchart LR
-    source --> lexer --> ast --> ir --> bytecode --> vm;
-```
-
-Spore uses a bytecode interpretter to execute code.
-
-- source - The source code string.
-- lexer - The lexer parses a string into open/close parensheses, identifiers, numbers and strings.
-- ast - An AST is built. Each set of parentheses forms a sub tree in the AST.
-- ir - The intermediate representation. It is used to implement some
-    desugaring and provides a typed enum to improve readablity.
-- bytecode - A sequence of instructions to execute.
-- vm - The Spore virtual machine. It evaluates bytecode.
+> also allows me to focus more on building the VM and less on language
+> design.

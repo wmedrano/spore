@@ -1,6 +1,6 @@
 ---
 layout: default
-title: REPL Commands
+title: REPL
 nav_enabled: true
 nav_order: 1
 ---
@@ -8,21 +8,77 @@ nav_order: 1
 # Overview
 
 The REPL can be used to evaluate expressions. Additionally, the REPL
-provides access to several special commands.
+provides access to several special commands. A Spore REPL is started
+by running the `spore` command/binary.
 
-## Debugging
+## Expressions
 
-### Trace
-
-The `,trace` command prints the input and output of every function
-call.
+Expressions can be evaluated in the REPL. Return values are stored in
+variables of the form `$<n>`.
 
 ```lisp
->> ,trace (if (< 1 2) (+ 1 2) (* 1 2))
-(<proc repl-proc-1>) => 3
-  (<proc <> 1 2) => true
-  (<proc +> 1 2) => 3
-$1 = 3
+>> (+ 1 2 3 4)
+$1 = 10
+>> (- 0 1 2 3 4)
+$2 = -10
+>> (+ $1 $2)
+$3 = 0
+```
+
+As seen in the example above, all the expressions automatically stored
+their results in local variables. In cases where the expression
+provides no return value (for example `(do)`), no variable is stored.
+
+```lisp
+>> (do 10)
+$1 = 10
+>> (do)
+>> (do 10 20)
+$2 = 20
+```
+
+## User Config
+
+At startup, the Spore REPL loads the user's custom script at
+`$HOME/.spore/init.spore`. Any values defined in the user script are
+available directly in the REPL.
+
+Example file: `$HOME/.spore/init.spore`
+
+```lisp
+(define (ratio-diff a b)
+  (/ (- b a)
+     a))
+
+(define (percent-diff a b)
+  (->string
+    (* 100 (ratio-diff a b))
+    "%"))
+```
+
+Example REPL:
+
+```lisp
+>> (percent-diff 1.2 1.3)
+$1 = "8.333333333333341%"
+```
+
+## Commands
+
+### Help
+
+`,help` prints all the available commands.
+
+```lisp
+>> ,help
+Commands
+  ,trace - Trace the input and output of all function calls.
+  ,time - Show the evaluation time for each expression.
+  ,tokens - Parsed tokens for the expression(s).
+  ,ast - Ast for the expression(s).
+  ,ir - Intermediate representation for the expression(s).
+  ,bytecode - Bytecode for the expression(s)
+  ,help - Show the help documentation.
 ```
 
 ### Time
@@ -39,7 +95,18 @@ Time: 2.305µs
 $3 = 0.041666666666666664
 ```
 
-## Interpreter Internals
+### Trace
+
+The `,trace` command prints the input and output of every function
+call.
+
+```lisp
+>> ,trace (if (< 1 2) (+ 1 2) (* 1 2))
+(<proc repl-proc-1>) => 3
+  (<proc <> 1 2) => true
+  (<proc +> 1 2) => 3
+$1 = 3
+```
 
 ### Tokens
 

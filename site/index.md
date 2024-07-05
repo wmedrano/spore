@@ -13,8 +13,8 @@ Spore is an interpreted (toy) programming language.
 
 ### Running
 
-The REPL (Read-Evaluate-Print-Loop) can be used to run and debug
-code. The REPL can be started by running:
+The REPL (Read-Evaluate-Print-Loop) is used to run and debug Spore
+code.
 
 {% mermaid %}
 graph LR;
@@ -23,6 +23,7 @@ graph LR;
     PrintResult --> ReadInput;
 {% endmermaid %}
 
+The REPL can be started by running:
 
 ```shell
 cargo run

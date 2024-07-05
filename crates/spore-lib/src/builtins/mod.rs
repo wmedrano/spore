@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, fmt::Write, rc::Rc};
 
 use anyhow::{anyhow, bail, ensure, Result};
 use smol_str::SmolStr;
@@ -21,6 +21,7 @@ pub fn global_module() -> Module {
         NativeProc::new("len", len_proc),
         NativeProc::new("substring", substring_proc),
         NativeProc::new("string-concat", string_concat_proc),
+        NativeProc::new("->string", to_string_proc),
         NativeProc::new("+", add_proc),
         NativeProc::new("-", sub_proc),
         NativeProc::new("*", multiply_proc),
@@ -92,8 +93,8 @@ fn module_info_proc(modules: &ModuleManager, args: &[Val]) -> Result<Val> {
             let module_str = module.try_str()?;
             for module in modules.iter() {
                 if module.source().to_string() == module_str {
-                    let info = module.to_string();
-                    return Ok(Val::String(info.into()));
+                    println!("{module}");
+                    return Ok(Val::Void);
                 }
             }
             bail!(
@@ -122,8 +123,8 @@ fn list_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 
 fn listp_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     match args {
-        [Val::List(_)] => Ok(Val::Bool(matches!(args[0], Val::List(_)))),
-        _ => bail!("Procedure listp expected 1 arg but found {}.", args.len()),
+        [arg] => Ok(Val::Bool(matches!(arg, Val::List(_)))),
+        _ => bail!("<proc list?> expected 1 arg but found {}.", args.len()),
     }
 }
 
@@ -215,6 +216,17 @@ fn substring_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
 fn string_concat_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
     let strs: Result<Vec<_>> = args.iter().map(|v| v.try_str()).collect();
     let res = strs?.join("");
+    Ok(Val::String(Rc::new(res)))
+}
+
+fn to_string_proc(_modules: &ModuleManager, args: &[Val]) -> Result<Val> {
+    let mut res = String::new();
+    for arg in args {
+        match arg {
+            Val::String(s) => write!(res, "{str}", str = s.as_str())?,
+            arg => write!(res, "{arg}")?,
+        }
+    }
     Ok(Val::String(Rc::new(res)))
 }
 

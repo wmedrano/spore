@@ -10,7 +10,7 @@ nav_order: 3
 ## Control Flow
 
 ### if
-Evalutes a predicate to determine which branch to run and return. Must
+Evaluates a predicate to determine which branch to run and return. Must
 be of the form `(if <pred> <true-branch>)` or `(if <pred> <true-branch> <false-branch>)`
 
 ```lisp
@@ -132,20 +132,31 @@ Concatenates two or more strings.
 $1 = "hello world"
 ```
 
+### ->string
+Converts all arguments into a string by concatenating their string
+representation.
+
+```lisp
+>> (->string "The answer is: " (- 100 50 8))
+$1 = "The answer is: 42"
+```
+
 ## Arithmetic Operations
 
 ### +
-Adds two or more numbers.
+Adds 0 or more numbers. If 0 numbers are provided, then `0` is
+returned.
 
 ```lisp
 >> (+ 1 2 3)
 $1 = 6
 >> (+)
-$2 = 1
+$2 = 0
 ```
 
 ### -
-Subtracts numbers from the first argument.
+Subtracts numbers from the first argument. If only one argument is
+provided, then it is negated.
 
 ```lisp
 >> (- 2 3)
@@ -155,7 +166,8 @@ $2 = -10
 ```
 
 ### *
-Multiplies two or more numbers.
+Multiplies 0 or more numbers. If 0 numbers are provided, then `1` is
+returned.
 
 ```lisp
 >> (* 1 2 3)
@@ -165,7 +177,8 @@ $2 = 1
 ```
 
 ### /
-Divides the first number by the subsequent numbers.
+Divides the first number by the subsequent numbers. If only one number
+is provided, then the reciprocal is returned.
 
 ```lisp
 >> (/ 3 4)
@@ -229,7 +242,8 @@ $3 = true
 ```
 
 ### equal?
-Checks if two values are equal.
+Returns `true` if 2 values are equal. The 2 arguments may be of any
+type.
 
 ```lisp
 >> (equal? 1 1)
@@ -263,30 +277,32 @@ $1 = ("%global%" "%virtual%/%repl%")
 ```
 
 ### module-info
-Provides information about a specific module.
+Prints information about a specific module.
 
 ```lisp
->> (println (module-info "%global%"))
+>> (module-info "%global%")
 Module: %global%
-  'first => <proc first>
-  '* => <proc *>
-  'rest => <proc rest>
-  '/ => <proc />
-  'substring => <proc substring>
-  'list? => <proc list?>
-  'string-concat => <proc string-concat>
-  '- => <proc ->
   'module-info => <proc module-info>
+  'list? => <proc list?>
   '< => <proc <>
-  '> => <proc >>
+  'substring => <proc substring>
+  '+ => <proc +>
+  'string-concat => <proc string-concat>
+  '* => <proc *>
   '>= => <proc >=>
   'equal? => <proc equal?>
-  'nth => <proc nth>
-  'modules => <proc modules>
-  'list => <proc list>
-  'len => <proc len>
+  'first => <proc first>
   'do => <proc do>
+  'len => <proc len>
+  'modules => <proc modules>
+  'rest => <proc rest>
   'println => <proc println>
+  'apply => <proc apply>
+  '- => <proc ->
+  '->string => <proc ->string>
+  'nth => <proc nth>
   '<= => <proc <=>
-  '+ => <proc +>
+  '> => <proc >>
+  '/ => <proc />
+  'list => <proc list>
 ```
