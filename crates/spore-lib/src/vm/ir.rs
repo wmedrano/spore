@@ -56,6 +56,8 @@ pub enum IrInstruction {
     },
     /// Ensure that a file has been imported.
     Import { filepath: PathBuf },
+    /// Execute a bytecode instruction.
+    Raw(Instruction),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -402,6 +404,9 @@ impl CodeBlock {
                 }
                 IrInstruction::Import { filepath } => {
                     res.push(Instruction::ImportModule(Box::new(filepath.clone())));
+                }
+                IrInstruction::Raw(instruction) => {
+                    res.push(instruction.clone());
                 }
             };
         }

@@ -10,7 +10,8 @@ use super::{symbol::Symbol, Val};
 pub enum Instruction {
     /// Push a new value to the stack.
     PushVal(Val),
-    /// Evaluate the top of the stack. The `usize` is the number of arguments + 1 for the procedure.
+    /// Evaluate the top of the stack. The `usize` is the number of arguments + 1 for the
+    /// procedure. If `usize` is 0, then it is equivalent to Eval(stack_frame_size).
     Eval(usize),
     /// Get the argument by index. The argument is determined by counting from the stack base.
     GetArg(usize),
@@ -24,6 +25,8 @@ pub enum Instruction {
     SetVal(Box<Symbol>),
     /// Load a module.
     ImportModule(Box<PathBuf>),
+    /// Takes the list at the top of the stack, pops it, and pushes all its values onto the stack.
+    UnwrapList,
     /// Pops the current frame and returns the value at the top of the current frame stack.
     Return,
 }
@@ -49,6 +52,7 @@ impl std::fmt::Display for Instruction {
             Instruction::GetVal(s) => write!(f, "get value for {s}"),
             Instruction::SetVal(s) => write!(f, "set value for {s}"),
             Instruction::ImportModule(filepath) => write!(f, "load module {filepath:?}"),
+            Instruction::UnwrapList => write!(f, "unwrap list"),
             Instruction::Return => write!(f, "return"),
         }
     }

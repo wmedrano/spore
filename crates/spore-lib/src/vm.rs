@@ -212,6 +212,9 @@ impl Vm {
                     let filepath = filepath.as_ref().clone();
                     self.import_module(filepath, debugger)?;
                 }
+                Instruction::UnwrapList => {
+                    self.unwrap_list()?;
+                }
                 Instruction::Return => {
                     self.pop_frame(debugger)?;
                 }
@@ -271,6 +274,16 @@ impl Vm {
     }
 
     fn execute_eval_n(&mut self, n: usize, debugger: &mut impl Debugger) -> Result<()> {
+        let n = if n == 0 {
+            self.stack.len()
+                - self
+                    .frames
+                    .last()
+                    .map(|f| f.stack_start_idx)
+                    .unwrap_or_default()
+        } else {
+            n
+        };
         ensure!(
             n <= self.stack.len(),
             "Interpretter stuck is corrupt, expected stack with minimum stack size {n} but found {stack_len}.",
@@ -290,7 +303,7 @@ impl Vm {
                 debugger.eval_proc(self);
                 if expected_args != actual_args {
                     bail!(
-                        "{name} expected {expected_args} but found {actual_args}.",
+                        "{name} expected {expected_args} args but found {actual_args} args.",
                         name = self.current_proc().map(|p| p.name.as_str()).unwrap_or("_")
                     );
                 }
@@ -322,6 +335,18 @@ impl Vm {
         let v = self.stack.pop().unwrap();
         debugger.define(self, &s, &v);
         self.modules.set_value(module, s, v);
+        Ok(())
+    }
+
+    fn unwrap_list(&mut self) -> Result<()> {
+        let v = self.stack.pop().unwrap();
+        match v {
+            Val::List(lst) => match Rc::try_unwrap(lst) {
+                Ok(lst) => self.stack.extend(lst.into_iter()),
+                Err(lst) => self.stack.extend_from_slice(lst.as_slice()),
+            },
+            v => bail!("expected list but found {:?}", v),
+        };
         Ok(())
     }
 
@@ -477,6 +502,40 @@ mod tests {
         assert!(vm
             .eval_bytecode(proc.clone(), &[Val::Int(1), Val::Int(2)], &mut ())
             .is_err());
+    }
+
+    #[test]
+    fn eval_evaluates_first_arg_with_second_arg_as_arguments() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str(MODULE, "(apply + (list 1 2 3 4))").unwrap(),
+            vec![Val::Int(10)]
+        );
+        assert_eq!(
+            vm.eval_str(MODULE, "(apply * (list 1 2 3 4))").unwrap(),
+            vec![Val::Int(24)]
+        );
+        assert_eq!(
+            vm.eval_str(MODULE, "(apply list (list))").unwrap(),
+            vec![Val::List(Rc::new(vec![]))]
+        );
+        assert_eq!(
+            vm.eval_str(
+                MODULE,
+                "(apply string-concat (list \"hello\" \" \" \"world\"))"
+            )
+            .unwrap(),
+            vec![Val::String(Rc::new("hello world".to_string()))]
+        );
+    }
+
+    #[test]
+    fn eval_with_bad_args_produces_error() {
+        let mut vm = Vm::new();
+        assert!(vm.eval_str(MODULE, "(apply +)").is_err());
+        assert!(vm.eval_str(MODULE, "(apply + (list 1) (list 2))").is_err());
+        assert!(vm.eval_str(MODULE, "(apply + (list \"1\"))").is_err());
+        assert!(vm.eval_str(MODULE, "(apply 2 (list 3 4))").is_err());
     }
 
     #[test]

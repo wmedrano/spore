@@ -1,16 +1,18 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{anyhow, bail, ensure, Result};
+use smol_str::SmolStr;
 
 use crate::vm::{
+    ir::{CodeBlock, IrInstruction},
     module::{Module, ModuleManager, ModuleSource},
-    types::{proc::native::NativeProc, Val},
+    types::{instruction::Instruction, proc::native::NativeProc, symbol::Symbol, Val},
 };
 
 /// Register all builtin functions.
 pub fn global_module() -> Module {
     let mut module = Module::new(ModuleSource::Global);
-    for proc in [
+    let native_procs = [
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
         NativeProc::new("first", first_proc),
@@ -32,11 +34,30 @@ pub fn global_module() -> Module {
         NativeProc::new("modules", modules_proc),
         NativeProc::new("module-info", module_info_proc),
         NativeProc::new("do", do_proc),
-    ]
-    .into_iter()
-    {
+    ];
+    for proc in native_procs {
         module.set(proc.name().into(), Val::NativeProc(proc));
     }
+
+    let apply_proc_name = SmolStr::new_static("apply");
+    let apply_proc = CodeBlock {
+        name: Some(apply_proc_name.clone()),
+        arg_to_idx: HashMap::from_iter([
+            (SmolStr::new_static("proc"), 0),
+            (SmolStr::new_static("args"), 1),
+        ]),
+        instructions: vec![
+            IrInstruction::Raw(Instruction::UnwrapList),
+            IrInstruction::Raw(Instruction::Eval(0)),
+        ],
+    }
+    .to_proc(module.source().clone())
+    .unwrap();
+    module.set(
+        Symbol(apply_proc_name),
+        Val::ByteCodeProc(Rc::new(apply_proc)),
+    );
+
     module
 }
 

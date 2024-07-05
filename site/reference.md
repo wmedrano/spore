@@ -37,6 +37,18 @@ last expression.
 $1 = 3
 ```
 
+### apply
+Applies a procedure to arguments provided as a list.
+
+```lisp
+>> (apply + (list 1 2 3 4))
+$1 = 10
+>> (+ 1 2 3 4)
+$2 = 10
+>> (apply string-concat (list "hello" " " "world" "!"))
+$3 = "hello world!"
+```
+
 ## Lists
 
 ### list
