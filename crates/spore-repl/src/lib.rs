@@ -108,8 +108,25 @@ impl Repl {
                 asts()?,
                 &mut self.vm,
                 &mut self.expression_count,
-                false,
+                "",
             ),
+            ",time" => eval_asts(
+                out,
+                &self.module,
+                asts()?,
+                &mut self.vm,
+                &mut self.expression_count,
+                "time",
+            ),
+            ",trace" => eval_asts(
+                out,
+                &self.module,
+                asts()?,
+                &mut self.vm,
+                &mut self.expression_count,
+                "trace",
+            ),
+            ",help" => print_help(out)?,
             ",tokens" => {
                 for token in spore_lib::parser::lexer::tokenize(expr) {
                     writeln!(out, "{token:?}")?;
@@ -133,18 +150,17 @@ impl Repl {
                 }
             }
             ",bytecode" => analyze_bytecode(out, &self.module, &mut self.vm, asts()?),
-            ",trace" => eval_asts(
-                out,
-                &self.module,
-                asts()?,
-                &mut self.vm,
-                &mut self.expression_count,
-                true,
-            ),
-            ",help" => print_help(out)?,
             unknown => bail!(
                 "Unknown command \"{unknown}\", expected one if {:?}.",
-                [",tokens", ",ast", ",ir", ",bytecode", ",trace", ",help"]
+                [
+                    ",time",
+                    ",trace",
+                    ",help",
+                    ",tokens",
+                    ",ast",
+                    ",ir",
+                    ",bytecode"
+                ]
             ),
         }
         Ok(())
@@ -154,14 +170,15 @@ impl Repl {
 fn print_help(out: &mut impl Write) -> Result<()> {
     writeln!(out, "{}", "Commands".blue())?;
     let mut print_cmd = |cmd: &str, doc| writeln!(out, "  {cmd} - {doc}", cmd = cmd.blue());
-    print_cmd(",tokens", "Parsed tokens for the expression(s).")?;
-    print_cmd(",ast", "Ast for the expression(s).")?;
-    print_cmd(",ir", "Intermediate representation for the expression(s).")?;
-    print_cmd(",bytecode", "Bytecode for the expression(s)")?;
     print_cmd(
         ",trace",
         "Trace the input and output of all function calls.",
     )?;
+    print_cmd(",time", "Show the evaluation time for each expression.")?;
+    print_cmd(",tokens", "Parsed tokens for the expression(s).")?;
+    print_cmd(",ast", "Ast for the expression(s).")?;
+    print_cmd(",ir", "Intermediate representation for the expression(s).")?;
+    print_cmd(",bytecode", "Bytecode for the expression(s)")?;
     print_cmd(",help", "Show the help documentation.")?;
     writeln!(out)?;
     Ok(())
@@ -189,10 +206,11 @@ fn eval_asts(
     asts: Vec<Ast>,
     vm: &mut Vm,
     expr_count: &mut usize,
-    trace: bool,
+    cmd: &str,
 ) {
+    let print_timing = cmd == "time";
     for ast in asts {
-        let mut maybe_trace = if trace {
+        let mut maybe_trace = if cmd == "trace" {
             Some(TraceDebugger::default())
         } else {
             None
@@ -213,7 +231,15 @@ fn eval_asts(
         }
         .and_then(|bc| match maybe_trace.as_mut() {
             Some(t) => vm.eval_bytecode(bc.into(), &[], t),
-            None => vm.eval_bytecode(bc.into(), &[], &mut ()),
+            None => {
+                let start = std::time::Instant::now();
+                let res = vm.eval_bytecode(bc.into(), &[], &mut ());
+                if print_timing {
+                    let elapsed = start.elapsed();
+                    writeln!(out, "Time: {elapsed:?}")?;
+                }
+                res
+            }
         });
         if let Some(trace) = maybe_trace {
             writeln!(out, "{trace}").unwrap();

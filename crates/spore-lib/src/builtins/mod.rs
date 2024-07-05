@@ -11,10 +11,6 @@ use crate::vm::{
 pub fn global_module() -> Module {
     let mut module = Module::new(ModuleSource::Global);
     for proc in [
-        NativeProc::new("println", println_proc),
-        NativeProc::new("modules", modules_proc),
-        NativeProc::new("module-info", module_info_proc),
-        NativeProc::new("do", do_proc),
         NativeProc::new("list", list_proc),
         NativeProc::new("list?", listp_proc),
         NativeProc::new("first", first_proc),
@@ -32,6 +28,10 @@ pub fn global_module() -> Module {
         NativeProc::new(">", greater_proc),
         NativeProc::new(">=", greater_eq_proc),
         NativeProc::new("equal?", equalp_proc),
+        NativeProc::new("println", println_proc),
+        NativeProc::new("modules", modules_proc),
+        NativeProc::new("module-info", module_info_proc),
+        NativeProc::new("do", do_proc),
     ]
     .into_iter()
     {

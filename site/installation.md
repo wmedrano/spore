@@ -1,21 +1,24 @@
 ---
-layout: page
+layout: default
 title: Installation
 nav_enabled: true
+nav_order: 1
 ---
 
-# Spore
+# Overview
 
-Spore is an interpreted programming language.
+This guide outlines the process of installing Spore. This:
 
-## Installation
+- Builds Spore.
+- Installs Spore at `$HOME/.spore/bin`.
+- Adds `$HOME/.spore/bin` to `$PATH` so that it can be run anywhere.
 
-### Prerequisites
+## Prerequisites
 
 - Rust and Cargo (Rust's package manager) installed on your system. If you don't have Rust installed, you can get it from [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install).
 - Git (optional, but recommended for cloning the repository).
 
-### Installation Steps
+## Installation Steps
 
 1. Clone the Spore repository (or download the source code):
 
@@ -55,4 +58,4 @@ Spore is an interpreted programming language.
    spore --version
    ```
 
-   This should display the virsion of Spore you've installed.
+   This should display the version of Spore you've installed.
