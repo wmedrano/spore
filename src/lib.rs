@@ -1,80 +1,117 @@
-#[derive(Debug, PartialEq)]
-pub struct Token<'a>(&'a str);
+use tokenizer::Token;
 
-#[derive(Debug)]
-pub enum TokenParseError {
-    UnclosedStringLiteral,
+mod tokenizer;
+
+#[derive(Debug, PartialEq)]
+pub enum Node<'a> {
+    Identifier(&'a str),
+    Int(i64),
+    Float(f64),
+    String(String),
+    Tree(Vec<Node<'a>>),
 }
 
-impl<'a> Token<'a> {
-    pub fn parse_tokens(text: &'a str) -> impl Iterator<Item = Token<'a>> {
-        let mut text = text;
-        std::iter::from_fn(move || match Token::parse_next(text) {
-            None => None,
-            Some((next_text, token)) => {
-                text = next_text;
-                Some(token)
-            }
-        })
+#[derive(Debug, PartialEq)]
+pub enum AstParseError {
+    UnclosedParen,
+    UnexpectedCloseParen,
+    UnclosedString,
+}
+
+type Result<T> = std::result::Result<T, AstParseError>;
+
+impl<'a> Node<'a> {
+    pub fn parse(src: &'a str) -> impl Iterator<Item = Result<Self>> {
+        let mut tokens = Token::parse_tokens(src);
+        std::iter::from_fn(move || Node::parse_next(&mut tokens))
+    }
+}
+
+impl<'a> Node<'a> {
+    #[cfg(test)]
+    pub fn parse_to_vec(src: &'a str) -> Result<Vec<Node<'a>>> {
+        Node::parse(src).collect()
     }
 
-    pub fn parse_tokens_to_vec(text: &'a str) -> Vec<Token<'a>> {
-        let tokens = Token::parse_tokens(text);
-        tokens.collect()
-    }
-
-    fn parse_next(text: &'a str) -> Option<(&'a str, Token<'a>)> {
-        let text = text.trim_start();
-        if text.is_empty() {
-            return None;
-        }
-        match text.chars().next() {
+    fn parse_next(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Option<Result<Node<'a>>> {
+        let next_token = match tokenizer.next() {
+            Some(t) => t,
             None => return None,
-            Some('"') => return Some(Token::parse_next_string(text)),
-            Some('(') | Some(')') => return Some((&text[1..], Token(&text[0..1]))),
-            _ => {}
-        }
-        let mut end = text.len();
-        for (idx, ch) in text.char_indices() {
-            let is_end = match ch {
-                '(' | ')' => true,
-                _ => ch.is_whitespace(),
-            };
-            if is_end {
-                end = idx;
-                break;
+        };
+        match next_token.0 {
+            tokenizer::TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
+                Ok(tree) => Some(Ok(Node::Tree(tree))),
+                Err(err) => return Some(Err(err)),
+            },
+            tokenizer::TokenType::CloseParen => {
+                return Some(Err(AstParseError::UnexpectedCloseParen))
+            }
+            tokenizer::TokenType::UnterminatedString => {
+                return Some(Err(AstParseError::UnclosedString))
+            }
+            tokenizer::TokenType::String | tokenizer::TokenType::Other => {
+                return Some(Ok(Node::parse_atom(next_token.0, next_token.1)))
             }
         }
-        let rest_text = &text[end..];
-        let token = Token(&text[0..end]);
-        Some((rest_text, token))
     }
 
-    fn parse_next_string(text: &'a str) -> (&'a str, Token<'a>) {
-        let mut is_escaped = false;
-        for (idx, ch) in text.char_indices() {
-            if idx == 0 {
-                debug_assert_eq!(ch, '"');
-                continue;
-            };
-            match ch {
-                '\\' => {
-                    is_escaped = !is_escaped;
-                }
-                '"' => {
-                    if !is_escaped {
-                        let end = idx + 1;
-                        let token = Token(&text[0..end]);
-                        return (&text[end..], token);
-                    }
-                    is_escaped = false;
-                }
-                _ => {
-                    is_escaped = false;
+    fn parse_until_close(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Result<Vec<Node<'a>>> {
+        let mut tree = vec![];
+        loop {
+            let next_token = match tokenizer.next() {
+                Some(t) => t,
+                None => {
+                    return Err(AstParseError::UnclosedParen);
                 }
             };
+            match next_token.0 {
+                tokenizer::TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
+                    Ok(t) => tree.push(Node::Tree(t)),
+                    err @ Err(_) => return err,
+                },
+                tokenizer::TokenType::CloseParen => return Ok(tree),
+                tokenizer::TokenType::UnterminatedString => {
+                    return Err(AstParseError::UnclosedString)
+                }
+                tokenizer::TokenType::String | tokenizer::TokenType::Other => {
+                    tree.push(Node::parse_atom(next_token.0, next_token.1))
+                }
+            }
         }
-        (&text[text.len()..text.len()], Token(text))
+    }
+
+    fn parse_atom(token_type: tokenizer::TokenType, contents: &'a str) -> Node<'a> {
+        match token_type {
+            tokenizer::TokenType::OpenParen
+            | tokenizer::TokenType::CloseParen
+            | tokenizer::TokenType::UnterminatedString => unreachable!(),
+            tokenizer::TokenType::String => {
+                let mut res = String::with_capacity(contents.len().saturating_sub(2));
+                let mut escaped = false;
+                for ch in contents[1..contents.len() - 1].chars() {
+                    if escaped {
+                        res.push(ch);
+                        escaped = false;
+                    } else {
+                        match ch {
+                            '\\' => escaped = true,
+                            '"' => unreachable!(),
+                            ch => res.push(ch),
+                        }
+                    }
+                }
+                Node::String(res)
+            }
+            tokenizer::TokenType::Other => {
+                if let Ok(int) = contents.parse() {
+                    return Node::Int(int);
+                } else if let Ok(float) = contents.parse() {
+                    return Node::Float(float);
+                } else {
+                    return Node::Identifier(contents);
+                }
+            }
+        }
     }
 }
 
@@ -83,48 +120,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_str_produces_empty_stream() {
-        let actual = Token::parse_tokens_to_vec("");
-        assert_eq!(actual, Vec::new());
+    fn whitespace_produces_no_nodes() {
+        let src = " \t\n ";
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(actual, vec![]);
     }
 
     #[test]
-    fn whitespace_only_produces_empty_stream() {
-        let actual = Token::parse_tokens_to_vec(" \n\t");
-        assert_eq!(actual, Vec::new());
-    }
-
-    #[test]
-    fn whitespace_separated_values_produce_item_for_each() {
-        let src = "\t1  two\n3.0\n";
-        let actual = Token::parse_tokens_to_vec(src);
-        assert_eq!(actual, vec![Token("1"), Token("two"), Token("3.0"),]);
-    }
-
-    #[test]
-    fn phrase_in_quotes_is_string() {
-        let actual = Token::parse_tokens_to_vec("\"hello world!\"not-text");
-        assert_eq!(actual, vec![Token("\"hello world!\""), Token("not-text")]);
-    }
-
-    #[test]
-    fn backslash_quote_in_quote_escapes_quote_as_part_of_string() {
-        let actual = Token::parse_tokens_to_vec(r#" \" "\"quotes\""   "#);
-        assert_eq!(actual, vec![Token("\\\""), Token("\"\\\"quotes\\\"\"")]);
-    }
-
-    #[test]
-    fn unclosed_string_produces_what_is_has_been_built_up_to() {
-        let actual = Token::parse_tokens_to_vec("\"I am not closed");
-        assert_eq!(actual, vec![Token("\"I am not closed")]);
-    }
-
-    #[test]
-    fn parenthesis_are_parsed_into_own_tokens() {
-        let actual = Token::parse_tokens_to_vec("(left right)");
+    fn atoms_are_parsed() {
+        let src = "1 2.0 three \"four\"";
+        let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(
             actual,
-            vec![Token("("), Token("left"), Token("right"), Token(")")]
+            vec![
+                Node::Int(1),
+                Node::Float(2.0),
+                Node::Identifier("three"),
+                Node::String("four".to_string()),
+            ]
         );
+    }
+
+    #[test]
+    fn expression_is_parsed_as_tree() {
+        let src = "(+ 1 (- a b) \"number\") (str-len \"str\") \"atom\"";
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(
+            actual,
+            vec![
+                Node::Tree(vec![
+                    Node::Identifier("+"),
+                    Node::Int(1),
+                    Node::Tree(vec![
+                        Node::Identifier("-"),
+                        Node::Identifier("a"),
+                        Node::Identifier("b")
+                    ]),
+                    Node::String("number".to_string()),
+                ]),
+                Node::Tree(vec![
+                    Node::Identifier("str-len"),
+                    Node::String("str".to_string())
+                ]),
+                Node::String("atom".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn quoted_strings_within_strings_are_preserved() {
+        let src = "\"this \\\"is\\\" a string\"";
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(
+            actual,
+            vec![Node::String("this \"is\" a string".to_string())]
+        );
+    }
+
+    #[test]
+    fn unclosed_paren_produces_error() {
+        let src = "(not closed";
+        let actual_err = Node::parse_to_vec(src).unwrap_err();
+        assert_eq!(actual_err, AstParseError::UnclosedParen);
+    }
+
+    #[test]
+    fn unexpected_close_paren_produces_error() {
+        let src = "not closed)";
+        let actual_err = Node::parse_to_vec(src).unwrap_err();
+        assert_eq!(actual_err, AstParseError::UnexpectedCloseParen);
+    }
+
+    #[test]
+    fn unterminated_string_produces_error() {
+        let src = "\"start of string but no end";
+        let actual_err = Node::parse_to_vec(src).unwrap_err();
+        assert_eq!(actual_err, AstParseError::UnclosedString);
     }
 }
