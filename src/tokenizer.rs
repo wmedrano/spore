@@ -1,27 +1,37 @@
+/// Describes the type of token.
 #[derive(Debug, PartialEq)]
 pub enum TokenType {
+    /// An open parenthesis.
     OpenParen,
+    /// A close parenthesis.
     CloseParen,
+    /// A string literal.
     String,
+    /// A string literal, but missing the closing quote.
     UnterminatedString,
+    /// Something else. Usually an atom(int, float literal) or an identifier.
     Other,
 }
 
+/// Contains a token type and the portion of the text defining the token.
 #[derive(Debug, PartialEq)]
 pub struct Token<'a>(pub TokenType, pub &'a str);
 
 impl<'a> Token<'a> {
+    /// Parse an input source into a stream of tokens.
     pub fn parse_tokens(input_source: &'a str) -> impl Iterator<Item = Token<'a>> {
         let mut input_source = input_source;
         std::iter::from_fn(move || match Token::parse_next(input_source) {
             None => None,
-            Some((next_str, token)) => {
+            Some((token, next_str)) => {
                 input_source = next_str;
                 Some(token)
             }
         })
     }
 
+    /// Parse an input source into a vector of tokens. Used for convenience in unit tests, prefer
+    /// using `Self::parse_tokens`.
     #[cfg(test)]
     pub fn parse_tokens_to_vec(input_source: &'a str) -> Vec<Token<'a>> {
         let tokens = Token::parse_tokens(input_source).inspect(|item| {
@@ -40,7 +50,9 @@ impl<'a> Token<'a> {
         tokens.collect()
     }
 
-    fn parse_next(input_source: &'a str) -> Option<(&'a str, Token<'a>)> {
+    /// Parse the next token within an input source string or return `None`. Returns a tuple
+    /// containing the parsed token and the rest of the string.
+    fn parse_next(input_source: &'a str) -> Option<(Token<'a>, &'a str)> {
         let input_source = input_source.trim_start();
         if input_source.is_empty() {
             return None;
@@ -50,14 +62,14 @@ impl<'a> Token<'a> {
             Some('"') => return Some(Token::parse_next_string(input_source)),
             Some('(') => {
                 return Some((
-                    &input_source[1..],
                     Token(TokenType::OpenParen, &input_source[0..1]),
+                    &input_source[1..],
                 ))
             }
             Some(')') => {
                 return Some((
-                    &input_source[1..],
                     Token(TokenType::CloseParen, &input_source[0..1]),
+                    &input_source[1..],
                 ))
             }
             _ => {}
@@ -75,10 +87,12 @@ impl<'a> Token<'a> {
         }
         let rest_source = &input_source[end..];
         let token = Token(TokenType::Other, &input_source[0..end]);
-        Some((rest_source, token))
+        Some((token, rest_source))
     }
 
-    fn parse_next_string(input_source: &'a str) -> (&'a str, Token<'a>) {
+    /// Parse the next string in input source. `input_source` must start with a '"'
+    /// character. Returns a tuple of the parsed token and the rest of the string.
+    fn parse_next_string(input_source: &'a str) -> (Token<'a>, &'a str) {
         let mut is_escaped = false;
         for (idx, ch) in input_source.char_indices() {
             if idx == 0 {
@@ -93,7 +107,7 @@ impl<'a> Token<'a> {
                     if !is_escaped {
                         let end = idx + 1;
                         let token = Token(TokenType::String, &input_source[0..end]);
-                        return (&input_source[end..], token);
+                        return (token, &input_source[end..]);
                     }
                     is_escaped = false;
                 }
@@ -103,8 +117,8 @@ impl<'a> Token<'a> {
             };
         }
         (
-            &input_source[input_source.len()..input_source.len()],
             Token(TokenType::UnterminatedString, input_source),
+            &input_source[input_source.len()..input_source.len()],
         )
     }
 }

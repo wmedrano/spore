@@ -1,115 +1,181 @@
-use tokenizer::Token;
+use std::collections::HashMap;
 
+use compiler::Compiler;
+use error::{BacktraceError, VmError, VmResult};
+use val::{ByteCode, Instruction, Val};
+
+mod ast;
+mod builtins;
+mod compiler;
+mod error;
 mod tokenizer;
+mod val;
 
-#[derive(Debug, PartialEq)]
-pub enum Node<'a> {
-    Identifier(&'a str),
-    Int(i64),
-    Float(f64),
-    String(String),
-    Tree(Vec<Node<'a>>),
+/// The spore virtual machine.
+pub struct Vm {
+    /// The data stack. This is used to store temporary values used for compuation.
+    stack: Vec<Val>,
+    /// Map from binding name to value. This is used to store global values.
+    values: HashMap<String, Val>,
+    /// The current continuation. This contains what should be evaluated next and some extra
+    /// context.
+    continuation: Continuation,
+    /// The pending continuations.
+    continuations: Vec<Continuation>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum AstParseError {
-    UnclosedParen,
-    UnexpectedCloseParen,
-    UnclosedString,
+/// Used to decide the next instruction to take.
+#[derive(Default)]
+pub struct Continuation {
+    /// The instructions that will be taken.
+    bytecode: ByteCode,
+    /// The index of the next instruction within bytecode.
+    bytecode_idx: usize,
+    /// The index of the stack for the first value of this continuation's local stack.
+    stack_start: usize,
 }
 
-type Result<T> = std::result::Result<T, AstParseError>;
-
-impl<'a> Node<'a> {
-    pub fn parse(src: &'a str) -> impl Iterator<Item = Result<Self>> {
-        let mut tokens = Token::parse_tokens(src);
-        std::iter::from_fn(move || Node::parse_next(&mut tokens))
+impl Default for Vm {
+    /// Create a new virtual machine.
+    fn default() -> Vm {
+        Vm::new()
     }
 }
 
-impl<'a> Node<'a> {
-    #[cfg(test)]
-    pub fn parse_to_vec(src: &'a str) -> Result<Vec<Node<'a>>> {
-        Node::parse(src).collect()
-    }
-
-    fn parse_next(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Option<Result<Node<'a>>> {
-        let next_token = match tokenizer.next() {
-            Some(t) => t,
-            None => return None,
+impl Vm {
+    /// Create a new virtual machine.
+    pub fn new() -> Vm {
+        let mut vm = Vm {
+            // TODO: Determine optimal size for stack. Small values may perform, better, but
+            // exceeding the capacity may cause performance degregations.
+            stack: Vec::with_capacity(4096),
+            values: HashMap::new(),
+            // Allocate for a function call depth of 64. This is more than enough for most programs.
+            continuations: Vec::with_capacity(64),
+            continuation: Continuation::default(),
         };
-        match next_token.0 {
-            tokenizer::TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
-                Ok(tree) => Some(Ok(Node::Tree(tree))),
-                Err(err) => return Some(Err(err)),
-            },
-            tokenizer::TokenType::CloseParen => {
-                return Some(Err(AstParseError::UnexpectedCloseParen))
-            }
-            tokenizer::TokenType::UnterminatedString => {
-                return Some(Err(AstParseError::UnclosedString))
-            }
-            tokenizer::TokenType::String | tokenizer::TokenType::Other => {
-                return Some(Ok(Node::parse_atom(next_token.0, next_token.1)))
-            }
-        }
+        vm.register_native_function("+", builtins::add);
+        vm
     }
 
-    fn parse_until_close(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Result<Vec<Node<'a>>> {
-        let mut tree = vec![];
+    /// Register a native function that can be called within the virtual machine.
+    pub fn register_native_function(
+        &mut self,
+        name: impl Into<String>,
+        func: fn(&[Val]) -> VmResult<Val>,
+    ) {
+        self.values.insert(name.into(), Val::NativeFunction(func));
+    }
+
+    /// Evaluate a string in the virtual machine.
+    pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
+        let bytecode = Compiler::compile(source)?;
+        self.eval_bytecode(bytecode)
+    }
+
+    /// Evaluate some bytecode in the virtual machine.
+    pub fn eval_bytecode(&mut self, bytecode: ByteCode) -> VmResult<Val> {
+        self.stack.clear();
+        self.continuations.clear();
+        self.continuation = Continuation {
+            bytecode,
+            bytecode_idx: 0,
+            stack_start: 0,
+        };
         loop {
-            let next_token = match tokenizer.next() {
-                Some(t) => t,
-                None => {
-                    return Err(AstParseError::UnclosedParen);
-                }
-            };
-            match next_token.0 {
-                tokenizer::TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
-                    Ok(t) => tree.push(Node::Tree(t)),
-                    err @ Err(_) => return err,
-                },
-                tokenizer::TokenType::CloseParen => return Ok(tree),
-                tokenizer::TokenType::UnterminatedString => {
-                    return Err(AstParseError::UnclosedString)
-                }
-                tokenizer::TokenType::String | tokenizer::TokenType::Other => {
-                    tree.push(Node::parse_atom(next_token.0, next_token.1))
-                }
+            if let Some(v) = self.run_next()? {
+                return Ok(v);
             }
         }
     }
 
-    fn parse_atom(token_type: tokenizer::TokenType, contents: &'a str) -> Node<'a> {
-        match token_type {
-            tokenizer::TokenType::OpenParen
-            | tokenizer::TokenType::CloseParen
-            | tokenizer::TokenType::UnterminatedString => unreachable!(),
-            tokenizer::TokenType::String => {
-                let mut res = String::with_capacity(contents.len().saturating_sub(2));
-                let mut escaped = false;
-                for ch in contents[1..contents.len() - 1].chars() {
-                    if escaped {
-                        res.push(ch);
-                        escaped = false;
-                    } else {
-                        match ch {
-                            '\\' => escaped = true,
-                            '"' => unreachable!(),
-                            ch => res.push(ch),
-                        }
-                    }
-                }
-                Node::String(res)
+    /// Run the next instruction in the virtual machine.
+    ///
+    /// If there are no more instructions to run, then `Some(return_value)` will be
+    /// returned. Otherwise, `None` will be returned.
+    fn run_next(&mut self) -> VmResult<Option<Val>> {
+        let maybe_instruction = self
+            .continuation
+            .bytecode
+            .instructions
+            .get(self.continuation.bytecode_idx);
+        self.continuation.bytecode_idx += 1;
+        let instruction = match maybe_instruction {
+            Some(instruction) => instruction,
+            None => return Ok(self.execute_return()),
+        };
+        match instruction {
+            Instruction::PushConst(c) => self.stack.push(c.clone()),
+            Instruction::Deref(symbol) => {
+                let v = match self.values.get(symbol) {
+                    Some(v) => v.clone(),
+                    None => return Err(VmError::SymbolNotDefined(symbol.clone())),
+                };
+                self.stack.push(v);
             }
-            tokenizer::TokenType::Other => {
-                if let Ok(int) = contents.parse() {
-                    return Node::Int(int);
-                } else if let Ok(float) = contents.parse() {
-                    return Node::Float(float);
-                } else {
-                    return Node::Identifier(contents);
-                }
+            Instruction::Define(symbol) => {
+                let v = self.stack.pop().ok_or_else(BacktraceError::capture)?;
+                self.values.insert(symbol.clone(), v);
+            }
+            Instruction::Eval(n) => self.execute_eval(*n)?,
+        }
+        Ok(None)
+    }
+
+    /// Execute the evaluation of the top n values in the stack.
+    ///
+    /// The deepest value should be a function with the rest of the values being the arguments.
+    fn execute_eval(&mut self, n: usize) -> VmResult<()> {
+        let function_idx = self
+            .stack
+            .len()
+            .checked_sub(n)
+            .ok_or_else(BacktraceError::capture)?;
+        let stack_start = function_idx + 1;
+        match &self.stack[function_idx] {
+            Val::NativeFunction(func) => {
+                let args = &self.stack[stack_start..];
+                let v = func(args)?;
+                self.stack.push(v);
+                Ok(())
+            }
+            Val::BytecodeFunction(bytecode) => {
+                self.continuations
+                    .push(std::mem::take(&mut self.continuation));
+                self.continuation = Continuation {
+                    bytecode: bytecode.clone(),
+                    bytecode_idx: 0,
+                    stack_start,
+                };
+                Ok(())
+            }
+            _ => Err(VmError::TypeError),
+        }
+    }
+
+    /// Execute returning from the current continuation.
+    fn execute_return(&mut self) -> Option<Val> {
+        // 1. Return the current value to the top of the stack.
+        let ret_val = if self.continuation.stack_start < self.stack.len() {
+            self.stack.pop().unwrap_or(Val::Void)
+        } else {
+            Val::Void
+        };
+        self.stack.truncate(self.continuation.stack_start);
+        match self.stack.last_mut() {
+            Some(v) => *v = ret_val,
+            None => self.stack.push(ret_val),
+        }
+        // 2. Set up the new continuation or return the new value if there are no more
+        // continuations.
+        match self.continuations.pop() {
+            Some(c) => {
+                self.continuation = c;
+                None
+            }
+            None => {
+                std::mem::take(&mut self.continuation);
+                Some(self.stack.pop().unwrap_or(Val::Void))
             }
         }
     }
@@ -117,84 +183,45 @@ impl<'a> Node<'a> {
 
 #[cfg(test)]
 mod tests {
+    use error::CompileError;
+
     use super::*;
 
     #[test]
-    fn whitespace_produces_no_nodes() {
-        let src = " \t\n ";
-        let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(actual, vec![]);
+    fn constant_expression_evaluates_to_constant() {
+        let mut vm = Vm::new();
+        let actual = vm.eval_str("42").unwrap();
+        assert_eq!(actual, Val::Int(42));
     }
 
     #[test]
-    fn atoms_are_parsed() {
-        let src = "1 2.0 three \"four\"";
-        let actual = Node::parse_to_vec(src).unwrap();
+    fn expression_can_evaluate() {
+        let mut vm = Vm::new();
+        let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
+        assert_eq!(actual, Val::Float(10.0));
+    }
+
+    #[test]
+    fn vm_error_is_reported() {
+        let mut vm = Vm::new();
+        let actual = vm.eval_str("(+ true false)").unwrap_err();
+        assert_eq!(actual, VmError::TypeError);
+    }
+
+    #[test]
+    fn compile_error_is_reported() {
+        let mut vm = Vm::new();
+        let actual = vm.eval_str("((define x 12))").unwrap_err();
         assert_eq!(
             actual,
-            vec![
-                Node::Int(1),
-                Node::Float(2.0),
-                Node::Identifier("three"),
-                Node::String("four".to_string()),
-            ]
+            VmError::CompileError(CompileError::ExpectedExpression)
         );
     }
 
     #[test]
-    fn expression_is_parsed_as_tree() {
-        let src = "(+ 1 (- a b) \"number\") (str-len \"str\") \"atom\"";
-        let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(
-            actual,
-            vec![
-                Node::Tree(vec![
-                    Node::Identifier("+"),
-                    Node::Int(1),
-                    Node::Tree(vec![
-                        Node::Identifier("-"),
-                        Node::Identifier("a"),
-                        Node::Identifier("b")
-                    ]),
-                    Node::String("number".to_string()),
-                ]),
-                Node::Tree(vec![
-                    Node::Identifier("str-len"),
-                    Node::String("str".to_string())
-                ]),
-                Node::String("atom".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn quoted_strings_within_strings_are_preserved() {
-        let src = "\"this \\\"is\\\" a string\"";
-        let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(
-            actual,
-            vec![Node::String("this \"is\" a string".to_string())]
-        );
-    }
-
-    #[test]
-    fn unclosed_paren_produces_error() {
-        let src = "(not closed";
-        let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnclosedParen);
-    }
-
-    #[test]
-    fn unexpected_close_paren_produces_error() {
-        let src = "not closed)";
-        let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnexpectedCloseParen);
-    }
-
-    #[test]
-    fn unterminated_string_produces_error() {
-        let src = "\"start of string but no end";
-        let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnclosedString);
+    fn defined_variable_can_be_referenced() {
+        let mut vm = Vm::new();
+        assert_eq!(vm.eval_str("(define x 12) (+ x x)").unwrap(), Val::Int(24));
+        assert_eq!(vm.eval_str("(+ x 10)").unwrap(), Val::Int(22));
     }
 }
