@@ -25,7 +25,7 @@ pub struct Vm {
 }
 
 /// Used to decide the next instruction to take.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Continuation {
     /// The instructions that will be taken.
     bytecode: ByteCode,
@@ -55,6 +55,7 @@ impl Vm {
             continuation: Continuation::default(),
         };
         vm.register_native_function("+", builtins::add);
+        vm.register_native_function("<", builtins::less);
         vm
     }
 
@@ -106,6 +107,10 @@ impl Vm {
         };
         match instruction {
             Instruction::PushConst(c) => self.stack.push(c.clone()),
+            Instruction::GetArg(n) => {
+                let val = self.stack[self.continuation.stack_start + *n].clone();
+                self.stack.push(val);
+            }
             Instruction::Deref(symbol) => {
                 let v = match self.values.get(symbol) {
                     Some(v) => v.clone(),
@@ -118,6 +123,17 @@ impl Vm {
                 self.values.insert(symbol.clone(), v);
             }
             Instruction::Eval(n) => self.execute_eval(*n)?,
+            Instruction::JumpIf(n) => match self.stack.pop() {
+                Some(Val::Bool(true)) => self.continuation.bytecode_idx += *n,
+                Some(Val::Bool(false)) => {}
+                v => {
+                    return Err(VmError::TypeError {
+                        expected: Val::BOOL_TYPE_NAME,
+                        actual: v.unwrap_or(Val::Void).type_name(),
+                    })
+                }
+            },
+            Instruction::Jump(n) => self.continuation.bytecode_idx += *n,
         }
         Ok(None)
     }
@@ -126,6 +142,9 @@ impl Vm {
     ///
     /// The deepest value should be a function with the rest of the values being the arguments.
     fn execute_eval(&mut self, n: usize) -> VmResult<()> {
+        if n == 0 {
+            Err(BacktraceError::capture())?;
+        }
         let function_idx = self
             .stack
             .len()
@@ -136,10 +155,21 @@ impl Vm {
             Val::NativeFunction(func) => {
                 let args = &self.stack[stack_start..];
                 let v = func(args)?;
-                self.stack.push(v);
+                self.stack[function_idx] = v;
+                self.stack.truncate(stack_start);
                 Ok(())
             }
-            Val::BytecodeFunction(bytecode) => {
+            Val::ByteCodeFunction(bytecode) => {
+                let arg_count = n - 1;
+                if bytecode.arg_count != arg_count {
+                    return Err(VmError::ArityError {
+                        expected: bytecode.arg_count,
+                        actual: arg_count,
+                    });
+                }
+                if self.continuations.capacity() == self.continuations.len() {
+                    return Err(VmError::MaximumRecursionDepth(self.continuations.len()));
+                }
                 self.continuations
                     .push(std::mem::take(&mut self.continuation));
                 self.continuation = Continuation {
@@ -149,7 +179,10 @@ impl Vm {
                 };
                 Ok(())
             }
-            _ => Err(VmError::TypeError),
+            v => Err(VmError::TypeError {
+                expected: Val::FUNCTION_TYPE_NAME,
+                actual: v.type_name(),
+            }),
         }
     }
 
@@ -205,7 +238,13 @@ mod tests {
     fn vm_error_is_reported() {
         let mut vm = Vm::new();
         let actual = vm.eval_str("(+ true false)").unwrap_err();
-        assert_eq!(actual, VmError::TypeError);
+        assert_eq!(
+            actual,
+            VmError::TypeError {
+                expected: Val::INT_TYPE_NAME,
+                actual: Val::BOOL_TYPE_NAME,
+            }
+        );
     }
 
     #[test]
@@ -214,7 +253,9 @@ mod tests {
         let actual = vm.eval_str("((define x 12))").unwrap_err();
         assert_eq!(
             actual,
-            VmError::CompileError(CompileError::ExpectedExpression)
+            VmError::CompileError(CompileError::ExpectedExpression {
+                context: "function call"
+            })
         );
     }
 
@@ -223,5 +264,102 @@ mod tests {
         let mut vm = Vm::new();
         assert_eq!(vm.eval_str("(define x 12) (+ x x)").unwrap(), Val::Int(24));
         assert_eq!(vm.eval_str("(+ x 10)").unwrap(), Val::Int(22));
+    }
+
+    #[test]
+    fn if_statement_can_return_any_of() {
+        let mut vm = Vm::new();
+        assert_eq!(vm.eval_str("(if true (+ 1 2))").unwrap(), Val::Int(3));
+        assert_eq!(
+            vm.eval_str("(if true (+ 1 2) (+ 3 4))").unwrap(),
+            Val::Int(3)
+        );
+        assert_eq!(
+            vm.eval_str("(if false (+ 1 2) (+ 3 4))").unwrap(),
+            Val::Int(7)
+        );
+        assert_eq!(vm.eval_str("(if false (+ 1 2))").unwrap(), Val::Void);
+    }
+
+    #[test]
+    fn if_statement_with_non_bool_predicate_produces_error() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
+            VmError::TypeError {
+                expected: Val::BOOL_TYPE_NAME,
+                actual: Val::INT_TYPE_NAME,
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(if 1 (+ 1 2))").unwrap_err(),
+            VmError::TypeError {
+                expected: Val::BOOL_TYPE_NAME,
+                actual: Val::INT_TYPE_NAME,
+            }
+        );
+    }
+
+    #[test]
+    fn lambda_can_be_evaluated() {
+        let mut vm = Vm::new();
+        assert_eq!(vm.eval_str("((lambda () 7))").unwrap(), Val::Int(7));
+        assert_eq!(vm.eval_str("((lambda () (+ 1 2 3)))").unwrap(), Val::Int(6));
+    }
+
+    #[test]
+    fn lambda_with_args_can_be_evaluated() {
+        let mut vm = Vm::new();
+        assert_eq!(vm.eval_str("((lambda (a b) 4) 1 2)").unwrap(), Val::Int(4));
+        assert_eq!(
+            vm.eval_str("((lambda (a b) (+ a b)) 1 2)").unwrap(),
+            Val::Int(3)
+        );
+    }
+
+    #[test]
+    fn lambda_called_with_wrong_number_of_args_produces_error() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str("((lambda () 10) 1)").unwrap_err(),
+            VmError::ArityError {
+                expected: 0,
+                actual: 1
+            },
+        );
+        assert_eq!(
+            vm.eval_str("((lambda (a) a))").unwrap_err(),
+            VmError::ArityError {
+                expected: 1,
+                actual: 0
+            },
+        );
+    }
+
+    #[test]
+    fn can_call_function_recursively() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str(
+                "(define fib (lambda (n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2))))))"
+            )
+            .unwrap(),
+            Val::Void,
+        );
+        assert_eq!(vm.eval_str("(fib 10)").unwrap(), Val::Int(55));
+    }
+
+    #[test]
+    fn infinite_recursion_halts() {
+        let mut vm = Vm::new();
+        assert_eq!(
+            vm.eval_str("(define recurse (lambda () (recurse)))")
+                .unwrap(),
+            Val::Void,
+        );
+        assert_eq!(
+            vm.eval_str("(recurse)").unwrap_err(),
+            VmError::MaximumRecursionDepth(64)
+        );
     }
 }

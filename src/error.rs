@@ -4,14 +4,21 @@ pub type VmResult<T> = Result<T, VmError>;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum VmError {
-    #[error("type error")]
-    TypeError,
+    #[error("exepcted type {expected} but found type {actual}")]
+    TypeError {
+        expected: &'static str,
+        actual: &'static str,
+    },
+    #[error("wrong arity, expected {expected} args but found {actual} args")]
+    ArityError { expected: usize, actual: usize },
     #[error("compile error ocurred: {0}")]
     CompileError(#[from] CompileError),
     #[error("invalid vm state, this is likely a bug: {0}")]
     InvalidVmState(#[from] BacktraceError),
     #[error("{0} is not defined")]
     SymbolNotDefined(String),
+    #[error("maximum function recursion depth of {0} reached")]
+    MaximumRecursionDepth(usize),
 }
 
 pub struct BacktraceError(std::backtrace::Backtrace);
@@ -70,8 +77,12 @@ pub enum CompileError {
     },
     #[error("expected an identifier")]
     ExpectedIdentifier,
-    #[error("expected expression but sub-expression did not return a value")]
-    ExpectedExpression,
+    #[error("{context} expected expression but sub-expression did not return a value")]
+    ExpectedExpression { context: &'static str },
+    #[error("{context} expected identifier list")]
+    ExpectedIdentifierList { context: &'static str },
     #[error("define is only allowed at the toplevel and not as a subexpression")]
     DefineNotAllowedInSubexpression,
+    #[error("argument {0} was defined multiple times")]
+    ArgumentDefinedMultipleTimes(String),
 }

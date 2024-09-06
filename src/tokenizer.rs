@@ -54,9 +54,6 @@ impl<'a> Token<'a> {
     /// containing the parsed token and the rest of the string.
     fn parse_next(input_source: &'a str) -> Option<(Token<'a>, &'a str)> {
         let input_source = input_source.trim_start();
-        if input_source.is_empty() {
-            return None;
-        }
         match input_source.chars().next() {
             None => return None,
             Some('"') => return Some(Token::parse_next_string(input_source)),
