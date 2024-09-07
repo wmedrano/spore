@@ -3,7 +3,7 @@ use crate::error::VmResult;
 /// Contains a Spore value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Val {
-    /// A type that continues a single value. Used to represent nothingness.
+    /// A type that contains a single value. Used to represent nothingness.
     Void,
     /// Either true or false.
     Bool(bool),

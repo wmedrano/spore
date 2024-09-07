@@ -1,7 +1,5 @@
-[package]
-name = "spore"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-thiserror = "1.0"
+[workspace]
+resolver = "2"
+members = [
+        "crates/*"
+]

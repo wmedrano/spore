@@ -2,14 +2,16 @@ use std::collections::HashMap;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
-use val::{ByteCode, Instruction, Val};
+use val::{ByteCode, Instruction};
 
 mod ast;
 mod builtins;
 mod compiler;
-mod error;
 mod tokenizer;
 mod val;
+
+pub mod error;
+pub use val::Val;
 
 /// The spore virtual machine.
 pub struct Vm {
@@ -17,21 +19,20 @@ pub struct Vm {
     stack: Vec<Val>,
     /// Map from binding name to value. This is used to store global values.
     values: HashMap<String, Val>,
-    /// The current continuation. This contains what should be evaluated next and some extra
-    /// context.
-    continuation: Continuation,
-    /// The pending continuations.
-    continuations: Vec<Continuation>,
+    /// The current stack frame. This contains what should be evaluated next and some extra context.
+    stack_frame: StackFrame,
+    /// The pending stack frames.
+    previous_stack_frames: Vec<StackFrame>,
 }
 
 /// Used to decide the next instruction to take.
 #[derive(Default, Debug)]
-pub struct Continuation {
+pub struct StackFrame {
     /// The instructions that will be taken.
     bytecode: ByteCode,
     /// The index of the next instruction within bytecode.
     bytecode_idx: usize,
-    /// The index of the stack for the first value of this continuation's local stack.
+    /// The index of the stack for the first value of this stack frame's local stack.
     stack_start: usize,
 }
 
@@ -51,8 +52,8 @@ impl Vm {
             stack: Vec::with_capacity(4096),
             values: HashMap::new(),
             // Allocate for a function call depth of 64. This is more than enough for most programs.
-            continuations: Vec::with_capacity(64),
-            continuation: Continuation::default(),
+            previous_stack_frames: Vec::with_capacity(64),
+            stack_frame: StackFrame::default(),
         };
         vm.register_native_function("+", builtins::add);
         vm.register_native_function("<", builtins::less);
@@ -77,8 +78,8 @@ impl Vm {
     /// Evaluate some bytecode in the virtual machine.
     pub fn eval_bytecode(&mut self, bytecode: ByteCode) -> VmResult<Val> {
         self.stack.clear();
-        self.continuations.clear();
-        self.continuation = Continuation {
+        self.previous_stack_frames.clear();
+        self.stack_frame = StackFrame {
             bytecode,
             bytecode_idx: 0,
             stack_start: 0,
@@ -90,17 +91,22 @@ impl Vm {
         }
     }
 
+    /// Create
+    pub fn formatted_val<'a>(&self, v: &'a Val) -> impl 'a + std::fmt::Display {
+        FormattedVal { v }
+    }
+
     /// Run the next instruction in the virtual machine.
     ///
     /// If there are no more instructions to run, then `Some(return_value)` will be
     /// returned. Otherwise, `None` will be returned.
     fn run_next(&mut self) -> VmResult<Option<Val>> {
         let maybe_instruction = self
-            .continuation
+            .stack_frame
             .bytecode
             .instructions
-            .get(self.continuation.bytecode_idx);
-        self.continuation.bytecode_idx += 1;
+            .get(self.stack_frame.bytecode_idx);
+        self.stack_frame.bytecode_idx += 1;
         let instruction = match maybe_instruction {
             Some(instruction) => instruction,
             None => return Ok(self.execute_return()),
@@ -108,7 +114,7 @@ impl Vm {
         match instruction {
             Instruction::PushConst(c) => self.stack.push(c.clone()),
             Instruction::GetArg(n) => {
-                let val = self.stack[self.continuation.stack_start + *n].clone();
+                let val = self.stack[self.stack_frame.stack_start + *n].clone();
                 self.stack.push(val);
             }
             Instruction::Deref(symbol) => {
@@ -124,7 +130,7 @@ impl Vm {
             }
             Instruction::Eval(n) => self.execute_eval(*n)?,
             Instruction::JumpIf(n) => match self.stack.pop() {
-                Some(Val::Bool(true)) => self.continuation.bytecode_idx += *n,
+                Some(Val::Bool(true)) => self.stack_frame.bytecode_idx += *n,
                 Some(Val::Bool(false)) => {}
                 v => {
                     return Err(VmError::TypeError {
@@ -133,7 +139,7 @@ impl Vm {
                     })
                 }
             },
-            Instruction::Jump(n) => self.continuation.bytecode_idx += *n,
+            Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
         }
         Ok(None)
     }
@@ -167,12 +173,14 @@ impl Vm {
                         actual: arg_count,
                     });
                 }
-                if self.continuations.capacity() == self.continuations.len() {
-                    return Err(VmError::MaximumRecursionDepth(self.continuations.len()));
+                if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
+                    return Err(VmError::MaximumRecursionDepth(
+                        self.previous_stack_frames.len(),
+                    ));
                 }
-                self.continuations
-                    .push(std::mem::take(&mut self.continuation));
-                self.continuation = Continuation {
+                self.previous_stack_frames
+                    .push(std::mem::take(&mut self.stack_frame));
+                self.stack_frame = StackFrame {
                     bytecode: bytecode.clone(),
                     bytecode_idx: 0,
                     stack_start,
@@ -186,30 +194,47 @@ impl Vm {
         }
     }
 
-    /// Execute returning from the current continuation.
+    /// Execute returning from the current stack frame.
     fn execute_return(&mut self) -> Option<Val> {
         // 1. Return the current value to the top of the stack.
-        let ret_val = if self.continuation.stack_start < self.stack.len() {
+        let ret_val = if self.stack_frame.stack_start < self.stack.len() {
             self.stack.pop().unwrap_or(Val::Void)
         } else {
             Val::Void
         };
-        self.stack.truncate(self.continuation.stack_start);
+        self.stack.truncate(self.stack_frame.stack_start);
         match self.stack.last_mut() {
             Some(v) => *v = ret_val,
             None => self.stack.push(ret_val),
         }
-        // 2. Set up the new continuation or return the new value if there are no more
-        // continuations.
-        match self.continuations.pop() {
+        // 2. Set up the new stack frame or return the new value if there are no more stack frame.
+        match self.previous_stack_frames.pop() {
             Some(c) => {
-                self.continuation = c;
+                self.stack_frame = c;
                 None
             }
             None => {
-                std::mem::take(&mut self.continuation);
+                std::mem::take(&mut self.stack_frame);
                 Some(self.stack.pop().unwrap_or(Val::Void))
             }
+        }
+    }
+}
+
+pub struct FormattedVal<'a> {
+    v: &'a Val,
+}
+
+impl<'a> std::fmt::Display for FormattedVal<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.v {
+            Val::Void => Ok(()),
+            Val::Bool(x) => write!(f, "{x}"),
+            Val::Int(x) => write!(f, "{x}"),
+            Val::Float(x) => write!(f, "{x}"),
+            Val::String(x) => write!(f, "{x}"),
+            Val::ByteCodeFunction(_) => write!(f, "<function>"),
+            Val::NativeFunction(_) => write!(f, "<function>"),
         }
     }
 }
@@ -344,7 +369,7 @@ mod tests {
                 "(define fib (lambda (n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2))))))"
             )
             .unwrap(),
-            Val::Void,
+            Val::Void
         );
         assert_eq!(vm.eval_str("(fib 10)").unwrap(), Val::Int(55));
     }

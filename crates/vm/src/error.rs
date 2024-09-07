@@ -52,17 +52,6 @@ impl PartialEq for BacktraceError {
     }
 }
 
-/// Describes an AST parsing error.
-#[derive(Debug, Error, PartialEq)]
-pub enum AstParseError {
-    #[error("opening parenthesis was unclosed")]
-    UnclosedParen,
-    #[error("found unexpected closing parenthesis")]
-    UnexpectedCloseParen,
-    #[error("string was not properly closed, did you forget \"?")]
-    UnclosedString,
-}
-
 #[derive(Debug, Error, PartialEq)]
 pub enum CompileError {
     #[error("syntax error occurred: {0}")]
@@ -85,4 +74,15 @@ pub enum CompileError {
     DefineNotAllowedInSubexpression,
     #[error("argument {0} was defined multiple times")]
     ArgumentDefinedMultipleTimes(String),
+}
+
+/// Describes an AST parsing error.
+#[derive(Debug, Error, PartialEq)]
+pub enum AstParseError {
+    #[error("opening parenthesis was unclosed")]
+    UnclosedParen,
+    #[error("found unexpected closing parenthesis")]
+    UnexpectedCloseParen,
+    #[error("string was not properly closed, did you forget \"?")]
+    UnclosedString,
 }
