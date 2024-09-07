@@ -171,14 +171,24 @@ impl Vm {
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
+                        function: bytecode.name.clone().into(),
                         expected: bytecode.arg_count,
                         actual: arg_count,
                     });
                 }
                 if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
-                    return Err(VmError::MaximumRecursionDepth(
-                        self.previous_stack_frames.len(),
-                    ));
+                    let mut call_stack = Vec::with_capacity(1 + self.previous_stack_frames.len());
+                    call_stack.push(self.stack_frame.bytecode.name.clone());
+                    call_stack.extend(
+                        self.previous_stack_frames
+                            .iter()
+                            .rev()
+                            .map(|sf| sf.bytecode.name.clone()),
+                    );
+                    return Err(VmError::MaximumRecursionDepth {
+                        call_stack,
+                        max_depth: self.previous_stack_frames.len(),
+                    });
                 }
                 self.previous_stack_frames
                     .push(std::mem::take(&mut self.stack_frame));
@@ -236,8 +246,16 @@ impl<'a> std::fmt::Display for FormattedVal<'a> {
             Val::Int(x) => write!(f, "{x}"),
             Val::Float(x) => write!(f, "{x}"),
             Val::String(x) => write!(f, "{x}"),
-            Val::ByteCodeFunction(_) => write!(f, "<function>"),
-            Val::NativeFunction(_) => write!(f, "<function>"),
+            Val::ByteCodeFunction(bc) => write!(
+                f,
+                "<function {name}>",
+                name = if bc.name.is_empty() {
+                    "_"
+                } else {
+                    bc.name.as_str()
+                }
+            ),
+            Val::NativeFunction(_) => write!(f, "<function native-function>"),
         }
     }
 }
@@ -271,7 +289,7 @@ mod tests {
             VmError::TypeError {
                 expected: Val::INT_TYPE_NAME,
                 actual: Val::BOOL_TYPE_NAME,
-                value: "".to_string(),
+                value: "true".to_string(),
             }
         );
     }
@@ -349,11 +367,12 @@ mod tests {
     }
 
     #[test]
-    fn lambda_called_with_wrong_number_of_args_produces_error() {
+    fn function_called_with_wrong_number_of_args_produces_error() {
         let mut vm = Vm::new();
         assert_eq!(
             vm.eval_str("((lambda () 10) 1)").unwrap_err(),
             VmError::ArityError {
+                function: "".into(),
                 expected: 0,
                 actual: 1
             },
@@ -361,8 +380,22 @@ mod tests {
         assert_eq!(
             vm.eval_str("((lambda (a) a))").unwrap_err(),
             VmError::ArityError {
+                function: "".into(),
                 expected: 1,
                 actual: 0
+            },
+        );
+        assert_eq!(
+            vm.eval_str("(define (takes-two-args arg1 arg2) (+ arg1 arg2))")
+                .unwrap(),
+            Val::Void
+        );
+        assert_eq!(
+            vm.eval_str("(takes-two-args 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "takes-two-args".into(),
+                expected: 2,
+                actual: 1,
             },
         );
     }
@@ -387,7 +420,14 @@ mod tests {
         );
         assert_eq!(
             vm.eval_str("(recurse)").unwrap_err(),
-            VmError::MaximumRecursionDepth(64)
+            VmError::MaximumRecursionDepth {
+                max_depth: 64,
+                call_stack: std::iter::repeat("recurse")
+                    .take(64)
+                    .chain(std::iter::once(""))
+                    .map(String::from)
+                    .collect(),
+            }
         );
     }
 }

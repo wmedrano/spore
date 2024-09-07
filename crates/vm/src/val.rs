@@ -52,6 +52,8 @@ impl Val {
 /// Contains a set of instructions for the Spore VM to evaluate.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ByteCode {
+    /// The name of the function.
+    pub name: String,
     /// The number of arguments for the bytecode.
     pub arg_count: usize,
     /// The instructions for the bytecode.

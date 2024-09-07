@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use thiserror::Error;
 
 pub type VmResult<T> = Result<T, VmError>;
@@ -10,16 +12,25 @@ pub enum VmError {
         actual: &'static str,
         value: String,
     },
-    #[error("wrong arity, expected {expected} args but found {actual} args")]
-    ArityError { expected: usize, actual: usize },
+    #[error("wrong arity, function {function} expected {expected} args but found {actual} args")]
+    ArityError {
+        function: Cow<'static, str>,
+        expected: usize,
+        actual: usize,
+    },
     #[error("compile error ocurred: {0}")]
     CompileError(#[from] CompileError),
     #[error("invalid vm state, this is likely a bug: {0}")]
     InvalidVmState(#[from] BacktraceError),
     #[error("{0} is not defined")]
     SymbolNotDefined(String),
-    #[error("maximum function recursion depth of {0} reached")]
-    MaximumRecursionDepth(usize),
+    #[error(
+        "maximum function recursion depth of {max_depth} reached, call stack is {call_stack:?}"
+    )]
+    MaximumRecursionDepth {
+        max_depth: usize,
+        call_stack: Vec<String>,
+    },
 }
 
 pub struct BacktraceError(std::backtrace::Backtrace);

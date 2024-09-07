@@ -28,6 +28,7 @@ impl Compiler {
         };
         compiler.compile_impl(input_source, CompilerContext::Module)?;
         Ok(ByteCode {
+            name: String::new(),
             arg_count: 0,
             instructions: std::mem::take(&mut compiler.instructions),
         })
@@ -133,7 +134,11 @@ impl Compiler {
                 };
                 self.instructions.push(Instruction::PushConst(val));
             }
-            Ir::Lambda { args, expressions } => {
+            Ir::Lambda {
+                name,
+                args,
+                expressions,
+            } => {
                 if expressions.is_empty() {
                     return Err(CompileError::ExpectedExpression {
                         context: "lambda definition expressions",
@@ -150,6 +155,7 @@ impl Compiler {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
                 let lambda_val = Val::ByteCodeFunction(ByteCode {
+                    name: name.unwrap_or("").to_string(),
                     arg_count: args.len(),
                     instructions: lambda_compiler.instructions,
                 });
@@ -214,6 +220,7 @@ enum Ir<'a> {
     Constant(Constant<'a>),
     /// A lambda.
     Lambda {
+        name: Option<&'a str>,
         args: Vec<String>,
         expressions: Vec<Self>,
     },
@@ -238,6 +245,7 @@ impl<'a> Ir<'a> {
                             [Node::Identifier(identifier), args @ ..] => Ir::Define {
                                 identifier,
                                 expr: Box::new(Ir::Lambda {
+                                    name: Some(identifier),
                                     args: args
                                         .iter()
                                         .map(node_to_ident)
@@ -293,6 +301,7 @@ impl<'a> Ir<'a> {
                         }
                     };
                     Ir::Lambda {
+                        name: None,
                         args: lambda_args
                             .iter()
                             .map(node_to_ident)
@@ -364,6 +373,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![]
             }
@@ -376,6 +386,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
@@ -393,6 +404,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
@@ -414,6 +426,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
@@ -435,6 +448,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: String::new(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(Val::Int(12)),
@@ -450,9 +464,11 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
+                        name: "foo".to_string(),
                         arg_count: 2,
                         instructions: vec![
                             Instruction::Deref("+".to_string()),
@@ -473,6 +489,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
@@ -522,8 +539,10 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
+                    name: "".to_string(),
                     arg_count: 0,
                     instructions: vec![Instruction::PushConst(Val::Int(1))],
                 })),]
@@ -537,8 +556,10 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
+                name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
+                    name: "".to_string(),
                     arg_count: 3,
                     instructions: vec![
                         Instruction::GetArg(1),
