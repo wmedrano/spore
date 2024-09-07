@@ -1,9 +1,10 @@
 use crate::{
     error::{VmError, VmResult},
     val::Val,
+    Vm,
 };
 
-pub fn add(args: &[Val]) -> VmResult<Val> {
+pub fn add(vm: &Vm, args: &[Val]) -> VmResult<Val> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
@@ -18,6 +19,7 @@ pub fn add(args: &[Val]) -> VmResult<Val> {
                 return Err(VmError::TypeError {
                     expected: Val::INT_TYPE_NAME,
                     actual: v.type_name(),
+                    value: vm.formatted_val(v).to_string(),
                 })
             }
         }
@@ -29,7 +31,7 @@ pub fn add(args: &[Val]) -> VmResult<Val> {
     }
 }
 
-fn less_impl(a: &Val, b: &Val) -> VmResult<bool> {
+fn less_impl(vm: &Vm, a: &Val, b: &Val) -> VmResult<bool> {
     match (a, b) {
         (Val::Int(a), Val::Int(b)) => Ok(*a < *b),
         (Val::Float(a), Val::Float(b)) => Ok(*a < *b),
@@ -38,20 +40,22 @@ fn less_impl(a: &Val, b: &Val) -> VmResult<bool> {
         (a, Val::Int(_)) | (a, Val::Float(_)) => Err(VmError::TypeError {
             expected: "int or float",
             actual: a.type_name(),
+            value: vm.formatted_val(a).to_string(),
         }),
         (_, b) => Err(VmError::TypeError {
             expected: "int or float",
             actual: b.type_name(),
+            value: vm.formatted_val(b).to_string(),
         }),
     }
 }
 
-pub fn less(args: &[Val]) -> VmResult<Val> {
+pub fn less(vm: &Vm, args: &[Val]) -> VmResult<Val> {
     match args {
         [] | [_] => Ok(Val::Bool(true)),
-        [a, b] => Ok(Val::Bool(less_impl(a, b)?)),
-        [a, b, ..] => match less_impl(a, b)? {
-            true => less(&args[1..]),
+        [a, b] => Ok(Val::Bool(less_impl(vm, a, b)?)),
+        [a, b, ..] => match less_impl(vm, a, b)? {
+            true => less(vm, &args[1..]),
             false => Ok(Val::Bool(false)),
         },
     }

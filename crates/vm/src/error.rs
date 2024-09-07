@@ -8,6 +8,7 @@ pub enum VmError {
     TypeError {
         expected: &'static str,
         actual: &'static str,
+        value: String,
     },
     #[error("wrong arity, expected {expected} args but found {actual} args")]
     ArityError { expected: usize, actual: usize },

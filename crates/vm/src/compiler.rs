@@ -228,29 +228,43 @@ impl<'a> Ir<'a> {
             Node::Float(float) => Ir::Constant(Constant::Float(*float)),
             Node::String(string) => Ir::Constant(Constant::String(string.as_str())),
             Node::Tree(tree) => match tree.as_slice() {
-                [] => return Err(CompileError::EmptyExpression),
-                [Node::Identifier("define"), args @ ..] => match args {
+                [Node::Identifier("define"), define_args @ ..] => match define_args {
                     [Node::Identifier(identifier), expr] => Ir::Define {
                         identifier,
                         expr: Box::new(Ir::new(expr)?),
                     },
+                    [Node::Tree(lambda_signature), exprs @ ..] => {
+                        match lambda_signature.as_slice() {
+                            [Node::Identifier(identifier), args @ ..] => Ir::Define {
+                                identifier,
+                                expr: Box::new(Ir::Lambda {
+                                    args: args
+                                        .iter()
+                                        .map(node_to_ident)
+                                        .collect::<Result<Vec<String>>>()?,
+                                    expressions: exprs
+                                        .iter()
+                                        .map(Ir::new)
+                                        .collect::<Result<Vec<_>>>()?,
+                                }),
+                            },
+                            _ => {
+                                return Err(CompileError::ExpectedIdentifierList {
+                                    context: "function definition",
+                                })
+                            }
+                        }
+                    }
                     [_, _] => return Err(CompileError::ExpectedIdentifier),
                     _ => {
                         return Err(CompileError::ExpressionHasWrongArgs {
                             expression: "define",
                             expected: 2,
-                            actual: args.len(),
+                            actual: define_args.len(),
                         })
                     }
                 },
                 [Node::Identifier("if"), args @ ..] => match args {
-                    [] | [_] => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "if",
-                            expected: 2,
-                            actual: args.len(),
-                        })
-                    }
                     [predicate, true_expr] => Ir::If {
                         predicate: Box::new(Ir::new(predicate)?),
                         true_expr: Box::new(Ir::new(true_expr)?),
@@ -264,20 +278,12 @@ impl<'a> Ir<'a> {
                     _ => {
                         return Err(CompileError::ExpressionHasWrongArgs {
                             expression: "if",
-                            expected: 3,
+                            expected: if args.len() > 3 { 3 } else { 2 },
                             actual: args.len(),
                         })
                     }
                 },
                 [Node::Identifier("lambda"), lambda_args, exprs @ ..] => {
-                    let node_to_ident = |node: &Node| -> Result<String> {
-                        match node {
-                            Node::Identifier(ident) => Ok(ident.to_string()),
-                            _ => Err(CompileError::ExpectedIdentifierList {
-                                context: "lambda/function definition",
-                            }),
-                        }
-                    };
                     let lambda_args = match lambda_args {
                         Node::Tree(t) => t,
                         _ => {
@@ -296,13 +302,6 @@ impl<'a> Ir<'a> {
                 }
                 [f, args @ ..] => match f {
                     Node::Identifier("if") => match args {
-                        [] | [_] => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "if",
-                                expected: 2,
-                                actual: args.len(),
-                            })
-                        }
                         [predicate, true_expr] => Ir::If {
                             predicate: Box::new(Ir::new(predicate)?),
                             true_expr: Box::new(Ir::new(true_expr)?),
@@ -316,7 +315,7 @@ impl<'a> Ir<'a> {
                         _ => {
                             return Err(CompileError::ExpressionHasWrongArgs {
                                 expression: "if",
-                                expected: 3,
+                                expected: if args.len() > 3 { 3 } else { 2 },
                                 actual: args.len(),
                             })
                         }
@@ -326,6 +325,7 @@ impl<'a> Ir<'a> {
                         args: args.iter().map(Ir::new).collect::<Result<Vec<_>>>()?,
                     },
                 },
+                [] => return Err(CompileError::EmptyExpression),
             },
         };
         Ok(ir)
@@ -342,6 +342,15 @@ impl<'a> Ir<'a> {
             Ir::Constant(_) => true,
             Ir::Lambda { .. } => true,
         }
+    }
+}
+
+fn node_to_ident(node: &Node) -> Result<String> {
+    match node {
+        Node::Identifier(ident) => Ok(ident.to_string()),
+        _ => Err(CompileError::ExpectedIdentifierList {
+            context: "lambda/function definition",
+        }),
     }
 }
 
@@ -430,6 +439,29 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(Val::Int(12)),
                     Instruction::Define("x".to_string()),
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn define_with_list_identifier_produces_lambda() {
+        let actual = Compiler::compile("(define (foo a b) (+ a b))").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
+                        arg_count: 2,
+                        instructions: vec![
+                            Instruction::Deref("+".to_string()),
+                            Instruction::GetArg(0),
+                            Instruction::GetArg(1),
+                            Instruction::Eval(3),
+                        ],
+                    })),
+                    Instruction::Define("foo".to_string()),
                 ]
             }
         );

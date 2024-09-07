@@ -64,7 +64,7 @@ impl Vm {
     pub fn register_native_function(
         &mut self,
         name: impl Into<String>,
-        func: fn(&[Val]) -> VmResult<Val>,
+        func: fn(&Vm, &[Val]) -> VmResult<Val>,
     ) {
         self.values.insert(name.into(), Val::NativeFunction(func));
     }
@@ -91,7 +91,7 @@ impl Vm {
         }
     }
 
-    /// Create
+    /// Create an object that can pretty print `v`.
     pub fn formatted_val<'a>(&self, v: &'a Val) -> impl 'a + std::fmt::Display {
         FormattedVal { v }
     }
@@ -133,10 +133,12 @@ impl Vm {
                 Some(Val::Bool(true)) => self.stack_frame.bytecode_idx += *n,
                 Some(Val::Bool(false)) => {}
                 v => {
+                    let v = v.unwrap_or(Val::Void);
                     return Err(VmError::TypeError {
                         expected: Val::BOOL_TYPE_NAME,
-                        actual: v.unwrap_or(Val::Void).type_name(),
-                    })
+                        actual: v.type_name(),
+                        value: self.formatted_val(&v).to_string(),
+                    });
                 }
             },
             Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
@@ -160,7 +162,7 @@ impl Vm {
         match &self.stack[function_idx] {
             Val::NativeFunction(func) => {
                 let args = &self.stack[stack_start..];
-                let v = func(args)?;
+                let v = func(self, args)?;
                 self.stack[function_idx] = v;
                 self.stack.truncate(stack_start);
                 Ok(())
@@ -190,6 +192,7 @@ impl Vm {
             v => Err(VmError::TypeError {
                 expected: Val::FUNCTION_TYPE_NAME,
                 actual: v.type_name(),
+                value: self.formatted_val(&v).to_string(),
             }),
         }
     }
@@ -268,6 +271,7 @@ mod tests {
             VmError::TypeError {
                 expected: Val::INT_TYPE_NAME,
                 actual: Val::BOOL_TYPE_NAME,
+                value: "".to_string(),
             }
         );
     }
@@ -314,6 +318,7 @@ mod tests {
             VmError::TypeError {
                 expected: Val::BOOL_TYPE_NAME,
                 actual: Val::INT_TYPE_NAME,
+                value: "1".to_string(),
             }
         );
         assert_eq!(
@@ -321,6 +326,7 @@ mod tests {
             VmError::TypeError {
                 expected: Val::BOOL_TYPE_NAME,
                 actual: Val::INT_TYPE_NAME,
+                value: "1".to_string(),
             }
         );
     }
@@ -365,10 +371,8 @@ mod tests {
     fn can_call_function_recursively() {
         let mut vm = Vm::new();
         assert_eq!(
-            vm.eval_str(
-                "(define fib (lambda (n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2))))))"
-            )
-            .unwrap(),
+            vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
+                .unwrap(),
             Val::Void
         );
         assert_eq!(vm.eval_str("(fib 10)").unwrap(), Val::Int(55));
@@ -378,8 +382,7 @@ mod tests {
     fn infinite_recursion_halts() {
         let mut vm = Vm::new();
         assert_eq!(
-            vm.eval_str("(define recurse (lambda () (recurse)))")
-                .unwrap(),
+            vm.eval_str("(define (recurse) (recurse))").unwrap(),
             Val::Void,
         );
         assert_eq!(

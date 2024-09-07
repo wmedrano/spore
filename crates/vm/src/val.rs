@@ -1,9 +1,10 @@
 use crate::error::VmResult;
 
 /// Contains a Spore value.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub enum Val {
     /// A type that contains a single value. Used to represent nothingness.
+    #[default]
     Void,
     /// Either true or false.
     Bool(bool),
@@ -16,7 +17,7 @@ pub enum Val {
     /// A function implemented in Spore's bytecode.
     ByteCodeFunction(ByteCode),
     /// A function implemented in Rust.
-    NativeFunction(fn(&[Val]) -> VmResult<Val>),
+    NativeFunction(fn(&crate::Vm, &[Val]) -> VmResult<Val>),
 }
 
 impl Val {
