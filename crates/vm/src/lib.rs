@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
-use val::{ByteCode, Instruction};
+use val::{ByteCode, FormattedVal, Instruction};
 
 mod ast;
 mod builtins;
@@ -159,11 +159,11 @@ impl Vm {
             .checked_sub(n)
             .ok_or_else(BacktraceError::capture)?;
         let stack_start = function_idx + 1;
-        match &self.stack[function_idx] {
+        let func_val = std::mem::take(&mut self.stack[function_idx]);
+        match func_val {
             Val::NativeFunction(func) => {
                 let args = &self.stack[stack_start..];
-                let v = func(self, args)?;
-                self.stack[function_idx] = v;
+                self.stack[function_idx] = func(self, args)?;
                 self.stack.truncate(stack_start);
                 Ok(())
             }
@@ -171,7 +171,7 @@ impl Vm {
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
-                        function: bytecode.name.clone().into(),
+                        function: bytecode.name.into(),
                         expected: bytecode.arg_count,
                         actual: arg_count,
                     });
@@ -193,7 +193,7 @@ impl Vm {
                 self.previous_stack_frames
                     .push(std::mem::take(&mut self.stack_frame));
                 self.stack_frame = StackFrame {
-                    bytecode: bytecode.clone(),
+                    bytecode,
                     bytecode_idx: 0,
                     stack_start,
                 };
@@ -211,51 +211,29 @@ impl Vm {
     fn execute_return(&mut self) -> Option<Val> {
         // 1. Return the current value to the top of the stack.
         let ret_val = if self.stack_frame.stack_start < self.stack.len() {
-            self.stack.pop().unwrap_or(Val::Void)
+            // Unwrap OK: The above statement is never true when len == 0.
+            self.stack.pop().unwrap()
         } else {
             Val::Void
         };
-        self.stack.truncate(self.stack_frame.stack_start);
-        match self.stack.last_mut() {
-            Some(v) => *v = ret_val,
-            None => self.stack.push(ret_val),
-        }
-        // 2. Set up the new stack frame or return the new value if there are no more stack frame.
+        // 2. Set up the next continuation.
         match self.previous_stack_frames.pop() {
+            // 2a. Pop the stack frame and replace the top value in the stack with the return value.
             Some(c) => {
+                self.stack.truncate(self.stack_frame.stack_start);
+                match self.stack.last_mut() {
+                    Some(v) => *v = ret_val,
+                    None => unreachable!(),
+                }
                 self.stack_frame = c;
                 None
             }
+            // 2b. There is nothing to continue to so return the value.
             None => {
                 std::mem::take(&mut self.stack_frame);
-                Some(self.stack.pop().unwrap_or(Val::Void))
+                self.stack.clear();
+                Some(ret_val)
             }
-        }
-    }
-}
-
-pub struct FormattedVal<'a> {
-    v: &'a Val,
-}
-
-impl<'a> std::fmt::Display for FormattedVal<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.v {
-            Val::Void => Ok(()),
-            Val::Bool(x) => write!(f, "{x}"),
-            Val::Int(x) => write!(f, "{x}"),
-            Val::Float(x) => write!(f, "{x}"),
-            Val::String(x) => write!(f, "{x}"),
-            Val::ByteCodeFunction(bc) => write!(
-                f,
-                "<function {name}>",
-                name = if bc.name.is_empty() {
-                    "_"
-                } else {
-                    bc.name.as_str()
-                }
-            ),
-            Val::NativeFunction(_) => write!(f, "<function native-function>"),
         }
     }
 }

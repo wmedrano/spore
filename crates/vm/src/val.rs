@@ -8,7 +8,7 @@ pub enum Val {
     Void,
     /// Either true or false.
     Bool(bool),
-    /// A 64 bit signed integer.
+    /// A 64 bit signed integer
     Int(i64),
     /// A 64 bit floating point number.
     Float(f64),
@@ -78,4 +78,87 @@ pub enum Instruction {
     JumpIf(usize),
     /// Jump `n` instructions.
     Jump(usize),
+}
+
+pub struct FormattedVal<'a> {
+    pub(crate) v: &'a Val,
+}
+
+impl<'a> std::fmt::Display for FormattedVal<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.v {
+            Val::Void => Ok(()),
+            Val::Bool(x) => write!(f, "{x}"),
+            Val::Int(x) => write!(f, "{x}"),
+            Val::Float(x) => write!(f, "{x}"),
+            Val::String(x) => write!(f, "{x}"),
+            Val::ByteCodeFunction(bc) => write!(
+                f,
+                "<function {name}>",
+                name = if bc.name.is_empty() {
+                    "_"
+                } else {
+                    bc.name.as_str()
+                }
+            ),
+            Val::NativeFunction(_) => write!(f, "<native-function>"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Vm;
+
+    #[test]
+    fn format_void_is_empty() {
+        let vm = Vm::new();
+        assert_eq!(vm.formatted_val(&Val::Void).to_string(), "");
+    }
+
+    #[test]
+    fn format_bool_is_true_or_false() {
+        let vm = Vm::new();
+        assert_eq!(vm.formatted_val(&Val::Bool(true)).to_string(), "true");
+        assert_eq!(vm.formatted_val(&Val::Bool(false)).to_string(), "false");
+    }
+
+    #[test]
+    fn format_int_prints_number() {
+        let vm = Vm::new();
+        assert_eq!(vm.formatted_val(&Val::Int(0)).to_string(), "0");
+        assert_eq!(vm.formatted_val(&Val::Int(-1)).to_string(), "-1");
+    }
+
+    #[test]
+    fn format_float_prints_number() {
+        let vm = Vm::new();
+        assert_eq!(vm.formatted_val(&Val::Float(0.0)).to_string(), "0");
+        assert_eq!(vm.formatted_val(&Val::Float(-1.5)).to_string(), "-1.5");
+    }
+
+    #[test]
+    fn format_string_produces_string() {
+        let vm = Vm::new();
+        assert_eq!(
+            vm.formatted_val(&Val::String("my string".to_string()))
+                .to_string(),
+            "my string"
+        );
+    }
+
+    #[test]
+    fn format_function_prints_name() {
+        let mut vm = Vm::new();
+        let v = vm.eval_str("(define (foo) 10) foo").unwrap();
+        assert_eq!(vm.formatted_val(&v).to_string(), "<function foo>",);
+    }
+
+    #[test]
+    fn format_native_function_prints_native_function() {
+        let mut vm = Vm::new();
+        let v = vm.eval_str("+").unwrap();
+        assert_eq!(vm.formatted_val(&v).to_string(), "<native-function>");
+    }
 }
