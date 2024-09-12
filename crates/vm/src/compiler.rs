@@ -4,7 +4,7 @@ use crate::{
     ast::Node,
     error::CompileError,
     val::{ByteCode, Instruction},
-    Val,
+    InternalVal,
 };
 
 type Result<T> = std::result::Result<T, CompileError>;
@@ -94,7 +94,8 @@ impl Compiler {
                 }
                 self.compile_one(predicate, CompilerContext::Subexpression)?;
                 let true_jump_idx = self.instructions.len();
-                self.instructions.push(Instruction::PushConst(Val::Void));
+                self.instructions
+                    .push(Instruction::PushConst(InternalVal::Void));
                 match false_expr {
                     Some(expr) => {
                         if !expr.is_expression() {
@@ -104,10 +105,13 @@ impl Compiler {
                         }
                         self.compile_one(expr, CompilerContext::Subexpression)?
                     }
-                    None => self.instructions.push(Instruction::PushConst(Val::Void)),
+                    None => self
+                        .instructions
+                        .push(Instruction::PushConst(InternalVal::Void)),
                 }
                 let false_jump_idx = self.instructions.len();
-                self.instructions.push(Instruction::PushConst(Val::Void));
+                self.instructions
+                    .push(Instruction::PushConst(InternalVal::Void));
                 if !true_expr.is_expression() {
                     return Err(CompileError::ExpectedExpression {
                         context: "if expression, true branch",
@@ -127,10 +131,10 @@ impl Compiler {
             },
             Ir::Constant(const_val) => {
                 let val = match const_val {
-                    Constant::Bool(x) => Val::Bool(*x),
-                    Constant::Int(x) => Val::Int(*x),
-                    Constant::Float(x) => Val::Float(*x),
-                    Constant::String(x) => Val::String(x.to_string()),
+                    Constant::Bool(x) => InternalVal::Bool(*x),
+                    Constant::Int(x) => InternalVal::Int(*x),
+                    Constant::Float(x) => InternalVal::Float(*x),
+                    Constant::String(x) => InternalVal::String(x.to_string()),
                 };
                 self.instructions.push(Instruction::PushConst(val));
             }
@@ -154,7 +158,7 @@ impl Compiler {
                 for expr in expressions.iter() {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val = Val::ByteCodeFunction(ByteCode {
+                let lambda_val = InternalVal::ByteCodeFunction(ByteCode {
                     name: name.unwrap_or("").to_string(),
                     arg_count: args.len(),
                     instructions: lambda_compiler.instructions,
@@ -390,8 +394,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(1)),
-                    Instruction::PushConst(Val::Int(2)),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                 ]
             }
@@ -408,12 +412,12 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(1)),
-                    Instruction::PushConst(Val::Int(2)),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(3)),
-                    Instruction::PushConst(Val::Int(4)),
+                    Instruction::PushConst(InternalVal::Int(3)),
+                    Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
                 ]
             }
@@ -430,11 +434,11 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(1)),
-                    Instruction::PushConst(Val::Int(2)),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(3)),
-                    Instruction::PushConst(Val::Int(4)),
+                    Instruction::PushConst(InternalVal::Int(3)),
+                    Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
                     Instruction::Eval(4),
                 ]
@@ -451,7 +455,7 @@ mod tests {
                 name: String::new(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(Val::Int(12)),
+                    Instruction::PushConst(InternalVal::Int(12)),
                     Instruction::Define("x".to_string()),
                 ]
             }
@@ -467,7 +471,7 @@ mod tests {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
+                    Instruction::PushConst(InternalVal::ByteCodeFunction(ByteCode {
                         name: "foo".to_string(),
                         arg_count: 2,
                         instructions: vec![
@@ -493,8 +497,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(Val::Int(1)),
-                    Instruction::PushConst(Val::Int(2)),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                     Instruction::Define("x".to_string()),
                 ]
@@ -541,11 +545,13 @@ mod tests {
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
-                    name: "".to_string(),
-                    arg_count: 0,
-                    instructions: vec![Instruction::PushConst(Val::Int(1))],
-                })),]
+                instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
+                    ByteCode {
+                        name: "".to_string(),
+                        arg_count: 0,
+                        instructions: vec![Instruction::PushConst(InternalVal::Int(1))],
+                    }
+                )),]
             }
         );
     }
@@ -558,16 +564,18 @@ mod tests {
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(Val::ByteCodeFunction(ByteCode {
-                    name: "".to_string(),
-                    arg_count: 3,
-                    instructions: vec![
-                        Instruction::GetArg(1),
-                        Instruction::GetArg(0),
-                        Instruction::GetArg(2),
-                        Instruction::Eval(3)
-                    ],
-                })),]
+                instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
+                    ByteCode {
+                        name: "".to_string(),
+                        arg_count: 3,
+                        instructions: vec![
+                            Instruction::GetArg(1),
+                            Instruction::GetArg(0),
+                            Instruction::GetArg(2),
+                            Instruction::Eval(3)
+                        ],
+                    }
+                )),]
             }
         );
     }

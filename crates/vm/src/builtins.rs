@@ -1,62 +1,62 @@
 use crate::{
     error::{VmError, VmResult},
-    val::Val,
+    val::{InternalVal, Val},
     Vm,
 };
 
-pub fn add(vm: &Vm, args: &[Val]) -> VmResult<Val> {
+pub fn add(_: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
     for arg in args {
         match arg {
-            Val::Int(x) => int_sum += *x,
-            Val::Float(x) => {
+            InternalVal::Int(x) => int_sum += *x,
+            InternalVal::Float(x) => {
                 float_sum += *x;
                 has_float = true;
             }
             v => {
                 return Err(VmError::TypeError {
-                    expected: Val::INT_TYPE_NAME,
+                    expected: InternalVal::INT_TYPE_NAME,
                     actual: v.type_name(),
-                    value: vm.formatted_val(v).to_string(),
+                    value: Val { v: v.clone() }.to_string(),
                 })
             }
         }
     }
     if has_float {
-        Ok(Val::Float(float_sum + int_sum as f64))
+        Ok(InternalVal::Float(float_sum + int_sum as f64))
     } else {
-        Ok(Val::Int(int_sum))
+        Ok(InternalVal::Int(int_sum))
     }
 }
 
-fn less_impl(vm: &Vm, a: &Val, b: &Val) -> VmResult<bool> {
+fn less_impl(_: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
     match (a, b) {
-        (Val::Int(a), Val::Int(b)) => Ok(*a < *b),
-        (Val::Float(a), Val::Float(b)) => Ok(*a < *b),
-        (Val::Float(a), Val::Int(b)) => Ok(*a < (*b as f64)),
-        (Val::Int(a), Val::Float(b)) => Ok((*a as f64) < *b),
-        (a, Val::Int(_)) | (a, Val::Float(_)) => Err(VmError::TypeError {
+        (InternalVal::Int(a), InternalVal::Int(b)) => Ok(*a < *b),
+        (InternalVal::Float(a), InternalVal::Float(b)) => Ok(*a < *b),
+        (InternalVal::Float(a), InternalVal::Int(b)) => Ok(*a < (*b as f64)),
+        (InternalVal::Int(a), InternalVal::Float(b)) => Ok((*a as f64) < *b),
+        (a, InternalVal::Int(_)) | (a, InternalVal::Float(_)) => Err(VmError::TypeError {
             expected: "int or float",
             actual: a.type_name(),
-            value: vm.formatted_val(a).to_string(),
+            value: Val { v: a.clone() }.to_string(),
         }),
         (_, b) => Err(VmError::TypeError {
             expected: "int or float",
             actual: b.type_name(),
-            value: vm.formatted_val(b).to_string(),
+            value: Val { v: b.clone() }.to_string(),
         }),
     }
 }
 
-pub fn less(vm: &Vm, args: &[Val]) -> VmResult<Val> {
+pub fn less(vm: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     match args {
-        [] | [_] => Ok(Val::Bool(true)),
-        [a, b] => Ok(Val::Bool(less_impl(vm, a, b)?)),
+        [] | [_] => Ok(InternalVal::Bool(true)),
+        [a, b] => Ok(InternalVal::Bool(less_impl(vm, a, b)?)),
         [a, b, ..] => match less_impl(vm, a, b)? {
             true => less(vm, &args[1..]),
-            false => Ok(Val::Bool(false)),
+            false => Ok(InternalVal::Bool(false)),
         },
     }
 }

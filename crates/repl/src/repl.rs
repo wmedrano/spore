@@ -1,7 +1,7 @@
 use anyhow::Result;
 use spore_vm::{
     error::{AstParseError, CompileError, VmError},
-    Val, Vm,
+    Vm,
 };
 
 pub struct Repl {
@@ -33,8 +33,8 @@ impl Repl {
     pub fn eval_expr(&mut self, expr: &str, out: &mut impl std::io::Write) -> Result<()> {
         self.input.push_str(expr);
         match self.vm.eval_str(&self.input) {
-            Ok(Val::Void) => {}
-            Ok(v) => writeln!(out, "{}", self.vm.formatted_val(&v))?,
+            Ok(v) if v.is_void() => {}
+            Ok(v) => writeln!(out, "{}", v)?,
             Err(VmError::CompileError(CompileError::AstError(AstParseError::UnclosedParen))) => {
                 self.input.push('\n');
                 return Ok(());

@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
-use val::{ByteCode, FormattedVal, Instruction};
+use val::{ByteCode, Instruction, InternalVal};
+
+pub use val::Val;
 
 mod ast;
 mod builtins;
@@ -11,14 +13,13 @@ mod tokenizer;
 mod val;
 
 pub mod error;
-pub use val::Val;
 
 /// The spore virtual machine.
 pub struct Vm {
     /// The data stack. This is used to store temporary values used for compuation.
-    stack: Vec<Val>,
+    stack: Vec<InternalVal>,
     /// Map from binding name to value. This is used to store global values.
-    values: HashMap<String, Val>,
+    values: HashMap<String, InternalVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
     stack_frame: StackFrame,
     /// The pending stack frames.
@@ -61,22 +62,24 @@ impl Vm {
     }
 
     /// Register a native function that can be called within the virtual machine.
-    pub fn register_native_function(
+    fn register_native_function(
         &mut self,
         name: impl Into<String>,
-        func: fn(&Vm, &[Val]) -> VmResult<Val>,
+        func: fn(&Vm, &[InternalVal]) -> VmResult<InternalVal>,
     ) {
-        self.values.insert(name.into(), Val::NativeFunction(func));
+        self.values
+            .insert(name.into(), InternalVal::NativeFunction(func));
     }
 
     /// Evaluate a string in the virtual machine.
     pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
         let bytecode = Compiler::compile(source)?;
-        self.eval_bytecode(bytecode)
+        let v = self.eval_bytecode(bytecode)?;
+        Ok(Val { v })
     }
 
     /// Evaluate some bytecode in the virtual machine.
-    pub fn eval_bytecode(&mut self, bytecode: ByteCode) -> VmResult<Val> {
+    fn eval_bytecode(&mut self, bytecode: ByteCode) -> VmResult<InternalVal> {
         self.stack.clear();
         self.previous_stack_frames.clear();
         self.stack_frame = StackFrame {
@@ -91,16 +94,11 @@ impl Vm {
         }
     }
 
-    /// Create an object that can pretty print `v`.
-    pub fn formatted_val<'a>(&self, v: &'a Val) -> impl 'a + std::fmt::Display {
-        FormattedVal { v }
-    }
-
     /// Run the next instruction in the virtual machine.
     ///
     /// If there are no more instructions to run, then `Some(return_value)` will be
     /// returned. Otherwise, `None` will be returned.
-    fn run_next(&mut self) -> VmResult<Option<Val>> {
+    fn run_next(&mut self) -> VmResult<Option<InternalVal>> {
         let maybe_instruction = self
             .stack_frame
             .bytecode
@@ -130,14 +128,14 @@ impl Vm {
             }
             Instruction::Eval(n) => self.execute_eval(*n)?,
             Instruction::JumpIf(n) => match self.stack.pop() {
-                Some(Val::Bool(true)) => self.stack_frame.bytecode_idx += *n,
-                Some(Val::Bool(false)) => {}
+                Some(InternalVal::Bool(true)) => self.stack_frame.bytecode_idx += *n,
+                Some(InternalVal::Bool(false)) => {}
                 v => {
-                    let v = v.unwrap_or(Val::Void);
+                    let v = v.unwrap_or(InternalVal::Void);
                     return Err(VmError::TypeError {
-                        expected: Val::BOOL_TYPE_NAME,
+                        expected: InternalVal::BOOL_TYPE_NAME,
                         actual: v.type_name(),
-                        value: self.formatted_val(&v).to_string(),
+                        value: Val { v }.to_string(),
                     });
                 }
             },
@@ -161,13 +159,13 @@ impl Vm {
         let stack_start = function_idx + 1;
         let func_val = std::mem::take(&mut self.stack[function_idx]);
         match func_val {
-            Val::NativeFunction(func) => {
+            InternalVal::NativeFunction(func) => {
                 let args = &self.stack[stack_start..];
                 self.stack[function_idx] = func(self, args)?;
                 self.stack.truncate(stack_start);
                 Ok(())
             }
-            Val::ByteCodeFunction(bytecode) => {
+            InternalVal::ByteCodeFunction(bytecode) => {
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
@@ -200,21 +198,21 @@ impl Vm {
                 Ok(())
             }
             v => Err(VmError::TypeError {
-                expected: Val::FUNCTION_TYPE_NAME,
+                expected: InternalVal::FUNCTION_TYPE_NAME,
                 actual: v.type_name(),
-                value: self.formatted_val(&v).to_string(),
+                value: Val { v }.to_string(),
             }),
         }
     }
 
     /// Execute returning from the current stack frame.
-    fn execute_return(&mut self) -> Option<Val> {
+    fn execute_return(&mut self) -> Option<InternalVal> {
         // 1. Return the current value to the top of the stack.
         let ret_val = if self.stack_frame.stack_start < self.stack.len() {
             // Unwrap OK: The above statement is never true when len == 0.
             self.stack.pop().unwrap()
         } else {
-            Val::Void
+            InternalVal::Void
         };
         // 2. Set up the next continuation.
         match self.previous_stack_frames.pop() {
@@ -248,14 +246,24 @@ mod tests {
     fn constant_expression_evaluates_to_constant() {
         let mut vm = Vm::new();
         let actual = vm.eval_str("42").unwrap();
-        assert_eq!(actual, Val::Int(42));
+        assert_eq!(
+            actual,
+            Val {
+                v: InternalVal::Int(42)
+            }
+        );
     }
 
     #[test]
     fn expression_can_evaluate() {
         let mut vm = Vm::new();
         let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
-        assert_eq!(actual, Val::Float(10.0));
+        assert_eq!(
+            actual,
+            Val {
+                v: InternalVal::Float(10.0)
+            }
+        );
     }
 
     #[test]
@@ -265,8 +273,8 @@ mod tests {
         assert_eq!(
             actual,
             VmError::TypeError {
-                expected: Val::INT_TYPE_NAME,
-                actual: Val::BOOL_TYPE_NAME,
+                expected: InternalVal::INT_TYPE_NAME,
+                actual: InternalVal::BOOL_TYPE_NAME,
                 value: "true".to_string(),
             }
         );
@@ -287,23 +295,47 @@ mod tests {
     #[test]
     fn defined_variable_can_be_referenced() {
         let mut vm = Vm::new();
-        assert_eq!(vm.eval_str("(define x 12) (+ x x)").unwrap(), Val::Int(24));
-        assert_eq!(vm.eval_str("(+ x 10)").unwrap(), Val::Int(22));
+        assert_eq!(
+            vm.eval_str("(define x 12) (+ x x)").unwrap(),
+            Val {
+                v: InternalVal::Int(24)
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(+ x 10)").unwrap(),
+            Val {
+                v: InternalVal::Int(22)
+            }
+        );
     }
 
     #[test]
     fn if_statement_can_return_any_of() {
         let mut vm = Vm::new();
-        assert_eq!(vm.eval_str("(if true (+ 1 2))").unwrap(), Val::Int(3));
+        assert_eq!(
+            vm.eval_str("(if true (+ 1 2))").unwrap(),
+            Val {
+                v: InternalVal::Int(3)
+            },
+        );
         assert_eq!(
             vm.eval_str("(if true (+ 1 2) (+ 3 4))").unwrap(),
-            Val::Int(3)
+            Val {
+                v: InternalVal::Int(3)
+            },
         );
         assert_eq!(
             vm.eval_str("(if false (+ 1 2) (+ 3 4))").unwrap(),
-            Val::Int(7)
+            Val {
+                v: InternalVal::Int(7)
+            },
         );
-        assert_eq!(vm.eval_str("(if false (+ 1 2))").unwrap(), Val::Void);
+        assert_eq!(
+            vm.eval_str("(if false (+ 1 2))").unwrap(),
+            Val {
+                v: InternalVal::Void
+            },
+        );
     }
 
     #[test]
@@ -312,16 +344,16 @@ mod tests {
         assert_eq!(
             vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
             VmError::TypeError {
-                expected: Val::BOOL_TYPE_NAME,
-                actual: Val::INT_TYPE_NAME,
+                expected: InternalVal::BOOL_TYPE_NAME,
+                actual: InternalVal::INT_TYPE_NAME,
                 value: "1".to_string(),
             }
         );
         assert_eq!(
             vm.eval_str("(if 1 (+ 1 2))").unwrap_err(),
             VmError::TypeError {
-                expected: Val::BOOL_TYPE_NAME,
-                actual: Val::INT_TYPE_NAME,
+                expected: InternalVal::BOOL_TYPE_NAME,
+                actual: InternalVal::INT_TYPE_NAME,
                 value: "1".to_string(),
             }
         );
@@ -330,17 +362,34 @@ mod tests {
     #[test]
     fn lambda_can_be_evaluated() {
         let mut vm = Vm::new();
-        assert_eq!(vm.eval_str("((lambda () 7))").unwrap(), Val::Int(7));
-        assert_eq!(vm.eval_str("((lambda () (+ 1 2 3)))").unwrap(), Val::Int(6));
+        assert_eq!(
+            vm.eval_str("((lambda () 7))").unwrap(),
+            Val {
+                v: InternalVal::Int(7)
+            }
+        );
+        assert_eq!(
+            vm.eval_str("((lambda () (+ 1 2 3)))").unwrap(),
+            val::Val {
+                v: InternalVal::Int(6)
+            }
+        );
     }
 
     #[test]
     fn lambda_with_args_can_be_evaluated() {
         let mut vm = Vm::new();
-        assert_eq!(vm.eval_str("((lambda (a b) 4) 1 2)").unwrap(), Val::Int(4));
+        assert_eq!(
+            vm.eval_str("((lambda (a b) 4) 1 2)").unwrap(),
+            Val {
+                v: InternalVal::Int(4)
+            }
+        );
         assert_eq!(
             vm.eval_str("((lambda (a b) (+ a b)) 1 2)").unwrap(),
-            Val::Int(3)
+            Val {
+                v: InternalVal::Int(3)
+            }
         );
     }
 
@@ -366,7 +415,9 @@ mod tests {
         assert_eq!(
             vm.eval_str("(define (takes-two-args arg1 arg2) (+ arg1 arg2))")
                 .unwrap(),
-            Val::Void
+            Val {
+                v: InternalVal::Void
+            }
         );
         assert_eq!(
             vm.eval_str("(takes-two-args 1)").unwrap_err(),
@@ -384,9 +435,16 @@ mod tests {
         assert_eq!(
             vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
                 .unwrap(),
-            Val::Void
+            Val {
+                v: InternalVal::Void
+            }
         );
-        assert_eq!(vm.eval_str("(fib 10)").unwrap(), Val::Int(55));
+        assert_eq!(
+            vm.eval_str("(fib 10)").unwrap(),
+            Val {
+                v: InternalVal::Int(55)
+            }
+        );
     }
 
     #[test]
@@ -394,7 +452,9 @@ mod tests {
         let mut vm = Vm::new();
         assert_eq!(
             vm.eval_str("(define (recurse) (recurse))").unwrap(),
-            Val::Void,
+            Val {
+                v: InternalVal::Void
+            },
         );
         assert_eq!(
             vm.eval_str("(recurse)").unwrap_err(),
