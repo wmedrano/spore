@@ -2,10 +2,12 @@ use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use crate::val::{bytecode::ByteCode, InternalVal};
 
+type IdRepr = u32;
+
 /// A unique identifier for an object in `ValStore`.
 #[derive(Debug, Default)]
 pub struct ValId<T> {
-    id: u32,
+    id: IdRepr,
     _marker: PhantomData<T>,
 }
 
@@ -37,8 +39,8 @@ struct ValWithColor<T> {
 pub struct ValStore {
     strings: HashMap<ValId<String>, ValWithColor<String>>,
     bytecodes: HashMap<ValId<Arc<ByteCode>>, ValWithColor<Arc<ByteCode>>>,
-    next_string: u32,
-    next_bytecode: u32,
+    next_string: IdRepr,
+    next_bytecode: IdRepr,
     alive_color: Color,
 }
 
@@ -46,6 +48,9 @@ impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
         let self_ptr: *mut ValStore = self;
+        let mark_bytecode_child_vals = move |bc: &ByteCode| {
+            unsafe { &mut *self_ptr }.run_gc(bc.values());
+        };
         // 1. Mark.
         for val in values {
             match val {
@@ -62,16 +67,22 @@ impl ValStore {
                     if let Some(entry) = self.bytecodes.get_mut(&id) {
                         if entry.color != self.alive_color {
                             entry.color = self.alive_color;
-                            let child_values = entry.inner.values();
-                            unsafe { &mut *self_ptr }.run_gc(child_values);
+                            mark_bytecode_child_vals(&entry.inner);
                         }
                     }
                 }
                 InternalVal::NativeFunction(_) => {}
             }
         }
+        for entry in self.bytecodes.values_mut() {
+            if entry.keep_alive_count > 0 && entry.color != self.alive_color {
+                entry.color = self.alive_color;
+                mark_bytecode_child_vals(&entry.inner);
+            }
+        }
         // 2. Sweep.
-        self.strings.retain(|_, v| v.color == self.alive_color);
+        self.strings
+            .retain(|_, v| v.color == self.alive_color && v.keep_alive_count > 0);
         self.bytecodes.retain(|_, v| v.color == self.alive_color);
     }
 
@@ -190,12 +201,12 @@ impl<T> Clone for ValId<T> {
 }
 impl<T> std::hash::Hash for ValId<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        state.write(&self.id.to_ne_bytes());
     }
 }
 
 impl<T> ValId<T> {
-    pub fn new(id: u32) -> ValId<T> {
+    pub fn new(id: IdRepr) -> ValId<T> {
         ValId {
             id,
             _marker: PhantomData,
