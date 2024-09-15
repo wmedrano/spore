@@ -1,7 +1,7 @@
-use crate::error::VmResult;
+use crate::{error::VmResult, val_store::ValId, Vm};
 
 /// Contains a Spore value.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub(crate) enum InternalVal {
     /// A type that contains a single value. Used to represent nothingness.
     #[default]
@@ -13,9 +13,9 @@ pub(crate) enum InternalVal {
     /// A 64 bit floating point number.
     Float(f64),
     /// A string.
-    String(String),
+    String(ValId<String>),
     /// A function implemented in Spore's bytecode.
-    ByteCodeFunction(ByteCode),
+    ByteCodeFunction(ValId<ByteCode>),
     /// A function implemented in Rust.
     NativeFunction(fn(&crate::Vm, &[InternalVal]) -> VmResult<InternalVal>),
 }
@@ -39,6 +39,40 @@ impl InternalVal {
             InternalVal::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
         }
     }
+
+    pub fn formatted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
+        ValFormatter { vm, v: *self }
+    }
+}
+
+struct ValFormatter<'a> {
+    vm: &'a Vm,
+    v: InternalVal,
+}
+
+impl<'a> std::fmt::Display for ValFormatter<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.v {
+            InternalVal::Void => Ok(()),
+            InternalVal::Bool(x) => write!(f, "{x}"),
+            InternalVal::Int(x) => write!(f, "{x}"),
+            InternalVal::Float(x) => write!(f, "{x}"),
+            InternalVal::String(x) => write!(f, "{}", self.vm.val_store.get_str(*x)),
+            InternalVal::ByteCodeFunction(bc) => {
+                let bc = self.vm.val_store.get_bytecode(*bc);
+                write!(
+                    f,
+                    "<function {name}>",
+                    name = if bc.name.is_empty() {
+                        "_"
+                    } else {
+                        bc.name.as_str()
+                    }
+                )
+            }
+            InternalVal::NativeFunction(_) => write!(f, "<native-function>"),
+        }
+    }
 }
 
 /// Contains a set of instructions for the Spore VM to evaluate.
@@ -50,6 +84,22 @@ pub(crate) struct ByteCode {
     pub arg_count: usize,
     /// The instructions for the bytecode.
     pub instructions: Vec<Instruction>,
+}
+
+impl ByteCode {
+    pub fn values(&self) -> impl '_ + Iterator<Item = InternalVal> {
+        self.instructions
+            .iter()
+            .flat_map(|instruction| match instruction {
+                Instruction::PushConst(v) => Some(*v),
+                Instruction::GetArg(_) => None,
+                Instruction::Deref(_) => None,
+                Instruction::Define(_) => None,
+                Instruction::Eval(_) => None,
+                Instruction::JumpIf(_) => None,
+                Instruction::Jump(_) => None,
+            })
+    }
 }
 
 /// An instruction for the VM to execute.
@@ -72,34 +122,83 @@ pub(crate) enum Instruction {
     Jump(usize),
 }
 
-#[derive(Clone, PartialEq, Debug)]
-pub struct Val {
+#[derive(Debug)]
+pub struct Val<'a> {
+    pub(crate) vm: &'a mut Vm,
     pub(crate) v: InternalVal,
+    _internal: (),
 }
 
-impl Val {
-    pub fn is_void(&self) -> bool {
-        matches!(self.v, InternalVal::Void)
+impl<'a> Val<'a> {
+    pub(crate) fn new(vm: &'a mut Vm, v: InternalVal) -> Val<'a> {
+        vm.val_store.keep_alive(v);
+        Val {
+            vm,
+            v,
+            _internal: (),
+        }
     }
 }
 
-impl std::fmt::Display for Val {
+impl<'a> Drop for Val<'a> {
+    fn drop(&mut self) {
+        self.vm.val_store.allow_death(self.v);
+    }
+}
+
+impl<'a> PartialEq for Val<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.v == other.v
+    }
+}
+
+impl<'a> Val<'a> {
+    pub fn is_void(&self) -> bool {
+        matches!(self.v, InternalVal::Void)
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self.v {
+            InternalVal::Int(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_float(&self) -> Option<f64> {
+        match self.v {
+            InternalVal::Float(x) => Some(x),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self.v {
+            InternalVal::String(x) => Some(self.vm.val_store.get_str(x)),
+            _ => None,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for Val<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.v {
             InternalVal::Void => Ok(()),
             InternalVal::Bool(x) => write!(f, "{x}"),
             InternalVal::Int(x) => write!(f, "{x}"),
             InternalVal::Float(x) => write!(f, "{x}"),
-            InternalVal::String(x) => write!(f, "{x}"),
-            InternalVal::ByteCodeFunction(bc) => write!(
-                f,
-                "<function {name}>",
-                name = if bc.name.is_empty() {
-                    "_"
-                } else {
-                    bc.name.as_str()
-                }
-            ),
+            InternalVal::String(x) => write!(f, "{}", self.vm.val_store.get_str(*x)),
+            InternalVal::ByteCodeFunction(bc) => {
+                let bc = self.vm.val_store.get_bytecode(*bc);
+                write!(
+                    f,
+                    "<function {name}>",
+                    name = if bc.name.is_empty() {
+                        "_"
+                    } else {
+                        bc.name.as_str()
+                    }
+                )
+            }
             InternalVal::NativeFunction(_) => write!(f, "<native-function>"),
         }
     }
@@ -112,76 +211,45 @@ mod tests {
 
     #[test]
     fn format_void_is_empty() {
-        assert_eq!(
-            Val {
-                v: InternalVal::Void
-            }
-            .to_string(),
-            ""
-        );
+        assert_eq!(InternalVal::Void.formatted(&Vm::new()).to_string(), "");
     }
 
     #[test]
     fn format_bool_is_true_or_false() {
         assert_eq!(
-            Val {
-                v: InternalVal::Bool(true)
-            }
-            .to_string(),
+            InternalVal::Bool(true).formatted(&Vm::new()).to_string(),
             "true"
         );
         assert_eq!(
-            Val {
-                v: InternalVal::Bool(false)
-            }
-            .to_string(),
+            InternalVal::Bool(false).formatted(&Vm::new()).to_string(),
             "false"
         );
     }
 
     #[test]
     fn format_int_prints_number() {
-        assert_eq!(
-            Val {
-                v: InternalVal::Int(0)
-            }
-            .to_string(),
-            "0"
-        );
-        assert_eq!(
-            Val {
-                v: InternalVal::Int(-1)
-            }
-            .to_string(),
-            "-1"
-        );
+        assert_eq!(InternalVal::Int(0).formatted(&Vm::new()).to_string(), "0");
+        assert_eq!(InternalVal::Int(-1).formatted(&Vm::new()).to_string(), "-1");
     }
 
     #[test]
     fn format_float_prints_number() {
         assert_eq!(
-            Val {
-                v: InternalVal::Float(0.0)
-            }
-            .to_string(),
+            InternalVal::Float(0.0).formatted(&Vm::new()).to_string(),
             "0"
         );
         assert_eq!(
-            Val {
-                v: InternalVal::Float(-1.5)
-            }
-            .to_string(),
+            InternalVal::Float(-1.5).formatted(&Vm::new()).to_string(),
             "-1.5"
         );
     }
 
     #[test]
     fn format_string_produces_string() {
+        let mut vm = Vm::new();
+        let string_id = vm.val_store.insert_string("my string".to_string());
         assert_eq!(
-            Val {
-                v: InternalVal::String("my string".to_string())
-            }
-            .to_string(),
+            InternalVal::String(string_id).formatted(&vm).to_string(),
             "my string"
         );
     }
@@ -190,7 +258,7 @@ mod tests {
     fn format_function_prints_name() {
         let mut vm = Vm::new();
         let v = vm.eval_str("(define (foo) 10) foo").unwrap();
-        assert_eq!(v.to_string(), "<function foo>",);
+        assert_eq!(v.to_string(), "<function foo>");
     }
 
     #[test]

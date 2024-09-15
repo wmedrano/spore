@@ -4,12 +4,13 @@ use crate::{
     ast::Node,
     error::CompileError,
     val::{ByteCode, Instruction},
-    InternalVal,
+    InternalVal, Vm,
 };
 
 type Result<T> = std::result::Result<T, CompileError>;
 
-pub struct Compiler {
+pub struct Compiler<'a> {
+    vm: &'a mut Vm,
     arguments: Vec<String>,
     instructions: Vec<Instruction>,
 }
@@ -20,9 +21,10 @@ enum CompilerContext {
     Subexpression,
 }
 
-impl Compiler {
-    pub fn compile(input_source: &str) -> Result<ByteCode> {
+impl<'a> Compiler<'a> {
+    pub fn compile(vm: &'a mut Vm, input_source: &str) -> Result<ByteCode> {
         let mut compiler = Compiler {
+            vm,
             arguments: Vec::new(),
             instructions: Vec::new(),
         };
@@ -134,7 +136,9 @@ impl Compiler {
                     Constant::Bool(x) => InternalVal::Bool(*x),
                     Constant::Int(x) => InternalVal::Int(*x),
                     Constant::Float(x) => InternalVal::Float(*x),
-                    Constant::String(x) => InternalVal::String(x.to_string()),
+                    Constant::String(x) => {
+                        InternalVal::String(self.vm.val_store.insert_string(x.to_string()))
+                    }
                 };
                 self.instructions.push(Instruction::PushConst(val));
             }
@@ -149,6 +153,7 @@ impl Compiler {
                     });
                 }
                 let mut lambda_compiler = Compiler {
+                    vm: self.vm,
                     arguments: args.clone(),
                     instructions: Vec::new(),
                 };
@@ -158,11 +163,13 @@ impl Compiler {
                 for expr in expressions.iter() {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val = InternalVal::ByteCodeFunction(ByteCode {
-                    name: name.unwrap_or("").to_string(),
-                    arg_count: args.len(),
-                    instructions: lambda_compiler.instructions,
-                });
+                let lambda_val = InternalVal::ByteCodeFunction(
+                    lambda_compiler.vm.val_store.insert_bytecode(ByteCode {
+                        name: name.unwrap_or("").to_string(),
+                        arg_count: args.len(),
+                        instructions: lambda_compiler.instructions,
+                    }),
+                );
                 self.instructions.push(Instruction::PushConst(lambda_val));
             }
         };
@@ -373,7 +380,8 @@ mod tests {
 
     #[test]
     fn empty_expression_is_empty() {
-        let actual = Compiler::compile("").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -386,7 +394,8 @@ mod tests {
 
     #[test]
     fn simple_expression_is_evaluated() {
-        let actual = Compiler::compile("(+ 1 2)").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -404,7 +413,8 @@ mod tests {
 
     #[test]
     fn multiple_expressions_are_evaluated_in_order() {
-        let actual = Compiler::compile("(+ 1 2) (+ 3 4)").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2) (+ 3 4)").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -426,7 +436,8 @@ mod tests {
 
     #[test]
     fn nested_expressions_are_evaluated() {
-        let actual = Compiler::compile("(+ 1 2 (+ 3 4))").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2 (+ 3 4))").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -448,7 +459,8 @@ mod tests {
 
     #[test]
     fn define_defines_a_new_value() {
-        let actual = Compiler::compile("(define x 12)").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(define x 12)").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -464,23 +476,26 @@ mod tests {
 
     #[test]
     fn define_with_list_identifier_produces_lambda() {
-        let actual = Compiler::compile("(define (foo a b) (+ a b))").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(define (foo a b) (+ a b))").unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::ByteCodeFunction(ByteCode {
-                        name: "foo".to_string(),
-                        arg_count: 2,
-                        instructions: vec![
-                            Instruction::Deref("+".to_string()),
-                            Instruction::GetArg(0),
-                            Instruction::GetArg(1),
-                            Instruction::Eval(3),
-                        ],
-                    })),
+                    Instruction::PushConst(InternalVal::ByteCodeFunction(
+                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                            name: "foo".to_string(),
+                            arg_count: 2,
+                            instructions: vec![
+                                Instruction::Deref("+".to_string()),
+                                Instruction::GetArg(0),
+                                Instruction::GetArg(1),
+                                Instruction::Eval(3),
+                            ],
+                        })
+                    )),
                     Instruction::Define("foo".to_string()),
                 ]
             }
@@ -489,7 +504,8 @@ mod tests {
 
     #[test]
     fn define_with_subexpression_evaluates_subexpr() {
-        let actual = Compiler::compile("(define x (+ 1 2))").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(define x (+ 1 2))").unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -508,7 +524,8 @@ mod tests {
 
     #[test]
     fn define_in_define_expr_produces_error() {
-        let actual = Compiler::compile("(define y (define x 12))").unwrap_err();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(define y (define x 12))").unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression { context: "define" }
@@ -517,7 +534,8 @@ mod tests {
 
     #[test]
     fn define_in_function_args_produces_error() {
-        let actual = Compiler::compile("(+ 1 (define x 12))").unwrap_err();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))").unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {
@@ -528,7 +546,8 @@ mod tests {
 
     #[test]
     fn define_in_function_call_produces_error() {
-        let actual = Compiler::compile("((define x 12))").unwrap_err();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "((define x 12))").unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {
@@ -539,18 +558,19 @@ mod tests {
 
     #[test]
     fn lambda_produces_lambda_expr() {
-        let actual = Compiler::compile("(lambda () 1)").unwrap();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(lambda () 1)").unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
-                    ByteCode {
+                    vm.val_store.get_or_insert_bytecode_slow(ByteCode {
                         name: "".to_string(),
                         arg_count: 0,
                         instructions: vec![Instruction::PushConst(InternalVal::Int(1))],
-                    }
+                    })
                 )),]
             }
         );
@@ -558,14 +578,16 @@ mod tests {
 
     #[test]
     fn lambda_can_reference_args() {
-        let actual = Compiler::compile("(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))").unwrap();
+        let mut vm = Vm::new();
+        let actual =
+            Compiler::compile(&mut vm, "(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))").unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
-                    ByteCode {
+                    vm.val_store.get_or_insert_bytecode_slow(ByteCode {
                         name: "".to_string(),
                         arg_count: 3,
                         instructions: vec![
@@ -574,7 +596,7 @@ mod tests {
                             Instruction::GetArg(2),
                             Instruction::Eval(3)
                         ],
-                    }
+                    })
                 )),]
             }
         );
@@ -582,7 +604,8 @@ mod tests {
 
     #[test]
     fn lambda_with_same_arg_defined_twice_produces_error() {
-        let actual = Compiler::compile("(lambda (arg0 arg0) (arg0 arg0))").unwrap_err();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(lambda (arg0 arg0) (arg0 arg0))").unwrap_err();
         assert_eq!(
             actual,
             CompileError::ArgumentDefinedMultipleTimes("arg0".to_string())
@@ -591,7 +614,8 @@ mod tests {
 
     #[test]
     fn lambda_with_no_expr_produces_error() {
-        let actual = Compiler::compile("(lambda ())").unwrap_err();
+        let mut vm = Vm::new();
+        let actual = Compiler::compile(&mut vm, "(lambda ())").unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {

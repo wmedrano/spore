@@ -1,10 +1,10 @@
 use crate::{
     error::{VmError, VmResult},
-    val::{InternalVal, Val},
+    val::InternalVal,
     Vm,
 };
 
-pub fn add(_: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+pub fn add(vm: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
@@ -19,7 +19,7 @@ pub fn add(_: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
                 return Err(VmError::TypeError {
                     expected: InternalVal::INT_TYPE_NAME,
                     actual: v.type_name(),
-                    value: Val { v: v.clone() }.to_string(),
+                    value: v.formatted(vm).to_string(),
                 })
             }
         }
@@ -31,7 +31,7 @@ pub fn add(_: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     }
 }
 
-fn less_impl(_: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
+fn less_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
     match (a, b) {
         (InternalVal::Int(a), InternalVal::Int(b)) => Ok(*a < *b),
         (InternalVal::Float(a), InternalVal::Float(b)) => Ok(*a < *b),
@@ -40,12 +40,12 @@ fn less_impl(_: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
         (a, InternalVal::Int(_)) | (a, InternalVal::Float(_)) => Err(VmError::TypeError {
             expected: "int or float",
             actual: a.type_name(),
-            value: Val { v: a.clone() }.to_string(),
+            value: a.formatted(vm).to_string(),
         }),
         (_, b) => Err(VmError::TypeError {
             expected: "int or float",
             actual: b.type_name(),
-            value: Val { v: b.clone() }.to_string(),
+            value: b.formatted(vm).to_string(),
         }),
     }
 }
