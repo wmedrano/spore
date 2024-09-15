@@ -210,6 +210,14 @@ mod tests {
     use crate::Vm;
 
     #[test]
+    fn internal_val_is_small() {
+        assert_eq!(
+            std::mem::size_of::<InternalVal>(),
+            2 * std::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
     fn format_void_is_empty() {
         assert_eq!(InternalVal::Void.formatted(&Vm::new()).to_string(), "");
     }
