@@ -11,7 +11,7 @@ pub struct Repl {
 
 impl Default for Repl {
     fn default() -> Repl {
-        Repl::new(Vm::new())
+        Repl::new(Vm::default())
     }
 }
 

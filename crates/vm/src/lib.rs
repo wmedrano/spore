@@ -1,11 +1,15 @@
 use std::{collections::HashMap, sync::Arc};
 
+use smol_str::SmolStr;
 pub use val::Val;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
-use val::{ByteCode, Instruction, InternalVal};
-use val_store::ValStore;
+use val::{
+    bytecode::{ByteCode, Instruction},
+    InternalVal, NativeFunction,
+};
+use val_store::{ValId, ValStore};
 
 mod ast;
 mod builtins;
@@ -22,18 +26,26 @@ pub struct Vm {
     /// The data stack. This is used to store temporary values used for compuation.
     stack: Vec<InternalVal>,
     /// Map from binding name to value. This is used to store global values.
-    values: HashMap<String, InternalVal>,
+    values: HashMap<SmolStr, InternalVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
     stack_frame: StackFrame,
     /// The pending stack frames.
     previous_stack_frames: Vec<StackFrame>,
     /// Manages lifetime of all values, aside from simple atoms like bool/int/float.
     pub(crate) val_store: ValStore,
+    /// Contains bytecode compilation settings,
+    pub(crate) settings: VmSettings,
+}
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct VmSettings {
+    pub enable_optimizations: bool,
 }
 
 /// Used to decide the next instruction to take.
 #[derive(Default, Debug)]
 pub struct StackFrame {
+    bytecode_id: ValId<Arc<ByteCode>>,
     /// The instructions that will be taken.
     bytecode: Arc<ByteCode>,
     /// The index of the next instruction within bytecode.
@@ -45,13 +57,13 @@ pub struct StackFrame {
 impl Default for Vm {
     /// Create a new virtual machine.
     fn default() -> Vm {
-        Vm::new()
+        Vm::new(VmSettings::default())
     }
 }
 
 impl Vm {
     /// Create a new virtual machine.
-    pub fn new() -> Vm {
+    pub fn new(settings: VmSettings) -> Vm {
         let mut vm = Vm {
             // TODO: Determine optimal size for stack. Small values may perform, better, but
             // exceeding the capacity may cause performance degregations.
@@ -61,6 +73,7 @@ impl Vm {
             previous_stack_frames: Vec::with_capacity(64),
             stack_frame: StackFrame::default(),
             val_store: ValStore::default(),
+            settings,
         };
         vm.register_native_function("+", builtins::add);
         vm.register_native_function("<", builtins::less);
@@ -71,11 +84,13 @@ impl Vm {
     pub fn run_gc(&mut self) {
         let stack = self.stack.iter().copied();
         let vals = self.values.values().copied();
-        let stack_frame = self.stack_frame.bytecode.values();
-        let stack_frames = self
-            .previous_stack_frames
-            .iter()
-            .flat_map(|sf| sf.bytecode.values());
+        let stack_frame =
+            std::iter::once(InternalVal::ByteCodeFunction(self.stack_frame.bytecode_id))
+                .chain(self.stack_frame.bytecode.values());
+        let stack_frames = self.previous_stack_frames.iter().flat_map(|sf| {
+            std::iter::once(InternalVal::ByteCodeFunction(sf.bytecode_id))
+                .chain(sf.bytecode.values())
+        });
         self.val_store
             .run_gc(stack.chain(vals).chain(stack_frame).chain(stack_frames))
     }
@@ -83,7 +98,7 @@ impl Vm {
     /// Register a native function that can be called within the virtual machine.
     fn register_native_function(
         &mut self,
-        name: impl Into<String>,
+        name: impl Into<SmolStr>,
         func: fn(&Vm, &[InternalVal]) -> VmResult<InternalVal>,
     ) {
         self.values
@@ -94,15 +109,18 @@ impl Vm {
     pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
         self.run_gc();
         let bytecode = Compiler::compile(self, source)?;
-        let v = self.eval_bytecode(bytecode.into())?;
+        let bytecode_id = self.val_store.insert_bytecode(bytecode);
+        let v = self.eval_bytecode(bytecode_id)?;
         Ok(Val::new(self, v))
     }
 
     /// Evaluate some bytecode in the virtual machine.
-    fn eval_bytecode(&mut self, bytecode: Arc<ByteCode>) -> VmResult<InternalVal> {
+    fn eval_bytecode(&mut self, bytecode_id: ValId<Arc<ByteCode>>) -> VmResult<InternalVal> {
         self.stack.clear();
         self.previous_stack_frames.clear();
+        let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
         self.stack_frame = StackFrame {
+            bytecode_id,
             bytecode,
             bytecode_idx: 0,
             stack_start: 0,
@@ -130,15 +148,20 @@ impl Vm {
             None => return Ok(self.execute_return()),
         };
         match instruction {
-            Instruction::PushConst(c) => self.stack.push(c.clone()),
+            Instruction::PushConst(c) => self.stack.push(*c),
+            Instruction::PushCurrentFunction => {
+                let f = InternalVal::ByteCodeFunction(self.stack_frame.bytecode_id);
+                self.stack.push(f);
+            }
+            Instruction::PushInt(x) => self.stack.push(InternalVal::Int(*x)),
             Instruction::GetArg(n) => {
-                let val = self.stack[self.stack_frame.stack_start + *n].clone();
+                let val = self.stack[self.stack_frame.stack_start + *n];
                 self.stack.push(val);
             }
             Instruction::Deref(symbol) => {
                 let v = match self.values.get(symbol) {
-                    Some(v) => v.clone(),
-                    None => return Err(VmError::SymbolNotDefined(symbol.clone())),
+                    Some(v) => *v,
+                    None => return Err(VmError::SymbolNotDefined(symbol.to_string())),
                 };
                 self.stack.push(v);
             }
@@ -147,6 +170,9 @@ impl Vm {
                 self.values.insert(symbol.clone(), v);
             }
             Instruction::Eval(n) => self.execute_eval(*n)?,
+            Instruction::EvalNative { func, arg_count } => {
+                self.execute_eval_native(*func, *arg_count)?
+            }
             Instruction::JumpIf(n) => match self.stack.pop() {
                 Some(InternalVal::Bool(true)) => self.stack_frame.bytecode_idx += *n,
                 Some(InternalVal::Bool(false)) => {}
@@ -164,6 +190,19 @@ impl Vm {
         Ok(None)
     }
 
+    fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
+        match arg_count {
+            0 => self.stack.push(func(self, &[])?),
+            _ => {
+                let stack_start = self.stack.len() - arg_count;
+                let res = func(self, &self.stack[stack_start..])?;
+                self.stack[stack_start] = res;
+                self.stack.truncate(stack_start + 1);
+            }
+        }
+        Ok(())
+    }
+
     /// Execute the evaluation of the top n values in the stack.
     ///
     /// The deepest value should be a function with the rest of the values being the arguments.
@@ -177,7 +216,7 @@ impl Vm {
             .checked_sub(n)
             .ok_or_else(BacktraceError::capture)?;
         let stack_start = function_idx + 1;
-        let func_val = std::mem::take(&mut self.stack[function_idx]);
+        let func_val = self.stack[function_idx];
         match func_val {
             InternalVal::NativeFunction(func) => {
                 let args = &self.stack[stack_start..];
@@ -185,8 +224,8 @@ impl Vm {
                 self.stack.truncate(stack_start);
                 Ok(())
             }
-            InternalVal::ByteCodeFunction(bytecode) => {
-                let bytecode = self.val_store.get_bytecode(bytecode).clone();
+            InternalVal::ByteCodeFunction(bytecode_id) => {
+                let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
@@ -209,13 +248,16 @@ impl Vm {
                         max_depth: self.previous_stack_frames.len(),
                     });
                 }
-                self.previous_stack_frames
-                    .push(std::mem::take(&mut self.stack_frame));
-                self.stack_frame = StackFrame {
-                    bytecode,
-                    bytecode_idx: 0,
-                    stack_start,
-                };
+                let previous_stack_frame = std::mem::replace(
+                    &mut self.stack_frame,
+                    StackFrame {
+                        bytecode_id,
+                        bytecode,
+                        bytecode_idx: 0,
+                        stack_start,
+                    },
+                );
+                self.previous_stack_frames.push(previous_stack_frame);
                 Ok(())
             }
             v => Err(VmError::TypeError {
@@ -265,21 +307,21 @@ mod tests {
 
     #[test]
     fn constant_expression_evaluates_to_constant() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = vm.eval_str("42").unwrap();
         assert_eq!(actual.as_int(), Some(42));
     }
 
     #[test]
     fn expression_can_evaluate() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
         assert_eq!(actual.as_float(), Some(10.0));
     }
 
     #[test]
     fn vm_error_is_reported() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = vm.eval_str("(+ true false)").unwrap_err();
         assert_eq!(
             actual,
@@ -293,7 +335,7 @@ mod tests {
 
     #[test]
     fn compile_error_is_reported() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = vm.eval_str("((define x 12))").unwrap_err();
         assert_eq!(
             actual,
@@ -305,7 +347,7 @@ mod tests {
 
     #[test]
     fn defined_variable_can_be_referenced() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(define x 12) (+ x x)").unwrap().as_int(),
             Some(24)
@@ -315,7 +357,7 @@ mod tests {
 
     #[test]
     fn if_statement_can_return_any_of() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(vm.eval_str("(if true (+ 1 2))").unwrap().as_int(), Some(3));
         assert_eq!(
             vm.eval_str("(if true (+ 1 2) (+ 3 4))").unwrap().as_int(),
@@ -331,7 +373,7 @@ mod tests {
 
     #[test]
     fn if_statement_with_non_bool_predicate_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
             VmError::TypeError {
@@ -352,7 +394,7 @@ mod tests {
 
     #[test]
     fn lambda_can_be_evaluated() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(vm.eval_str("((lambda () 7))").unwrap().as_int(), Some(7));
         assert_eq!(
             vm.eval_str("((lambda () (+ 1 2 3)))").unwrap().as_int(),
@@ -362,7 +404,7 @@ mod tests {
 
     #[test]
     fn lambda_with_args_can_be_evaluated() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("((lambda (a b) 4) 1 2)").unwrap().as_int(),
             Some(4)
@@ -377,7 +419,7 @@ mod tests {
 
     #[test]
     fn function_called_with_wrong_number_of_args_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("((lambda () 10) 1)").unwrap_err(),
             VmError::ArityError {
@@ -411,7 +453,7 @@ mod tests {
 
     #[test]
     fn can_call_function_recursively() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let got = vm
             .eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
             .unwrap();
@@ -422,7 +464,7 @@ mod tests {
 
     #[test]
     fn infinite_recursion_halts() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let got = vm.eval_str("(define (recurse) (recurse))").unwrap();
         assert!(got.is_void(), "{got}");
         drop(got);

@@ -1,6 +1,12 @@
 use std::sync::Arc;
 
+use bytecode::ByteCode;
+
 use crate::{error::VmResult, val_store::ValId, Vm};
+
+pub mod bytecode;
+
+pub type NativeFunction = fn(&Vm, &[InternalVal]) -> VmResult<InternalVal>;
 
 /// Contains a Spore value.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -19,7 +25,7 @@ pub(crate) enum InternalVal {
     /// A function implemented in Spore's bytecode.
     ByteCodeFunction(ValId<Arc<ByteCode>>),
     /// A function implemented in Rust.
-    NativeFunction(fn(&crate::Vm, &[InternalVal]) -> VmResult<InternalVal>),
+    NativeFunction(NativeFunction),
 }
 
 impl InternalVal {
@@ -75,53 +81,6 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
             InternalVal::NativeFunction(_) => write!(f, "<native-function>"),
         }
     }
-}
-
-/// Contains a set of instructions for the Spore VM to evaluate.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ByteCode {
-    /// The name of the function.
-    pub name: String,
-    /// The number of arguments for the bytecode.
-    pub arg_count: usize,
-    /// The instructions for the bytecode.
-    pub instructions: Vec<Instruction>,
-}
-
-impl ByteCode {
-    pub fn values(&self) -> impl '_ + Iterator<Item = InternalVal> {
-        self.instructions
-            .iter()
-            .flat_map(|instruction| match instruction {
-                Instruction::PushConst(v) => Some(*v),
-                Instruction::GetArg(_) => None,
-                Instruction::Deref(_) => None,
-                Instruction::Define(_) => None,
-                Instruction::Eval(_) => None,
-                Instruction::JumpIf(_) => None,
-                Instruction::Jump(_) => None,
-            })
-    }
-}
-
-/// An instruction for the VM to execute.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Instruction {
-    /// Push a constant onto the stack.
-    PushConst(InternalVal),
-    /// Get the nth argument from the start of the continuation's stack.
-    GetArg(usize),
-    /// Get the value of a symbol at push it onto the stack.
-    Deref(String),
-    /// Pop the top value of the stack and assign it to the given symbol.
-    Define(String),
-    /// Pop the top `n` values of the stack. The deepmost value should be function with the rest of
-    /// the values acting as the arguments.
-    Eval(usize),
-    /// Pop the top value of the stack. If it is `true`, then jump `n` instructions.
-    JumpIf(usize),
-    /// Jump `n` instructions.
-    Jump(usize),
 }
 
 #[derive(Debug)]
@@ -221,42 +180,56 @@ mod tests {
 
     #[test]
     fn format_void_is_empty() {
-        assert_eq!(InternalVal::Void.formatted(&Vm::new()).to_string(), "");
+        assert_eq!(InternalVal::Void.formatted(&Vm::default()).to_string(), "");
     }
 
     #[test]
     fn format_bool_is_true_or_false() {
         assert_eq!(
-            InternalVal::Bool(true).formatted(&Vm::new()).to_string(),
+            InternalVal::Bool(true)
+                .formatted(&Vm::default())
+                .to_string(),
             "true"
         );
         assert_eq!(
-            InternalVal::Bool(false).formatted(&Vm::new()).to_string(),
+            InternalVal::Bool(false)
+                .formatted(&Vm::default())
+                .to_string(),
             "false"
         );
     }
 
     #[test]
     fn format_int_prints_number() {
-        assert_eq!(InternalVal::Int(0).formatted(&Vm::new()).to_string(), "0");
-        assert_eq!(InternalVal::Int(-1).formatted(&Vm::new()).to_string(), "-1");
+        assert_eq!(
+            InternalVal::Int(0).formatted(&Vm::default()).to_string(),
+            "0"
+        );
+        assert_eq!(
+            InternalVal::Int(-1).formatted(&Vm::default()).to_string(),
+            "-1"
+        );
     }
 
     #[test]
     fn format_float_prints_number() {
         assert_eq!(
-            InternalVal::Float(0.0).formatted(&Vm::new()).to_string(),
+            InternalVal::Float(0.0)
+                .formatted(&Vm::default())
+                .to_string(),
             "0"
         );
         assert_eq!(
-            InternalVal::Float(-1.5).formatted(&Vm::new()).to_string(),
+            InternalVal::Float(-1.5)
+                .formatted(&Vm::default())
+                .to_string(),
             "-1.5"
         );
     }
 
     #[test]
     fn format_string_produces_string() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let string_id = vm.val_store.insert_string("my string".to_string());
         assert_eq!(
             InternalVal::String(string_id).formatted(&vm).to_string(),
@@ -266,14 +239,14 @@ mod tests {
 
     #[test]
     fn format_function_prints_name() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let v = vm.eval_str("(define (foo) 10) foo").unwrap();
         assert_eq!(v.to_string(), "<function foo>");
     }
 
     #[test]
     fn format_native_function_prints_native_function() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let v = vm.eval_str("+").unwrap();
         assert_eq!(v.to_string(), "<native-function>");
     }

@@ -1,9 +1,9 @@
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
-use crate::val::{ByteCode, InternalVal};
+use crate::val::{bytecode::ByteCode, InternalVal};
 
 /// A unique identifier for an object in `ValStore`.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ValId<T> {
     id: u32,
     _marker: PhantomData<T>,
@@ -116,7 +116,7 @@ impl ValStore {
     }
 
     /// Get a string by its id.
-    pub fn get_str<'a>(&'a self, id: ValId<String>) -> &'a str {
+    pub fn get_str(&self, id: ValId<String>) -> &str {
         let res = self.strings.get(&id);
         debug_assert!(res.is_some());
         res.map(|s| s.inner.as_str()).unwrap_or("")
@@ -138,7 +138,7 @@ impl ValStore {
     }
 
     /// Get a bytecode by its id.
-    pub fn get_bytecode<'a>(&'a self, id: ValId<Arc<ByteCode>>) -> &'a Arc<ByteCode> {
+    pub fn get_bytecode(&self, id: ValId<Arc<ByteCode>>) -> &Arc<ByteCode> {
         let res = self.bytecodes.get(&id);
         debug_assert!(res.is_some());
         res.map(|bc| &bc.inner).unwrap()

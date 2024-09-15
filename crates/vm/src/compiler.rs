@@ -1,16 +1,20 @@
 use std::collections::HashSet;
 
+use smol_str::SmolStr;
+
 use crate::{
     ast::Node,
     error::CompileError,
-    val::{ByteCode, Instruction},
-    InternalVal, Vm,
+    val::bytecode::{ByteCode, Instruction},
+    InternalVal, Vm, VmSettings,
 };
 
 type Result<T> = std::result::Result<T, CompileError>;
 
 pub struct Compiler<'a> {
     vm: &'a mut Vm,
+    settings: VmSettings,
+    function_name: Option<String>,
     arguments: Vec<String>,
     instructions: Vec<Instruction>,
 }
@@ -23,8 +27,11 @@ enum CompilerContext {
 
 impl<'a> Compiler<'a> {
     pub fn compile(vm: &'a mut Vm, input_source: &str) -> Result<ByteCode> {
+        let settings = vm.settings;
         let mut compiler = Compiler {
             vm,
+            settings,
+            function_name: None,
             arguments: Vec::new(),
             instructions: Vec::new(),
         };
@@ -32,7 +39,7 @@ impl<'a> Compiler<'a> {
         Ok(ByteCode {
             name: String::new(),
             arg_count: 0,
-            instructions: std::mem::take(&mut compiler.instructions),
+            instructions: std::mem::take(&mut compiler.instructions).into(),
         })
     }
 
@@ -65,7 +72,7 @@ impl<'a> Compiler<'a> {
                 }
                 self.compile_one(expr, CompilerContext::Subexpression)?;
                 self.instructions
-                    .push(Instruction::Define(identifier.to_string()));
+                    .push(Instruction::Define(SmolStr::new(identifier)));
             }
             Ir::FunctionCall { function, args } => {
                 if !function.is_expression() {
@@ -73,7 +80,20 @@ impl<'a> Compiler<'a> {
                         context: "function call",
                     });
                 }
-                self.compile_one(function, CompilerContext::Subexpression)?;
+                let maybe_native_function = if self.settings.enable_optimizations {
+                    match function.as_ref() {
+                        Ir::Deref(ident) => match self.vm.values.get(*ident) {
+                            Some(InternalVal::NativeFunction(func)) => Some(*func),
+                            _ => None,
+                        },
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if maybe_native_function.is_none() {
+                    self.compile_one(function, CompilerContext::Subexpression)?;
+                }
                 for arg in args {
                     if !arg.is_expression() {
                         return Err(CompileError::ExpectedExpression {
@@ -82,7 +102,13 @@ impl<'a> Compiler<'a> {
                     }
                     self.compile_one(arg, CompilerContext::Subexpression)?;
                 }
-                self.instructions.push(Instruction::Eval(args.len() + 1));
+                match maybe_native_function {
+                    Some(func) => self.instructions.push(Instruction::EvalNative {
+                        func,
+                        arg_count: args.len(),
+                    }),
+                    None => self.instructions.push(Instruction::Eval(args.len() + 1)),
+                }
             }
             Ir::If {
                 predicate,
@@ -127,20 +153,35 @@ impl<'a> Compiler<'a> {
             }
             Ir::Deref(ident) => match self.arg_idx(ident) {
                 Some(idx) => self.instructions.push(Instruction::GetArg(idx)),
-                None => self
-                    .instructions
-                    .push(Instruction::Deref(ident.to_string())),
+                None if self
+                    .function_name
+                    .as_ref()
+                    .map(|s| s.as_str() == *ident)
+                    .unwrap_or(false) =>
+                {
+                    self.instructions.push(Instruction::PushCurrentFunction)
+                }
+                None => {
+                    if self.settings.enable_optimizations {
+                        if let Some(v) = self.vm.values.get(*ident) {
+                            self.instructions.push(Instruction::PushConst(*v));
+                            return Ok(());
+                        }
+                    }
+                    self.instructions
+                        .push(Instruction::Deref(SmolStr::new(ident)))
+                }
             },
             Ir::Constant(const_val) => {
-                let val = match const_val {
-                    Constant::Bool(x) => InternalVal::Bool(*x),
-                    Constant::Int(x) => InternalVal::Int(*x),
-                    Constant::Float(x) => InternalVal::Float(*x),
-                    Constant::String(x) => {
-                        InternalVal::String(self.vm.val_store.insert_string(x.to_string()))
-                    }
+                let instruction = match const_val {
+                    Constant::Bool(x) => Instruction::PushConst(InternalVal::Bool(*x)),
+                    Constant::Int(x) => Instruction::PushInt(*x),
+                    Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
+                    Constant::String(x) => Instruction::PushConst(InternalVal::String(
+                        self.vm.val_store.insert_string(x.to_string()),
+                    )),
                 };
-                self.instructions.push(Instruction::PushConst(val));
+                self.instructions.push(instruction);
             }
             Ir::Lambda {
                 name,
@@ -154,6 +195,8 @@ impl<'a> Compiler<'a> {
                 }
                 let mut lambda_compiler = Compiler {
                     vm: self.vm,
+                    settings: self.settings,
+                    function_name: name.map(String::from),
                     arguments: args.clone(),
                     instructions: Vec::new(),
                 };
@@ -167,7 +210,7 @@ impl<'a> Compiler<'a> {
                     lambda_compiler.vm.val_store.insert_bytecode(ByteCode {
                         name: name.unwrap_or("").to_string(),
                         arg_count: args.len(),
-                        instructions: lambda_compiler.instructions,
+                        instructions: lambda_compiler.instructions.into(),
                     }),
                 );
                 self.instructions.push(Instruction::PushConst(lambda_val));
@@ -380,21 +423,21 @@ mod tests {
 
     #[test]
     fn empty_expression_is_empty() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "").unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
-                instructions: vec![]
+                instructions: vec![].into(),
             }
         );
     }
 
     #[test]
     fn simple_expression_is_evaluated() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
         assert_eq!(
             actual,
@@ -402,18 +445,19 @@ mod tests {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(1),
+                    Instruction::PushInt(2),
                     Instruction::Eval(3),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn multiple_expressions_are_evaluated_in_order() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 2) (+ 3 4)").unwrap();
         assert_eq!(
             actual,
@@ -421,22 +465,23 @@ mod tests {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(1),
+                    Instruction::PushInt(2),
                     Instruction::Eval(3),
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(3)),
-                    Instruction::PushConst(InternalVal::Int(4)),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(3),
+                    Instruction::PushInt(4),
                     Instruction::Eval(3),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn nested_expressions_are_evaluated() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 2 (+ 3 4))").unwrap();
         assert_eq!(
             actual,
@@ -444,22 +489,23 @@ mod tests {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(3)),
-                    Instruction::PushConst(InternalVal::Int(4)),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(1),
+                    Instruction::PushInt(2),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(3),
+                    Instruction::PushInt(4),
                     Instruction::Eval(3),
                     Instruction::Eval(4),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn define_defines_a_new_value() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(define x 12)").unwrap();
         assert_eq!(
             actual,
@@ -467,16 +513,17 @@ mod tests {
                 name: String::new(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::Int(12)),
-                    Instruction::Define("x".to_string()),
+                    Instruction::PushInt(12),
+                    Instruction::Define(SmolStr::new("x")),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn define_with_list_identifier_produces_lambda() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(define (foo a b) (+ a b))").unwrap();
         assert_eq!(
             actual,
@@ -489,22 +536,24 @@ mod tests {
                             name: "foo".to_string(),
                             arg_count: 2,
                             instructions: vec![
-                                Instruction::Deref("+".to_string()),
+                                Instruction::Deref(SmolStr::new("+")),
                                 Instruction::GetArg(0),
                                 Instruction::GetArg(1),
                                 Instruction::Eval(3),
-                            ],
+                            ]
+                            .into(),
                         })
                     )),
-                    Instruction::Define("foo".to_string()),
+                    Instruction::Define(SmolStr::new("foo")),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn define_with_subexpression_evaluates_subexpr() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(define x (+ 1 2))").unwrap();
         assert_eq!(
             actual,
@@ -512,19 +561,20 @@ mod tests {
                 name: "".to_string(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref("+".to_string()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushInt(1),
+                    Instruction::PushInt(2),
                     Instruction::Eval(3),
-                    Instruction::Define("x".to_string()),
+                    Instruction::Define(SmolStr::new("x")),
                 ]
+                .into()
             }
         );
     }
 
     #[test]
     fn define_in_define_expr_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(define y (define x 12))").unwrap_err();
         assert_eq!(
             actual,
@@ -534,7 +584,7 @@ mod tests {
 
     #[test]
     fn define_in_function_args_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))").unwrap_err();
         assert_eq!(
             actual,
@@ -546,7 +596,7 @@ mod tests {
 
     #[test]
     fn define_in_function_call_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "((define x 12))").unwrap_err();
         assert_eq!(
             actual,
@@ -558,7 +608,7 @@ mod tests {
 
     #[test]
     fn lambda_produces_lambda_expr() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda () 1)").unwrap();
         assert_eq!(
             actual,
@@ -569,16 +619,17 @@ mod tests {
                     vm.val_store.get_or_insert_bytecode_slow(ByteCode {
                         name: "".to_string(),
                         arg_count: 0,
-                        instructions: vec![Instruction::PushConst(InternalVal::Int(1))],
+                        instructions: vec![Instruction::PushInt(1)].into(),
                     })
-                )),]
+                ))]
+                .into()
             }
         );
     }
 
     #[test]
     fn lambda_can_reference_args() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual =
             Compiler::compile(&mut vm, "(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))").unwrap();
         assert_eq!(
@@ -595,16 +646,18 @@ mod tests {
                             Instruction::GetArg(0),
                             Instruction::GetArg(2),
                             Instruction::Eval(3)
-                        ],
+                        ]
+                        .into(),
                     })
-                )),]
+                ))]
+                .into()
             }
         );
     }
 
     #[test]
     fn lambda_with_same_arg_defined_twice_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda (arg0 arg0) (arg0 arg0))").unwrap_err();
         assert_eq!(
             actual,
@@ -614,7 +667,7 @@ mod tests {
 
     #[test]
     fn lambda_with_no_expr_produces_error() {
-        let mut vm = Vm::new();
+        let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda ())").unwrap_err();
         assert_eq!(
             actual,
