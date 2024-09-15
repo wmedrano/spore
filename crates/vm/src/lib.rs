@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 pub use val::Val;
 
@@ -35,7 +35,7 @@ pub struct Vm {
 #[derive(Default, Debug)]
 pub struct StackFrame {
     /// The instructions that will be taken.
-    bytecode: ByteCode,
+    bytecode: Arc<ByteCode>,
     /// The index of the next instruction within bytecode.
     bytecode_idx: usize,
     /// The index of the stack for the first value of this stack frame's local stack.
@@ -94,12 +94,12 @@ impl Vm {
     pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
         self.run_gc();
         let bytecode = Compiler::compile(self, source)?;
-        let v = self.eval_bytecode(bytecode)?;
+        let v = self.eval_bytecode(bytecode.into())?;
         Ok(Val::new(self, v))
     }
 
     /// Evaluate some bytecode in the virtual machine.
-    fn eval_bytecode(&mut self, bytecode: ByteCode) -> VmResult<InternalVal> {
+    fn eval_bytecode(&mut self, bytecode: Arc<ByteCode>) -> VmResult<InternalVal> {
         self.stack.clear();
         self.previous_stack_frames.clear();
         self.stack_frame = StackFrame {
@@ -190,7 +190,7 @@ impl Vm {
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
-                        function: bytecode.name.into(),
+                        function: bytecode.name.clone(),
                         expected: bytecode.arg_count,
                         actual: arg_count,
                     });

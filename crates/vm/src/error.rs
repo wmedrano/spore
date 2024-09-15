@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use thiserror::Error;
 
 pub type VmResult<T> = Result<T, VmError>;
@@ -14,7 +12,7 @@ pub enum VmError {
     },
     #[error("wrong arity, function {function} expected {expected} args but found {actual} args")]
     ArityError {
-        function: Cow<'static, str>,
+        function: String,
         expected: usize,
         actual: usize,
     },

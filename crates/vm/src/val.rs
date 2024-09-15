@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{error::VmResult, val_store::ValId, Vm};
 
 /// Contains a Spore value.
@@ -15,7 +17,7 @@ pub(crate) enum InternalVal {
     /// A string.
     String(ValId<String>),
     /// A function implemented in Spore's bytecode.
-    ByteCodeFunction(ValId<ByteCode>),
+    ByteCodeFunction(ValId<Arc<ByteCode>>),
     /// A function implemented in Rust.
     NativeFunction(fn(&crate::Vm, &[InternalVal]) -> VmResult<InternalVal>),
 }

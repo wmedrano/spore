@@ -1,4 +1,4 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 
 use crate::val::{ByteCode, InternalVal};
 
@@ -36,19 +36,13 @@ struct ValWithColor<T> {
 #[derive(Clone, Debug, Default)]
 pub struct ValStore {
     strings: HashMap<ValId<String>, ValWithColor<String>>,
-    bytecodes: HashMap<ValId<ByteCode>, ValWithColor<ByteCode>>,
+    bytecodes: HashMap<ValId<Arc<ByteCode>>, ValWithColor<Arc<ByteCode>>>,
     next_string: u32,
     next_bytecode: u32,
     alive_color: Color,
 }
 
 impl ValStore {
-    const DEFAULT_BYTECODE: &'static ByteCode = &ByteCode {
-        name: String::new(),
-        arg_count: 0,
-        instructions: Vec::new(),
-    };
-
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
         let self_ptr: *mut ValStore = self;
@@ -144,11 +138,10 @@ impl ValStore {
     }
 
     /// Get a bytecode by its id.
-    pub fn get_bytecode<'a>(&'a self, id: ValId<ByteCode>) -> &'a ByteCode {
+    pub fn get_bytecode<'a>(&'a self, id: ValId<Arc<ByteCode>>) -> &'a Arc<ByteCode> {
         let res = self.bytecodes.get(&id);
         debug_assert!(res.is_some());
-        res.map(|bc| &bc.inner)
-            .unwrap_or(ValStore::DEFAULT_BYTECODE)
+        res.map(|bc| &bc.inner).unwrap()
     }
 
     /// Get bytecode id for any bytecode that is equal to `bytecode`. If it does not exist, then it
@@ -156,9 +149,9 @@ impl ValStore {
     ///
     /// Warning: This may be very slow.
     #[cfg(test)]
-    pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<ByteCode> {
+    pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
         for (k, v) in self.bytecodes.iter() {
-            if &bytecode == &v.inner {
+            if bytecode == *v.inner {
                 return *k;
             }
         }
@@ -166,13 +159,13 @@ impl ValStore {
     }
 
     /// Insert bytecode into the store and return its id.
-    pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<ByteCode> {
+    pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
         let id = ValId::new(self.next_bytecode);
         self.next_bytecode += 1;
         self.bytecodes.insert(
             id,
             ValWithColor {
-                inner: bytecode,
+                inner: bytecode.into(),
                 // Consider the value dead so that we have to traverse its children during the next
                 // mark.
                 color: self.alive_color.swap(),
