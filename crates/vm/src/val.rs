@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use bytecode::ByteCode;
+use native_function::NativeFunction;
 
-use crate::{error::VmResult, val_store::ValId, Vm};
+use crate::{val_store::ValId, Vm};
 
 pub mod bytecode;
+pub mod native_function;
 
-pub type NativeFunction = fn(&mut Vm, &[InternalVal]) -> VmResult<InternalVal>;
 pub type ListVal = Vec<InternalVal>;
 
 /// Contains a Spore value.

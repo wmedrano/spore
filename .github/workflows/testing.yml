@@ -22,5 +22,7 @@ jobs:
         run: cargo build --verbose --all-targets
       - name: Test
         run: cargo nextest run
+      - name: Run Examples
+        run: cargo run --example fib
       - name: Doc Tests
         run: cargo doc && cargo test --doc

@@ -7,7 +7,8 @@ use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
 use val::{
     bytecode::{ByteCode, Instruction},
-    InternalVal, NativeFunction,
+    native_function::{NativeFunction, NativeFunctionContext},
+    InternalVal,
 };
 use val_store::{ValId, ValStore};
 
@@ -98,11 +99,7 @@ impl Vm {
     }
 
     /// Register a native function that can be called within the virtual machine.
-    fn register_native_function(
-        &mut self,
-        name: impl Into<SmolStr>,
-        func: fn(&mut Vm, &[InternalVal]) -> VmResult<InternalVal>,
-    ) {
+    fn register_native_function(&mut self, name: impl Into<SmolStr>, func: NativeFunction) {
         self.values
             .insert(name.into(), InternalVal::NativeFunction(func));
     }
@@ -192,21 +189,21 @@ impl Vm {
     }
 
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
-        let mut stack = std::mem::take(&mut self.stack);
-        let res = (|| -> VmResult<()> {
-            match arg_count {
-                0 => stack.push(func(self, &[])?),
-                _ => {
-                    let stack_start = self.stack.len() - arg_count;
-                    let res = func(self, &stack[stack_start..])?;
-                    self.stack.truncate(stack_start + 1);
-                    self.stack[stack_start] = res;
-                }
-            };
-            Ok(())
-        })();
-        self.stack = stack;
-        res
+        match arg_count {
+            0 => {
+                // Unsafe OK: stack_start is stack length.
+                let v = func(unsafe { NativeFunctionContext::new(self, self.stack.len()) })?;
+                self.stack.push(v);
+            }
+            _ => {
+                let stack_start = self.stack.len() - arg_count;
+                // Unsafe OK: stack_start is less than stack length.
+                let res = func(unsafe { NativeFunctionContext::new(self, stack_start) })?;
+                self.stack.truncate(stack_start + 1);
+                self.stack[stack_start] = res;
+            }
+        };
+        Ok(())
     }
 
     /// Execute the evaluation of the top n values in the stack.
@@ -225,15 +222,11 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             InternalVal::NativeFunction(func) => {
-                let mut stack = std::mem::take(&mut self.stack);
-                let res = (|| -> VmResult<()> {
-                    let args = &stack[stack_start..];
-                    stack[function_idx] = func(self, args)?;
-                    stack.truncate(stack_start);
-                    Ok(())
-                })();
-                self.stack = stack;
-                res
+                // Unsafe OK: stack_start is less than stack length.
+                self.stack[function_idx] =
+                    func(unsafe { NativeFunctionContext::new(self, stack_start) })?;
+                self.stack.truncate(stack_start);
+                Ok(())
             }
             InternalVal::ByteCodeFunction(bytecode_id) => {
                 let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
