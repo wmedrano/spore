@@ -1,5 +1,5 @@
 [package]
-name = "spore_vm"
+name = "spore-vm"
 version = "0.1.0"
 edition = "2021"
 

@@ -6,7 +6,7 @@ use crate::{error::VmResult, val_store::ValId, Vm};
 
 pub mod bytecode;
 
-pub type NativeFunction = fn(&Vm, &[InternalVal]) -> VmResult<InternalVal>;
+pub type NativeFunction = fn(&mut Vm, &[InternalVal]) -> VmResult<InternalVal>;
 
 /// Contains a Spore value.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]

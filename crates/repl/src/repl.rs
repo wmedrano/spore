@@ -4,19 +4,21 @@ use spore_vm::{
     Vm,
 };
 
+/// A Read-Eval-Print Loop (REPL) for interacting with a Spore VM.
 pub struct Repl {
     input: String,
     vm: Vm,
 }
 
 impl Default for Repl {
+    /// Creates a new Repl instance with a default Vm.
     fn default() -> Repl {
         Repl::new(Vm::default())
     }
 }
 
 impl Repl {
-    /// Create a new Repl.
+    /// Creates a new Repl instance with `vm`.
     pub fn new(vm: Vm) -> Repl {
         Repl {
             input: String::new(),

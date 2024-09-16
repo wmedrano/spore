@@ -4,7 +4,24 @@ use crate::{
     Vm,
 };
 
-pub fn add(vm: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+pub fn working_directory(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+    if !args.is_empty() {
+        return Err(VmError::ArityError {
+            function: "working-directory".to_string(),
+            expected: 0,
+            actual: args.len(),
+        });
+    }
+    let working_directory = match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(err) => return Err(VmError::CustomError(err.to_string())),
+    };
+    Ok(InternalVal::String(
+        vm.val_store.insert_string(working_directory),
+    ))
+}
+
+pub fn add(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
@@ -50,7 +67,7 @@ fn less_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
     }
 }
 
-pub fn less(vm: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+pub fn less(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     match args {
         [] | [_] => Ok(InternalVal::Bool(true)),
         [a, b] => Ok(InternalVal::Bool(less_impl(vm, a, b)?)),

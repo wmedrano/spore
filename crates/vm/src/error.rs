@@ -29,6 +29,8 @@ pub enum VmError {
         max_depth: usize,
         call_stack: Vec<String>,
     },
+    #[error("{0}")]
+    CustomError(String),
 }
 
 pub struct BacktraceError(std::backtrace::Backtrace);

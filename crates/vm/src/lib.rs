@@ -23,7 +23,7 @@ pub mod error;
 /// The spore virtual machine.
 #[derive(Debug)]
 pub struct Vm {
-    /// The data stack. This is used to store temporary values used for compuation.
+    /// The data stack. This is used to store temporary values used for computation.
     stack: Vec<InternalVal>,
     /// Map from binding name to value. This is used to store global values.
     values: HashMap<SmolStr, InternalVal>,
@@ -77,6 +77,7 @@ impl Vm {
         };
         vm.register_native_function("+", builtins::add);
         vm.register_native_function("<", builtins::less);
+        vm.register_native_function("working-directory", builtins::working_directory);
         vm
     }
 
@@ -99,7 +100,7 @@ impl Vm {
     fn register_native_function(
         &mut self,
         name: impl Into<SmolStr>,
-        func: fn(&Vm, &[InternalVal]) -> VmResult<InternalVal>,
+        func: fn(&mut Vm, &[InternalVal]) -> VmResult<InternalVal>,
     ) {
         self.values
             .insert(name.into(), InternalVal::NativeFunction(func));
@@ -190,16 +191,21 @@ impl Vm {
     }
 
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
-        match arg_count {
-            0 => self.stack.push(func(self, &[])?),
-            _ => {
-                let stack_start = self.stack.len() - arg_count;
-                let res = func(self, &self.stack[stack_start..])?;
-                self.stack.truncate(stack_start + 1);
-                self.stack[stack_start] = res;
-            }
-        }
-        Ok(())
+        let mut stack = std::mem::take(&mut self.stack);
+        let res = (|| -> VmResult<()> {
+            match arg_count {
+                0 => stack.push(func(self, &[])?),
+                _ => {
+                    let stack_start = self.stack.len() - arg_count;
+                    let res = func(self, &stack[stack_start..])?;
+                    self.stack.truncate(stack_start + 1);
+                    self.stack[stack_start] = res;
+                }
+            };
+            Ok(())
+        })();
+        self.stack = stack;
+        res
     }
 
     /// Execute the evaluation of the top n values in the stack.
@@ -218,10 +224,15 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             InternalVal::NativeFunction(func) => {
-                let args = &self.stack[stack_start..];
-                self.stack[function_idx] = func(self, args)?;
-                self.stack.truncate(stack_start);
-                Ok(())
+                let mut stack = std::mem::take(&mut self.stack);
+                let res = (|| -> VmResult<()> {
+                    let args = &stack[stack_start..];
+                    stack[function_idx] = func(self, args)?;
+                    stack.truncate(stack_start);
+                    Ok(())
+                })();
+                self.stack = stack;
+                res
             }
             InternalVal::ByteCodeFunction(bytecode_id) => {
                 let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
