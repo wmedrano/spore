@@ -4,23 +4,6 @@ use crate::{
     Vm,
 };
 
-pub fn working_directory(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
-    if !args.is_empty() {
-        return Err(VmError::ArityError {
-            function: "working-directory".to_string(),
-            expected: 0,
-            actual: args.len(),
-        });
-    }
-    let working_directory = match std::env::current_dir() {
-        Ok(path) => path.to_string_lossy().to_string(),
-        Err(err) => return Err(VmError::CustomError(err.to_string())),
-    };
-    Ok(InternalVal::String(
-        vm.val_store.insert_string(working_directory),
-    ))
-}
-
 pub fn add(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
@@ -76,4 +59,25 @@ pub fn less(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
             false => Ok(InternalVal::Bool(false)),
         },
     }
+}
+
+pub fn list(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+    Ok(InternalVal::List(vm.val_store.insert_list(args.to_vec())))
+}
+
+pub fn working_directory(vm: &mut Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
+    if !args.is_empty() {
+        return Err(VmError::ArityError {
+            function: "working-directory".to_string(),
+            expected: 0,
+            actual: args.len(),
+        });
+    }
+    let working_directory = match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().to_string(),
+        Err(err) => return Err(VmError::CustomError(err.to_string())),
+    };
+    Ok(InternalVal::String(
+        vm.val_store.insert_string(working_directory),
+    ))
 }

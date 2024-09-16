@@ -1,6 +1,6 @@
 use std::{marker::PhantomData, sync::Arc};
 
-use crate::val::{bytecode::ByteCode, InternalVal};
+use crate::val::{bytecode::ByteCode, InternalVal, ListVal};
 
 type IdRepr = u32;
 
@@ -44,8 +44,10 @@ struct ValWithColor<T> {
 #[derive(Clone, Debug, Default)]
 pub struct ValStore {
     strings: Vec<ValWithColor<String>>,
+    lists: Vec<ValWithColor<ListVal>>,
     bytecodes: Vec<ValWithColor<Option<Arc<ByteCode>>>>,
     free_string_ids: Vec<ValId<String>>,
+    free_list_ids: Vec<ValId<ListVal>>,
     free_bytecode_ids: Vec<ValId<Arc<ByteCode>>>,
     alive_color: Color,
 }
@@ -57,6 +59,9 @@ impl ValStore {
         let mark_bytecode_child_vals = move |bc: &ByteCode| {
             unsafe { &mut *self_ptr }.run_gc(bc.values());
         };
+        let mark_list_vals = move |vals: &ListVal| {
+            unsafe { &mut *self_ptr }.run_gc(vals.iter().copied());
+        };
         // 1. Mark.
         for val in values {
             match val {
@@ -67,6 +72,15 @@ impl ValStore {
                 InternalVal::String(id) => {
                     if let Some(entry) = self.strings.get_mut(id.id as usize) {
                         entry.color = self.alive_color;
+                    }
+                }
+                InternalVal::List(id) => {
+                    if let Some(entry) = self.lists.get_mut(id.id as usize) {
+                        if entry.color != self.alive_color {
+                            debug_assert_ne!(entry.color, Color::Tombstone);
+                            entry.color = self.alive_color;
+                            mark_list_vals(&entry.inner);
+                        }
                     }
                 }
                 InternalVal::ByteCodeFunction(id) => {
@@ -105,6 +119,20 @@ impl ValStore {
             };
             self.free_string_ids.push(ValId::new(idx as u32));
         }
+        for (idx, list) in self
+            .lists
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, s)| s.color != self.alive_color && s.color != Color::Tombstone)
+            .filter(|(_, s)| s.keep_alive_count == 0)
+        {
+            *list = ValWithColor {
+                inner: Vec::new(),
+                color: Color::Tombstone,
+                keep_alive_count: 0,
+            };
+            self.free_list_ids.push(ValId::new(idx as u32));
+        }
         for (idx, bc) in self
             .bytecodes
             .iter_mut()
@@ -132,6 +160,11 @@ impl ValStore {
                     s.keep_alive_count += 1;
                 }
             }
+            InternalVal::List(id) => {
+                if let Some(s) = self.lists.get_mut(id.id as usize) {
+                    s.keep_alive_count += 1;
+                }
+            }
             InternalVal::ByteCodeFunction(id) => {
                 if let Some(bc) = self.bytecodes.get_mut(id.id as usize) {
                     bc.keep_alive_count += 1;
@@ -149,6 +182,11 @@ impl ValStore {
             InternalVal::Float(_) => {}
             InternalVal::String(id) => {
                 if let Some(s) = self.strings.get_mut(id.id as usize) {
+                    s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
+                }
+            }
+            InternalVal::List(id) => {
+                if let Some(s) = self.lists.get_mut(id.id as usize) {
                     s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
                 }
             }
@@ -183,6 +221,35 @@ impl ValStore {
             None => {
                 let id = ValId::new(self.strings.len() as u32);
                 self.strings.push(val);
+                id
+            }
+        }
+    }
+
+    pub const EMPTY_LIST: &ListVal = &ListVal::new();
+
+    /// Get a list by its id.
+    pub fn get_list(&self, id: ValId<ListVal>) -> &ListVal {
+        let res = self.lists.get(id.id as usize);
+        debug_assert!(res.is_some(), "{id:?} not found.");
+        res.map(|s| &s.inner).unwrap_or(Self::EMPTY_LIST)
+    }
+
+    /// Insert a list and get its id.
+    pub fn insert_list(&mut self, list: ListVal) -> ValId<ListVal> {
+        let val = ValWithColor {
+            inner: list,
+            color: self.alive_color,
+            keep_alive_count: 0,
+        };
+        match self.free_list_ids.pop() {
+            Some(id) => {
+                self.lists[id.id as usize] = val;
+                id
+            }
+            None => {
+                let id = ValId::new(self.lists.len() as u32);
+                self.lists.push(val);
                 id
             }
         }

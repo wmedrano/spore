@@ -77,6 +77,7 @@ impl Vm {
         };
         vm.register_native_function("+", builtins::add);
         vm.register_native_function("<", builtins::less);
+        vm.register_native_function("list", builtins::list);
         vm.register_native_function("working-directory", builtins::working_directory);
         vm
     }
@@ -327,6 +328,13 @@ mod tests {
         let mut vm = Vm::default();
         let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
         assert_eq!(actual.as_float(), Some(10.0));
+    }
+
+    #[test]
+    fn list_function_returns_list() {
+        let mut vm = Vm::default();
+        let actual = vm.eval_str("(list 1 2.3 \"three\")").unwrap();
+        assert_eq!(actual.to_string(), "(1 2.3 \"three\")");
     }
 
     #[test]

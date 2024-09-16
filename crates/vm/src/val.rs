@@ -7,6 +7,7 @@ use crate::{error::VmResult, val_store::ValId, Vm};
 pub mod bytecode;
 
 pub type NativeFunction = fn(&mut Vm, &[InternalVal]) -> VmResult<InternalVal>;
+pub type ListVal = Vec<InternalVal>;
 
 /// Contains a Spore value.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
@@ -22,6 +23,8 @@ pub(crate) enum InternalVal {
     Float(f64),
     /// A string.
     String(ValId<String>),
+    /// A list.
+    List(ValId<ListVal>),
     /// A function implemented in Spore's bytecode.
     ByteCodeFunction(ValId<Arc<ByteCode>>),
     /// A function implemented in Rust.
@@ -35,6 +38,7 @@ impl InternalVal {
     pub const FLOAT_TYPE_NAME: &'static str = "float";
     pub const VOID_TYPE_NAME: &'static str = "void";
     pub const STRING_TYPE_NAME: &'static str = "string";
+    pub const LIST_TYPE_NAME: &'static str = "list";
 
     pub fn type_name(&self) -> &'static str {
         match self {
@@ -43,19 +47,33 @@ impl InternalVal {
             InternalVal::Int(_) => InternalVal::INT_TYPE_NAME,
             InternalVal::Float(_) => InternalVal::FLOAT_TYPE_NAME,
             InternalVal::String(_) => InternalVal::STRING_TYPE_NAME,
+            InternalVal::List(_) => InternalVal::LIST_TYPE_NAME,
             InternalVal::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
             InternalVal::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
         }
     }
 
     pub fn formatted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
-        ValFormatter { vm, v: *self }
+        ValFormatter {
+            vm,
+            v: *self,
+            quote_strings: false,
+        }
+    }
+
+    pub fn format_quoted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
+        ValFormatter {
+            vm,
+            v: *self,
+            quote_strings: true,
+        }
     }
 }
 
 struct ValFormatter<'a> {
     vm: &'a Vm,
     v: InternalVal,
+    quote_strings: bool,
 }
 
 impl<'a> std::fmt::Display for ValFormatter<'a> {
@@ -65,7 +83,25 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
             InternalVal::Bool(x) => write!(f, "{x}"),
             InternalVal::Int(x) => write!(f, "{x}"),
             InternalVal::Float(x) => write!(f, "{x}"),
-            InternalVal::String(x) => write!(f, "{}", self.vm.val_store.get_str(*x)),
+            // TODO: Allow printing with quotes.
+            InternalVal::String(x) => {
+                if self.quote_strings {
+                    write!(f, "{:?}", self.vm.val_store.get_str(*x))
+                } else {
+                    write!(f, "{}", self.vm.val_store.get_str(*x))
+                }
+            }
+            InternalVal::List(x) => {
+                write!(f, "(")?;
+                for (idx, val) in self.vm.val_store.get_list(*x).iter().enumerate() {
+                    if idx == 0 {
+                        write!(f, "{}", val.format_quoted(self.vm))?;
+                    } else {
+                        write!(f, " {}", val.format_quoted(self.vm))?;
+                    }
+                }
+                write!(f, ")")
+            }
             InternalVal::ByteCodeFunction(bc) => {
                 let bc = self.vm.val_store.get_bytecode(*bc);
                 write!(
@@ -142,26 +178,7 @@ impl<'a> Val<'a> {
 
 impl<'a> std::fmt::Display for Val<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.v {
-            InternalVal::Void => Ok(()),
-            InternalVal::Bool(x) => write!(f, "{x}"),
-            InternalVal::Int(x) => write!(f, "{x}"),
-            InternalVal::Float(x) => write!(f, "{x}"),
-            InternalVal::String(x) => write!(f, "{}", self.vm.val_store.get_str(*x)),
-            InternalVal::ByteCodeFunction(bc) => {
-                let bc = self.vm.val_store.get_bytecode(*bc);
-                write!(
-                    f,
-                    "<function {name}>",
-                    name = if bc.name.is_empty() {
-                        "_"
-                    } else {
-                        bc.name.as_str()
-                    }
-                )
-            }
-            InternalVal::NativeFunction(_) => write!(f, "<native-function>"),
-        }
+        self.v.formatted(self.vm).fmt(f)
     }
 }
 

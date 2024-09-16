@@ -19,17 +19,14 @@ fn run(mut terminal: DefaultTerminal) -> io::Result<()> {
     let mut vm = Vm::new(VmSettings {
         enable_aggressive_inline: false,
     });
-    let wd = vm
-        .eval_str("(working-directory)")
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_string();
+    vm.eval_str(
+        "(define (greeting) (list \"Hello Spore!\" \"Press 'q' to quit.\" (working-directory)))",
+    )
+    .unwrap();
     loop {
-        terminal.draw(|frame| {
-            let greeting = Paragraph::new(format!(
-                "Hello Ratatui! (press 'q' to quit)\nWorking Directory: {wd}"
-            ));
+        let message = vm.eval_str("(greeting)").unwrap().to_string();
+        terminal.draw(move |frame| {
+            let greeting = Paragraph::new(message.as_str());
             frame.render_widget(greeting, frame.area());
         })?;
 
