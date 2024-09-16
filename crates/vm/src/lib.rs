@@ -153,7 +153,6 @@ impl Vm {
                 let f = InternalVal::ByteCodeFunction(self.stack_frame.bytecode_id);
                 self.stack.push(f);
             }
-            Instruction::PushInt(x) => self.stack.push(InternalVal::Int(*x)),
             Instruction::GetArg(n) => {
                 let val = self.stack[self.stack_frame.stack_start + *n];
                 self.stack.push(val);

@@ -20,7 +20,6 @@ impl ByteCode {
             .flat_map(|instruction| match instruction {
                 Instruction::PushConst(v) => Some(*v),
                 Instruction::PushCurrentFunction => None,
-                Instruction::PushInt(_) => None,
                 Instruction::GetArg(_) => None,
                 Instruction::Deref(_) => None,
                 Instruction::Define(_) => None,
@@ -39,8 +38,6 @@ pub(crate) enum Instruction {
     PushConst(InternalVal),
     /// Push the current function onto the stack.
     PushCurrentFunction,
-    /// Push an into onto the stack.
-    PushInt(i64),
     /// Get the nth argument from the start of the continuation's stack.
     GetArg(usize),
     /// Get the value of a symbol at push it onto the stack.

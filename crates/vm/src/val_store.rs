@@ -13,13 +13,17 @@ pub struct ValId<T> {
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 enum Color {
+    /// A color that may mark if a value is used or unused.
     #[default]
     Red,
+    /// A color that may mark if a value is used or unused.
     Blue,
+    /// Denotes that the value does not exist.
     Tombstone,
 }
 
 impl Color {
+    /// Swaps `Red` and `Blue`. `Tombstone` is returned unchanged.
     pub fn swap(self) -> Color {
         match self {
             Color::Red => Color::Blue,

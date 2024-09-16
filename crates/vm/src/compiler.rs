@@ -176,7 +176,7 @@ impl<'a> Compiler<'a> {
             Ir::Constant(const_val) => {
                 let instruction = match const_val {
                     Constant::Bool(x) => Instruction::PushConst(InternalVal::Bool(*x)),
-                    Constant::Int(x) => Instruction::PushInt(*x),
+                    Constant::Int(x) => Instruction::PushConst(InternalVal::Int(*x)),
                     Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
                     Constant::String(x) => Instruction::PushConst(InternalVal::String(
                         self.vm.val_store.insert_string(x.to_string()),
@@ -447,8 +447,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(1),
-                    Instruction::PushInt(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -467,12 +467,12 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(1),
-                    Instruction::PushInt(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(3),
-                    Instruction::PushInt(4),
+                    Instruction::PushConst(InternalVal::Int(3)),
+                    Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -491,11 +491,11 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(1),
-                    Instruction::PushInt(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(3),
-                    Instruction::PushInt(4),
+                    Instruction::PushConst(InternalVal::Int(3)),
+                    Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
                     Instruction::Eval(4),
                 ]
@@ -514,7 +514,7 @@ mod tests {
                 name: String::new(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushInt(12),
+                    Instruction::PushConst(InternalVal::Int(12)),
                     Instruction::Define(SmolStr::new("x")),
                 ]
                 .into()
@@ -563,8 +563,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushInt(1),
-                    Instruction::PushInt(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
                     Instruction::Define(SmolStr::new("x")),
                 ]
@@ -620,7 +620,7 @@ mod tests {
                     vm.val_store.get_or_insert_bytecode_slow(ByteCode {
                         name: "".to_string(),
                         arg_count: 0,
-                        instructions: vec![Instruction::PushInt(1)].into(),
+                        instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into(),
                     })
                 ))]
                 .into()
