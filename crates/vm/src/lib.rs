@@ -39,7 +39,7 @@ pub struct Vm {
 
 #[derive(Copy, Clone, Debug, Default)]
 pub struct VmSettings {
-    pub enable_optimizations: bool,
+    pub enable_aggressive_inline: bool,
 }
 
 /// Used to decide the next instruction to take.
@@ -196,8 +196,8 @@ impl Vm {
             _ => {
                 let stack_start = self.stack.len() - arg_count;
                 let res = func(self, &self.stack[stack_start..])?;
-                self.stack[stack_start] = res;
                 self.stack.truncate(stack_start + 1);
+                self.stack[stack_start] = res;
             }
         }
         Ok(())

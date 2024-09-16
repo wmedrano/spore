@@ -2,7 +2,7 @@ use spore_vm::VmSettings;
 
 fn main() {
     let mut vm = spore_vm::Vm::new(VmSettings {
-        enable_optimizations: true,
+        enable_aggressive_inline: true,
     });
     vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
         .unwrap();

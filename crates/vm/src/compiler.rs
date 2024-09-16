@@ -80,17 +80,17 @@ impl<'a> Compiler<'a> {
                         context: "function call",
                     });
                 }
-                let maybe_native_function = if self.settings.enable_optimizations {
-                    match function.as_ref() {
+                let maybe_native_function = self
+                    .settings
+                    .enable_aggressive_inline
+                    .then(|| match function.as_ref() {
                         Ir::Deref(ident) => match self.vm.values.get(*ident) {
                             Some(InternalVal::NativeFunction(func)) => Some(*func),
                             _ => None,
                         },
                         _ => None,
-                    }
-                } else {
-                    None
-                };
+                    })
+                    .flatten();
                 if maybe_native_function.is_none() {
                     self.compile_one(function, CompilerContext::Subexpression)?;
                 }
@@ -162,14 +162,15 @@ impl<'a> Compiler<'a> {
                     self.instructions.push(Instruction::PushCurrentFunction)
                 }
                 None => {
-                    if self.settings.enable_optimizations {
-                        if let Some(v) = self.vm.values.get(*ident) {
-                            self.instructions.push(Instruction::PushConst(*v));
-                            return Ok(());
-                        }
-                    }
-                    self.instructions
-                        .push(Instruction::Deref(SmolStr::new(ident)))
+                    let maybe_inlined_val = self
+                        .settings
+                        .enable_aggressive_inline
+                        .then(|| self.vm.values.get(*ident))
+                        .flatten()
+                        .map(|c| Instruction::PushConst(*c));
+                    let instruction =
+                        maybe_inlined_val.unwrap_or(Instruction::Deref(SmolStr::new(ident)));
+                    self.instructions.push(instruction)
                 }
             },
             Ir::Constant(const_val) => {
