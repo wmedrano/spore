@@ -155,6 +155,13 @@ impl<'a> Val<'a> {
         matches!(self.v, InternalVal::Void)
     }
 
+    pub fn as_bool(&self) -> Option<bool> {
+        match self.v {
+            InternalVal::Bool(x) => Some(x),
+            _ => None,
+        }
+    }
+
     pub fn as_int(&self) -> Option<i64> {
         match self.v {
             InternalVal::Int(x) => Some(x),

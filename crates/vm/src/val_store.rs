@@ -63,7 +63,6 @@ struct TempMarkData {
 impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
-        // Unsafe OK: Unsoundness acknowledged.
         self.run_gc_mark(values);
         self.run_gc_sweep();
     }
