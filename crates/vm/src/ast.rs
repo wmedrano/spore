@@ -12,7 +12,7 @@ pub enum AstParseError {
     #[error("found unexpected closing parenthesis")]
     UnexpectedCloseParen,
     #[error("string was not properly closed, did you forget \"?")]
-    UnclosedString,
+    UnclosedString(usize),
 }
 
 /// Describes a node in the AST.
@@ -36,7 +36,7 @@ impl<'a> Node<'a> {
     /// Parse the contents of `src` into a stream of `Node`.
     pub fn parse(src: &'a str) -> impl Iterator<Item = Result<Self>> {
         let mut tokens = Token::parse_tokens(src);
-        std::iter::from_fn(move || Node::parse_next(&mut tokens))
+        std::iter::from_fn(move || Node::parse_next(src, &mut tokens))
     }
 }
 
@@ -50,20 +50,28 @@ impl<'a> Node<'a> {
     }
 
     /// Parse the next Node from `tokenizer`.
-    fn parse_next(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Option<Result<Node<'a>>> {
+    fn parse_next(
+        src: &'a str,
+        tokenizer: &mut impl Iterator<Item = Token>,
+    ) -> Option<Result<Node<'a>>> {
         let next_token = match tokenizer.next() {
             Some(t) => t,
             None => return None,
         };
-        match next_token.0 {
-            TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
+        match next_token.token_type {
+            TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
                 Ok(tree) => Some(Ok(Node::Tree(tree))),
                 Err(err) => Some(Err(err)),
             },
             TokenType::CloseParen => Some(Err(AstParseError::UnexpectedCloseParen)),
-            TokenType::UnterminatedString => Some(Err(AstParseError::UnclosedString)),
+            TokenType::UnterminatedString => {
+                Some(Err(AstParseError::UnclosedString(next_token.start)))
+            }
             TokenType::String | TokenType::Other => {
-                return Some(Ok(Node::parse_atom(next_token.0, next_token.1)))
+                return Some(Ok(Node::parse_atom(
+                    next_token.token_type,
+                    next_token.as_str(src),
+                )))
             }
         }
     }
@@ -71,7 +79,10 @@ impl<'a> Node<'a> {
     /// Parse the nodes in `tokenizer` until a closing parenthesis is encountered.
     ///
     /// An error is returned if no closing parenthesis is ever encountered.
-    fn parse_until_close(tokenizer: &mut impl Iterator<Item = Token<'a>>) -> Result<Vec<Node<'a>>> {
+    fn parse_until_close(
+        src: &'a str,
+        tokenizer: &mut impl Iterator<Item = Token>,
+    ) -> Result<Vec<Node<'a>>> {
         let mut tree = vec![];
         loop {
             let next_token = match tokenizer.next() {
@@ -80,16 +91,19 @@ impl<'a> Node<'a> {
                     return Err(AstParseError::UnclosedParen);
                 }
             };
-            match next_token.0 {
-                TokenType::OpenParen => match Node::parse_until_close(tokenizer) {
+            match next_token.token_type {
+                TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
                     Ok(t) => tree.push(Node::Tree(t)),
                     err @ Err(_) => return err,
                 },
                 TokenType::CloseParen => return Ok(tree),
-                TokenType::UnterminatedString => return Err(AstParseError::UnclosedString),
-                TokenType::String | TokenType::Other => {
-                    tree.push(Node::parse_atom(next_token.0, next_token.1))
+                TokenType::UnterminatedString => {
+                    return Err(AstParseError::UnclosedString(next_token.start))
                 }
+                TokenType::String | TokenType::Other => tree.push(Node::parse_atom(
+                    next_token.token_type,
+                    next_token.as_str(src),
+                )),
             }
         }
     }
@@ -99,6 +113,7 @@ impl<'a> Node<'a> {
     fn parse_atom(token_type: TokenType, contents: &'a str) -> Node<'a> {
         match token_type {
             TokenType::OpenParen | TokenType::CloseParen | TokenType::UnterminatedString => {
+                // Unreachable OK: The above scenarios are caught by callers of `parse_atom`.
                 unreachable!()
             }
             TokenType::String => {
@@ -116,6 +131,9 @@ impl<'a> Node<'a> {
                     } else {
                         match ch {
                             '\\' => escaped = true,
+                            // Unreachable OK: An unescaped quote signals the end of the
+                            // string. This token is guaranteed to be a well formed string so a
+                            // naked quote won't be encountered in the middle of the string.
                             '"' => unreachable!(),
                             ch => res.push(ch),
                         }
@@ -236,6 +254,13 @@ mod tests {
     fn unterminated_string_produces_error() {
         let src = "\"start of string but no end";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnclosedString);
+        assert_eq!(actual_err, AstParseError::UnclosedString(0));
+    }
+
+    #[test]
+    fn error_in_subexpression_is_returned() {
+        let src = "(((\"unterminated quote)";
+        let actual_err = Node::parse_to_vec(src).unwrap_err();
+        assert_eq!(actual_err, AstParseError::UnclosedString(3));
     }
 }

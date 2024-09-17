@@ -1,5 +1,5 @@
 /// Describes the type of token.
-#[derive(Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TokenType {
     /// An open parenthesis.
     OpenParen,
@@ -14,84 +14,85 @@ pub enum TokenType {
 }
 
 /// Contains a token type and the portion of the text defining the token.
-#[derive(Debug, PartialEq)]
-pub struct Token<'a>(pub TokenType, pub &'a str);
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Token {
+    pub token_type: TokenType,
+    pub start: usize,
+    pub end: usize,
+}
 
-impl<'a> Token<'a> {
+impl Token {
+    pub fn as_str<'a>(&self, src: &'a str) -> &'a str {
+        &src[self.start..self.end]
+    }
+
     /// Parse an input source into a stream of tokens.
-    pub fn parse_tokens(input_source: &'a str) -> impl Iterator<Item = Token<'a>> {
-        let mut input_source = input_source;
-        std::iter::from_fn(move || match Token::parse_next(input_source) {
-            None => None,
-            Some((token, next_str)) => {
-                input_source = next_str;
-                Some(token)
-            }
+    pub fn parse_tokens<'a>(input_source: &'a str) -> impl 'a + Iterator<Item = Token> {
+        let mut start = 0;
+        std::iter::from_fn(move || {
+            Token::parse_next(input_source, start).inspect(|t| start = t.end)
         })
     }
 
     /// Parse an input source into a vector of tokens. Used for convenience in unit tests, prefer
     /// using `Self::parse_tokens`.
     #[cfg(test)]
-    pub fn parse_tokens_to_vec(input_source: &'a str) -> Vec<Token<'a>> {
-        let tokens = Token::parse_tokens(input_source).inspect(|item| {
-            debug_assert!(
-                input_source.as_ptr() <= item.1.as_ptr(),
-                "Token is not a substring of the input source."
-            );
-            debug_assert!(
-                item.1.as_ptr().wrapping_offset(item.1.len() as isize)
-                    <= input_source
-                        .as_ptr()
-                        .wrapping_offset(input_source.len() as isize),
-                "Token is not a substring of the input source",
-            );
-        });
+    pub fn parse_tokens_to_vec<'a>(input_src: &'a str) -> Vec<(TokenType, &'a str)> {
+        let tokens = Token::parse_tokens(input_src)
+            .map(|token| (token.token_type, &input_src[token.start..token.end]));
         tokens.collect()
     }
 
     /// Parse the next token within an input source string or return `None`. Returns a tuple
     /// containing the parsed token and the rest of the string.
-    fn parse_next(input_source: &'a str) -> Option<(Token<'a>, &'a str)> {
-        let input_source = input_source.trim_start();
-        match input_source.chars().next() {
+    fn parse_next(src: &str, start: usize) -> Option<Token> {
+        let input_src = &src[start..].trim_start();
+        let start = src.len() - input_src.len();
+        match input_src.chars().next() {
             None => return None,
-            Some('"') => return Some(Token::parse_next_string(input_source)),
+            Some('"') => return Some(Token::parse_next_string(src, start)),
             Some('(') => {
-                return Some((
-                    Token(TokenType::OpenParen, &input_source[0..1]),
-                    &input_source[1..],
-                ))
+                return Some(Token {
+                    token_type: TokenType::OpenParen,
+                    start,
+                    end: start + 1,
+                })
             }
             Some(')') => {
-                return Some((
-                    Token(TokenType::CloseParen, &input_source[0..1]),
-                    &input_source[1..],
-                ))
+                return Some(Token {
+                    token_type: TokenType::CloseParen,
+                    start,
+                    end: start + 1,
+                })
             }
             _ => {}
         }
-        let mut end = input_source.len();
-        for (idx, ch) in input_source.char_indices() {
+        for (idx, ch) in input_src.char_indices() {
             let is_end = match ch {
                 '(' | ')' => true,
                 _ => ch.is_whitespace(),
             };
             if is_end {
-                end = idx;
-                break;
+                return Some(Token {
+                    token_type: TokenType::Other,
+                    start,
+                    end: start + idx,
+                });
             }
         }
-        let rest_source = &input_source[end..];
-        let token = Token(TokenType::Other, &input_source[0..end]);
-        Some((token, rest_source))
+        Some(Token {
+            token_type: TokenType::Other,
+            start,
+            end: src.len(),
+        })
     }
 
     /// Parse the next string in input source. `input_source` must start with a '"'
     /// character. Returns a tuple of the parsed token and the rest of the string.
-    fn parse_next_string(input_source: &'a str) -> (Token<'a>, &'a str) {
+    fn parse_next_string(src: &str, start: usize) -> Token {
+        let input_src = &src[start..];
         let mut is_escaped = false;
-        for (idx, ch) in input_source.char_indices() {
+        for (idx, ch) in input_src.char_indices() {
             if idx == 0 {
                 debug_assert_eq!(ch, '"');
                 continue;
@@ -102,9 +103,11 @@ impl<'a> Token<'a> {
                 }
                 '"' => {
                     if !is_escaped {
-                        let end = idx + 1;
-                        let token = Token(TokenType::String, &input_source[0..end]);
-                        return (token, &input_source[end..]);
+                        return Token {
+                            token_type: TokenType::String,
+                            start,
+                            end: start + idx + 1,
+                        };
                     }
                     is_escaped = false;
                 }
@@ -113,10 +116,11 @@ impl<'a> Token<'a> {
                 }
             };
         }
-        (
-            Token(TokenType::UnterminatedString, input_source),
-            &input_source[input_source.len()..input_source.len()],
-        )
+        Token {
+            token_type: TokenType::UnterminatedString,
+            start,
+            end: src.len(),
+        }
     }
 }
 
@@ -143,9 +147,9 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Token(TokenType::Other, "1"),
-                Token(TokenType::Other, "two"),
-                Token(TokenType::Other, "3.0"),
+                (TokenType::Other, "1"),
+                (TokenType::Other, "two"),
+                (TokenType::Other, "3.0"),
             ]
         );
     }
@@ -156,8 +160,8 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Token(TokenType::String, "\"hello world!\""),
-                Token(TokenType::Other, "not-text")
+                (TokenType::String, "\"hello world!\""),
+                (TokenType::Other, "not-text")
             ]
         );
     }
@@ -168,8 +172,8 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Token(TokenType::Other, "\\\""),
-                Token(TokenType::String, "\"\\\"quotes\\\"\"")
+                (TokenType::Other, "\\\""),
+                (TokenType::String, "\"\\\"quotes\\\"\"")
             ]
         );
     }
@@ -179,7 +183,7 @@ mod tests {
         let actual = Token::parse_tokens_to_vec("\"I am not closed");
         assert_eq!(
             actual,
-            vec![Token(TokenType::UnterminatedString, "\"I am not closed")]
+            vec![(TokenType::UnterminatedString, "\"I am not closed")]
         );
     }
 
@@ -189,10 +193,10 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Token(TokenType::OpenParen, "("),
-                Token(TokenType::Other, "left"),
-                Token(TokenType::Other, "right"),
-                Token(TokenType::CloseParen, ")")
+                (TokenType::OpenParen, "("),
+                (TokenType::Other, "left"),
+                (TokenType::Other, "right"),
+                (TokenType::CloseParen, ")")
             ]
         );
     }

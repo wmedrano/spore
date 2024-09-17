@@ -50,67 +50,95 @@ pub struct ValStore {
     free_list_ids: Vec<ValId<ListVal>>,
     free_bytecode_ids: Vec<ValId<Arc<ByteCode>>>,
     alive_color: Color,
+    // Data used for GC mark phase.
+    temp_mark_data: TempMarkData,
+}
+
+#[derive(Clone, Debug, Default)]
+struct TempMarkData {
+    current_queue: Vec<InternalVal>,
+    next_queue: Vec<InternalVal>,
 }
 
 impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
         // Unsafe OK: Unsoundness acknowledged.
-        unsafe { self.run_gc_mark(values) };
+        self.run_gc_mark(values);
         self.run_gc_sweep();
     }
 
-    // # Safety
-    // Borrows mutably multiple times. Soundness of implementation needs more scrutiny.
-    unsafe fn run_gc_mark(&mut self, values: impl Iterator<Item = InternalVal>) {
-        let self_ptr: *mut ValStore = self;
-        let mark_bytecode_child_vals = move |bc: &ByteCode| {
-            unsafe { &mut *self_ptr }.run_gc_mark(bc.values());
-        };
-        let mark_list_vals = move |vals: &ListVal| {
-            unsafe { &mut *self_ptr }.run_gc_mark(vals.iter().copied());
-        };
-        // 1. Mark.
+    fn run_gc_mark(&mut self, values: impl Iterator<Item = InternalVal>) {
+        let mut temp_data = std::mem::take(&mut self.temp_mark_data);
+        temp_data.clear();
         for val in values {
-            match val {
-                InternalVal::Void => {}
-                InternalVal::Bool(_) => {}
-                InternalVal::Int(_) => {}
-                InternalVal::Float(_) => {}
-                InternalVal::String(id) => {
-                    if let Some(entry) = self.strings.get_mut(id.id as usize) {
-                        entry.color = self.alive_color;
-                    }
+            self.gc_mark_one(val, &mut temp_data.current_queue);
+        }
+        for (idx, colored_vals) in self.strings.iter().enumerate() {
+            if colored_vals.keep_alive_count > 0 {
+                temp_data
+                    .current_queue
+                    .push(InternalVal::String(ValId::new(idx as u32)));
+            }
+        }
+        for (idx, colored_vals) in self.lists.iter().enumerate() {
+            if colored_vals.keep_alive_count > 0 {
+                temp_data
+                    .current_queue
+                    .push(InternalVal::List(ValId::new(idx as u32)));
+            }
+        }
+        for (idx, colored_vals) in self.bytecodes.iter().enumerate() {
+            if colored_vals.keep_alive_count > 0 {
+                temp_data
+                    .current_queue
+                    .push(InternalVal::ByteCodeFunction(ValId::new(idx as u32)));
+            }
+        }
+        while !temp_data.current_queue.is_empty() {
+            for val in temp_data.current_queue.drain(..) {
+                self.gc_mark_one(val, &mut temp_data.next_queue);
+            }
+            std::mem::swap(&mut temp_data.current_queue, &mut temp_data.next_queue);
+        }
+        self.temp_mark_data = temp_data;
+    }
+
+    fn gc_mark_one(&mut self, val: InternalVal, child_queue: &mut Vec<InternalVal>) {
+        match val {
+            InternalVal::Void => {}
+            InternalVal::Bool(_) => {}
+            InternalVal::Int(_) => {}
+            InternalVal::Float(_) => {}
+            InternalVal::String(id) => {
+                if let Some(entry) = self.strings.get_mut(id.id as usize) {
+                    entry.color = self.alive_color;
                 }
-                InternalVal::List(id) => {
-                    if let Some(entry) = self.lists.get_mut(id.id as usize) {
-                        if entry.color != self.alive_color {
-                            debug_assert_ne!(entry.color, Color::Tombstone);
-                            entry.color = self.alive_color;
-                            mark_list_vals(&entry.inner);
+            }
+            InternalVal::List(id) => {
+                if let Some(entry) = self.lists.get_mut(id.id as usize) {
+                    if entry.color != self.alive_color {
+                        debug_assert_ne!(entry.color, Color::Tombstone);
+                        entry.color = self.alive_color;
+                        for child_val in entry.inner.iter() {
+                            child_queue.push(*child_val);
                         }
                     }
                 }
-                InternalVal::ByteCodeFunction(id) => {
-                    if let Some(entry) = self.bytecodes.get_mut(id.id as usize) {
-                        if let Some(bc) = entry.inner.as_ref() {
-                            if entry.color != self.alive_color {
-                                entry.color = self.alive_color;
-                                mark_bytecode_child_vals(bc);
+            }
+            InternalVal::ByteCodeFunction(id) => {
+                if let Some(entry) = self.bytecodes.get_mut(id.id as usize) {
+                    if let Some(bc) = entry.inner.as_ref() {
+                        if entry.color != self.alive_color {
+                            entry.color = self.alive_color;
+                            for child_val in bc.values() {
+                                child_queue.push(child_val);
                             }
                         }
                     }
                 }
-                InternalVal::NativeFunction(_) => {}
             }
-        }
-        for entry in self.bytecodes.iter_mut() {
-            if let Some(bc) = entry.inner.as_ref() {
-                if entry.keep_alive_count > 0 && entry.color != self.alive_color {
-                    entry.color = self.alive_color;
-                    mark_bytecode_child_vals(bc);
-                }
-            }
+            InternalVal::NativeFunction(_) => {}
         }
     }
 
@@ -315,6 +343,13 @@ impl ValStore {
                 id
             }
         }
+    }
+}
+
+impl TempMarkData {
+    fn clear(&mut self) {
+        self.current_queue.clear();
+        self.next_queue.clear();
     }
 }
 

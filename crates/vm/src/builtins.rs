@@ -1,8 +1,19 @@
 use crate::{
     error::{VmError, VmResult},
-    val::{native_function::NativeFunctionContext, InternalVal},
+    val::{
+        native_function::{NativeFunction, NativeFunctionContext},
+        InternalVal,
+    },
     Vm,
 };
+
+pub const BUILTINS: &[(&str, NativeFunction)] = &[
+    ("+", add),
+    ("<", less),
+    ("string-join", string_join),
+    ("list", list),
+    ("working-directory", working_directory),
+];
 
 pub fn add(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;

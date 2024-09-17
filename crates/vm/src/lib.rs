@@ -81,11 +81,9 @@ impl Vm {
             val_store: ValStore::default(),
             settings,
         };
-        vm.register_native_function("+", builtins::add);
-        vm.register_native_function("<", builtins::less);
-        vm.register_native_function("list", builtins::list);
-        vm.register_native_function("string-join", builtins::string_join);
-        vm.register_native_function("working-directory", builtins::working_directory);
+        for (name, func) in builtins::BUILTINS {
+            vm.register_native_function(SmolStr::new(name), *func);
+        }
         vm
     }
 

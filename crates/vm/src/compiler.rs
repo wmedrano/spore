@@ -420,6 +420,8 @@ fn node_to_ident(node: &Node) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::AstParseError;
+
     use super::*;
 
     #[test]
@@ -437,6 +439,15 @@ mod tests {
     }
 
     #[test]
+    fn ast_error_is_returned() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, ")").unwrap_err(),
+            CompileError::AstError(AstParseError::UnexpectedCloseParen)
+        );
+    }
+
+    #[test]
     fn simple_expression_is_evaluated() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
@@ -450,6 +461,30 @@ mod tests {
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn aggressive_inline_with_builtin_function_inlines_function_value() {
+        let mut vm = Vm::new(VmSettings {
+            enable_aggressive_inline: true,
+        });
+        let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::EvalNative {
+                        func: crate::builtins::add,
+                        arg_count: 2
+                    },
                 ]
                 .into()
             }
