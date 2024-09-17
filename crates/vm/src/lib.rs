@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use log::info;
 use smol_str::SmolStr;
 use val::Val;
 
@@ -37,7 +38,7 @@ pub struct Vm {
     /// Manages lifetime of all values, aside from simple atoms like bool/int/float.
     pub(crate) val_store: ValStore,
     /// Contains bytecode compilation settings,
-    pub(crate) settings: VmSettings,
+    settings: VmSettings,
 }
 
 /// Settings for the Spore virtual machine.
@@ -70,6 +71,7 @@ impl Default for Vm {
 impl Vm {
     /// Create a new virtual machine.
     pub fn new(settings: VmSettings) -> Vm {
+        let start_t = std::time::Instant::now();
         let mut vm = Vm {
             // TODO: Determine optimal size for stack. Small values may perform, better, but
             // exceeding the capacity may cause performance degregations.
@@ -84,6 +86,10 @@ impl Vm {
         for (name, func) in builtins::BUILTINS {
             vm.register_native_function(SmolStr::new(name), *func);
         }
+        info!(
+            "Initialized Spore VM in {elapsed:?}",
+            elapsed = start_t.elapsed()
+        );
         vm
     }
 
@@ -309,6 +315,12 @@ impl Vm {
                 Some(ret_val)
             }
         }
+    }
+}
+
+impl Drop for Vm {
+    fn drop(&mut self) {
+        info!("Tearing down Spore VM.");
     }
 }
 

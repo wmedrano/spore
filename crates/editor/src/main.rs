@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     widgets::Paragraph,
@@ -6,11 +8,21 @@ use ratatui::{
 use spore_vm::{Vm, VmSettings};
 
 fn main() -> anyhow::Result<()> {
+    init_logger();
     let mut terminal = ratatui::init();
     terminal.clear()?;
     let app_result = run(terminal);
     ratatui::restore();
     app_result
+}
+
+fn init_logger() {
+    let log_target =
+        Box::new(File::create("/tmp/spore-editor.log").expect("Can't create log file"));
+    env_logger::builder()
+        .filter(None, log::LevelFilter::Info)
+        .target(env_logger::Target::Pipe(log_target))
+        .init();
 }
 
 fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {

@@ -6,5 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 crossterm = "0.28"
+env_logger = "0.11"
+log = "0.4"
 ratatui = "0.28"
 spore-vm = {path = "../vm" }
