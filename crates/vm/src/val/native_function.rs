@@ -1,3 +1,5 @@
+use smol_str::SmolStr;
+
 use crate::{error::VmResult, Vm};
 
 use super::InternalVal;
@@ -36,6 +38,11 @@ impl<'a> NativeFunctionContext<'a> {
         self.vm.stack.len() - self.stack_start
     }
 
+    /// Create a new void value.
+    pub fn new_void(&self) -> InternalVal {
+        InternalVal::Void
+    }
+
     /// # Safety
     /// The list may be garbage collected if the VM begins its instruction cycle. Safe to call as
     /// final return value call in native function.
@@ -46,7 +53,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// The string may be garbage collected if the VM begins its instruction cycle. Safe to call as
     /// final return value call in native function.
-    pub unsafe fn new_string(&mut self, string: String) -> InternalVal {
+    pub unsafe fn new_string(&mut self, string: SmolStr) -> InternalVal {
         InternalVal::String(self.vm.val_store.insert_string(string))
     }
 }

@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bytecode::ByteCode;
 use native_function::NativeFunction;
+use smol_str::SmolStr;
 
 use crate::{val_store::ValId, Vm};
 
@@ -12,7 +13,7 @@ pub type ListVal = Vec<InternalVal>;
 
 /// Contains a Spore value.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub(crate) enum InternalVal {
+pub enum InternalVal {
     /// A type that contains a single value. Used to represent nothingness.
     #[default]
     Void,
@@ -23,7 +24,7 @@ pub(crate) enum InternalVal {
     /// A 64 bit floating point number.
     Float(f64),
     /// A string.
-    String(ValId<String>),
+    String(ValId<SmolStr>),
     /// A list.
     List(ValId<ListVal>),
     /// A function implemented in Spore's bytecode.
@@ -249,7 +250,7 @@ mod tests {
     #[test]
     fn format_string_produces_string() {
         let mut vm = Vm::default();
-        let string_id = vm.val_store.insert_string("my string".to_string());
+        let string_id = vm.val_store.insert_string("my string".into());
         assert_eq!(
             InternalVal::String(string_id).formatted(&vm).to_string(),
             "my string"

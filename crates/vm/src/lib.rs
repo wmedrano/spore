@@ -6,15 +6,15 @@ use val::Val;
 
 use compiler::Compiler;
 use error::BacktraceError;
-use val::{
-    bytecode::{ByteCode, Instruction},
-    native_function::{NativeFunction, NativeFunctionContext},
-    InternalVal,
-};
+use val::bytecode::{ByteCode, Instruction};
 use val_store::{ValId, ValStore};
 
 pub use ast::AstParseError;
 pub use error::{CompileError, VmError, VmResult};
+pub use val::{
+    native_function::{NativeFunction, NativeFunctionContext},
+    InternalVal,
+};
 
 mod ast;
 mod builtins;
@@ -84,7 +84,7 @@ impl Vm {
             settings,
         };
         for (name, func) in builtins::BUILTINS {
-            vm.register_native_function(SmolStr::new(name), *func);
+            vm.register_native_function(name, *func);
         }
         info!(
             "Initialized Spore VM in {elapsed:?}",
@@ -112,7 +112,7 @@ impl Vm {
     }
 
     /// Register a native function that can be called within the virtual machine.
-    fn register_native_function(&mut self, name: impl Into<SmolStr>, func: NativeFunction) {
+    pub fn register_native_function(&mut self, name: &str, func: NativeFunction) {
         self.values
             .insert(name.into(), InternalVal::NativeFunction(func));
     }

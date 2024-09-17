@@ -67,7 +67,7 @@ impl<'a> Compiler<'a> {
                     Constant::Int(x) => Instruction::PushConst(InternalVal::Int(*x)),
                     Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
                     Constant::String(x) => Instruction::PushConst(InternalVal::String(
-                        self.vm.val_store.insert_string(x.to_string()),
+                        self.vm.val_store.insert_string((*x).into()),
                     )),
                 };
                 self.instructions.push(instruction);

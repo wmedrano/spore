@@ -1,3 +1,5 @@
+use smol_str::SmolStr;
+
 use crate::{
     error::{VmError, VmResult},
     val::{
@@ -8,12 +10,47 @@ use crate::{
 };
 
 pub const BUILTINS: &[(&str, NativeFunction)] = &[
+    ("=", equal),
     ("+", add),
     ("<", less),
     ("string-join", string_join),
     ("list", list),
     ("working-directory", working_directory),
 ];
+
+pub fn equal(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
+    let args = ctx.args();
+    match args {
+        [a, b] => Ok(InternalVal::Bool(equal_impl(ctx.vm(), *a, *b))),
+        _ => Err(VmError::ArityError {
+            function: "=".into(),
+            expected: 2,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
+    use InternalVal::*;
+    match (a, b) {
+        (Void, Void) => true,
+        (Bool(a), Bool(b)) => a == b,
+        (Int(a), Int(b)) => a == b,
+        (Float(a), Float(b)) => a == b,
+        (String(a), String(b)) => vm.val_store.get_str(a) == vm.val_store.get_str(b),
+        (List(a), List(b)) => {
+            let a = vm.val_store.get_list(a);
+            let b = vm.val_store.get_list(b);
+            if a.len() != b.len() {
+                return false;
+            }
+            a.iter().zip(b.iter()).all(|(a, b)| equal_impl(vm, *a, *b))
+        }
+        (ByteCodeFunction(a), ByteCodeFunction(b)) => a == b,
+        (NativeFunction(a), NativeFunction(b)) => a == b,
+        _ => false,
+    }
+}
 
 pub fn add(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     let mut int_sum: i64 = 0;
@@ -138,7 +175,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     }
     // Unsafe OK: Value is returned immediately so vm does not have chance to run garbage
     // collection.
-    Ok(unsafe { ctx.new_string(result) })
+    Ok(unsafe { ctx.new_string(result.into()) })
 }
 
 pub fn list(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
@@ -157,8 +194,8 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<InternalVal
             actual: arg_len,
         });
     }
-    let working_directory = match std::env::current_dir() {
-        Ok(path) => path.to_string_lossy().to_string(),
+    let working_directory: SmolStr = match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().into(),
         // Untested OK: It is hard to create a working directory error and is not common.
         Err(err) => return Err(VmError::CustomError(err.to_string())),
     };
@@ -170,6 +207,100 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<InternalVal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equal_with_wrong_number_of_args_produces_arity_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(=)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 0,
+            },
+        );
+        assert_eq!(
+            vm.eval_str("(= 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 1,
+            },
+        );
+        assert_eq!(
+            vm.eval_str("(= 1 2 3)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 3,
+            },
+        );
+    }
+
+    #[test]
+    fn equal_with_equal_items_returns_true() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(= false false)").unwrap().as_bool(),
+            Some(true)
+        );
+        assert_eq!(vm.eval_str("(= 1 1)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(= 2.0 2.0)").unwrap().as_bool(), Some(true));
+        assert_eq!(
+            vm.eval_str("(= \"string\" \"string\")").unwrap().as_bool(),
+            Some(true)
+        );
+        assert_eq!(
+            vm.eval_str("(= (list \"list\") (list \"list\"))")
+                .unwrap()
+                .as_bool(),
+            Some(true)
+        );
+        vm.eval_str("(define (foo) 42)").unwrap();
+        assert_eq!(vm.eval_str("(= foo foo)").unwrap().as_bool(), Some(true));
+        assert_eq!(
+            vm.eval_str("(= (foo) (foo))").unwrap().as_bool(),
+            Some(true)
+        );
+        assert_eq!(vm.eval_str("(= + +)").unwrap().as_bool(), Some(true));
+
+        // TODO: Use interpretter once it is possible to build a void.
+        vm.values.insert("void1".into(), InternalVal::Void);
+        vm.values.insert("void2".into(), InternalVal::Void);
+        assert_eq!(
+            vm.eval_str("(= void1 void2)").unwrap().as_bool(),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn equal_with_different_items_returns_true() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(= 1 1.0)").unwrap().as_bool(), Some(false),);
+        assert_eq!(
+            vm.eval_str("(= true false)").unwrap().as_bool(),
+            Some(false)
+        );
+        assert_eq!(vm.eval_str("(= 1 2)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(= 1.0 2.0)").unwrap().as_bool(), Some(false));
+        assert_eq!(
+            vm.eval_str("(= \"string\" \"other\")").unwrap().as_bool(),
+            Some(false)
+        );
+        assert_eq!(
+            vm.eval_str("(= (list) (list 0))").unwrap().as_bool(),
+            Some(false)
+        );
+        assert_eq!(
+            vm.eval_str("(= (list \"list\" 1) (list \"list\" 2))")
+                .unwrap()
+                .as_bool(),
+            Some(false)
+        );
+        vm.eval_str("(define (foo) 42) (define (bar) 42)").unwrap();
+        assert_eq!(vm.eval_str("(= foo bar)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(= + <)").unwrap().as_bool(), Some(false));
+    }
 
     #[test]
     fn add_with_no_args_is_int_0() {

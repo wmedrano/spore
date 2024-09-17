@@ -1,5 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
+use smol_str::SmolStr;
+
 use crate::val::{bytecode::ByteCode, InternalVal, ListVal};
 
 type IdRepr = u32;
@@ -43,10 +45,10 @@ struct ValWithColor<T> {
 /// ValStore manages the lifetime of Val objects.
 #[derive(Clone, Debug, Default)]
 pub struct ValStore {
-    strings: Vec<ValWithColor<String>>,
+    strings: Vec<ValWithColor<SmolStr>>,
     lists: Vec<ValWithColor<ListVal>>,
     bytecodes: Vec<ValWithColor<Option<Arc<ByteCode>>>>,
-    free_string_ids: Vec<ValId<String>>,
+    free_string_ids: Vec<ValId<SmolStr>>,
     free_list_ids: Vec<ValId<ListVal>>,
     free_bytecode_ids: Vec<ValId<Arc<ByteCode>>>,
     alive_color: Color,
@@ -166,7 +168,7 @@ impl ValStore {
             .filter(|(_, s)| s.keep_alive_count == 0)
         {
             *string = ValWithColor {
-                inner: String::new(),
+                inner: Default::default(),
                 color: Color::Tombstone,
                 keep_alive_count: 0,
             };
@@ -253,14 +255,14 @@ impl ValStore {
     }
 
     /// Get a string by its id.
-    pub fn get_str(&self, id: ValId<String>) -> &str {
+    pub fn get_str(&self, id: ValId<SmolStr>) -> &str {
         let res = self.strings.get(id.id as usize);
         debug_assert!(res.is_some());
         res.map(|s| s.inner.as_str()).unwrap_or("")
     }
 
     /// Insert a string and get its id.
-    pub fn insert_string(&mut self, s: String) -> ValId<String> {
+    pub fn insert_string(&mut self, s: SmolStr) -> ValId<SmolStr> {
         let val = ValWithColor {
             inner: s,
             color: self.alive_color,

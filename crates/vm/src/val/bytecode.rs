@@ -4,7 +4,7 @@ use super::{InternalVal, NativeFunction};
 
 /// Contains a set of instructions for the Spore VM to evaluate.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ByteCode {
+pub struct ByteCode {
     /// The name of the function.
     pub name: SmolStr,
     /// The number of arguments for the bytecode.
@@ -33,7 +33,7 @@ impl ByteCode {
 
 /// An instruction for the VM to execute.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Instruction {
+pub enum Instruction {
     /// Push a constant onto the stack.
     PushConst(InternalVal),
     /// Push the current function onto the stack.
