@@ -84,7 +84,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     let (strings, separator) = match args {
         [] => {
             return Err(VmError::ArityError {
-                function: "string-join".to_string(),
+                function: "string-join".into(),
                 expected: 1,
                 actual: 0,
             })
@@ -111,7 +111,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
         }
         _ => {
             return Err(VmError::ArityError {
-                function: "string-join".to_string(),
+                function: "string-join".into(),
                 expected: 2,
                 actual: args.len(),
             })
@@ -152,7 +152,7 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<InternalVal
     let arg_len = ctx.arg_len();
     if arg_len != 0 {
         return Err(VmError::ArityError {
-            function: "working-directory".to_string(),
+            function: "working-directory".into(),
             expected: 0,
             actual: arg_len,
         });
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(string-join)").unwrap_err(),
             VmError::ArityError {
-                function: "string-join".to_string(),
+                function: "string-join".into(),
                 expected: 1,
                 actual: 0,
             },
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(string-join 1 2 3)").unwrap_err(),
             VmError::ArityError {
-                function: "string-join".to_string(),
+                function: "string-join".into(),
                 expected: 2,
                 actual: 3,
             },
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(working-directory 1)").unwrap_err(),
             VmError::ArityError {
-                function: "working-directory".to_string(),
+                function: "working-directory".into(),
                 expected: 0,
                 actual: 1
             }

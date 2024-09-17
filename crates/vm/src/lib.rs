@@ -498,7 +498,7 @@ mod tests {
                 call_stack: std::iter::repeat("recurse")
                     .take(64)
                     .chain(std::iter::once(""))
-                    .map(String::from)
+                    .map(Into::into)
                     .collect(),
             }
         );

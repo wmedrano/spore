@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use smol_str::SmolStr;
-
 use crate::{
     ast::Node,
     error::CompileError,
@@ -37,7 +35,7 @@ impl<'a> Compiler<'a> {
         };
         compiler.compile_impl(input_source, CompilerContext::Module)?;
         Ok(ByteCode {
-            name: String::new(),
+            name: "".into(),
             arg_count: 0,
             instructions: std::mem::take(&mut compiler.instructions).into(),
         })
@@ -92,7 +90,7 @@ impl<'a> Compiler<'a> {
                         .flatten()
                         .map(|c| Instruction::PushConst(*c));
                     let instruction =
-                        maybe_inlined_val.unwrap_or(Instruction::Deref(SmolStr::new(ident)));
+                        maybe_inlined_val.unwrap_or(Instruction::Deref((*ident).into()));
                     self.instructions.push(instruction)
                 }
             },
@@ -141,7 +139,7 @@ impl<'a> Compiler<'a> {
                 }
                 self.compile_one(expr, CompilerContext::Subexpression)?;
                 self.instructions
-                    .push(Instruction::Define(SmolStr::new(identifier)));
+                    .push(Instruction::Define((*identifier).into()));
             }
             Ir::If {
                 predicate,
@@ -209,7 +207,7 @@ impl<'a> Compiler<'a> {
                 }
                 let lambda_val = InternalVal::ByteCodeFunction(
                     lambda_compiler.vm.val_store.insert_bytecode(ByteCode {
-                        name: name.unwrap_or("").to_string(),
+                        name: name.unwrap_or("").into(),
                         arg_count: args.len(),
                         instructions: lambda_compiler.instructions.into(),
                     }),
@@ -431,7 +429,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![].into(),
             }
@@ -457,7 +455,7 @@ mod tests {
         assert_eq!(
             Compiler::compile(&mut vm, "true").unwrap(),
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::Bool(true))].into()
             }
@@ -465,7 +463,7 @@ mod tests {
         assert_eq!(
             Compiler::compile(&mut vm, "1").unwrap(),
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into()
             }
@@ -473,7 +471,7 @@ mod tests {
         assert_eq!(
             Compiler::compile(&mut vm, "1.0").unwrap(),
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::Float(1.0))].into()
             }
@@ -482,7 +480,7 @@ mod tests {
         assert_eq!(
             got,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 // Warning: Checking for 0 is brittle as it involves knowing the internal details of
                 // the id system.
@@ -510,9 +508,9 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::Deref(SmolStr::new("my-variable"))].into()
+                instructions: vec![Instruction::Deref("my-variable".into())].into()
             }
         );
     }
@@ -526,7 +524,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::NativeFunction(
                     crate::builtins::add
@@ -545,7 +543,7 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::Int(1)),
@@ -569,10 +567,10 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("does-not-exist")),
+                    Instruction::Deref("does-not-exist".into()),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
@@ -584,10 +582,10 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("get-fn")),
+                    Instruction::Deref("get-fn".into()),
                     Instruction::Eval(1),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
@@ -609,10 +607,9 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::Deref(SmolStr::new("+")), Instruction::Eval(1)]
-                    .into()
+                instructions: vec![Instruction::Deref("+".into()), Instruction::Eval(1)].into()
             }
         );
     }
@@ -624,10 +621,10 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
@@ -644,14 +641,14 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(3)),
                     Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
@@ -668,13 +665,13 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(3)),
                     Instruction::PushConst(InternalVal::Int(4)),
                     Instruction::Eval(3),
@@ -720,11 +717,11 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: String::new(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::Int(12)),
-                    Instruction::Define(SmolStr::new("x")),
+                    Instruction::Define("x".into()),
                 ]
                 .into()
             }
@@ -738,15 +735,15 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::ByteCodeFunction(
                         vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                            name: "foo".to_string(),
+                            name: "foo".into(),
                             arg_count: 2,
                             instructions: vec![
-                                Instruction::Deref(SmolStr::new("+")),
+                                Instruction::Deref("+".into()),
                                 Instruction::GetArg(0),
                                 Instruction::GetArg(1),
                                 Instruction::Eval(3),
@@ -754,7 +751,7 @@ mod tests {
                             .into(),
                         })
                     )),
-                    Instruction::Define(SmolStr::new("foo")),
+                    Instruction::Define("foo".into()),
                 ]
                 .into()
             }
@@ -768,14 +765,14 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::Deref("+".into()),
                     Instruction::PushConst(InternalVal::Int(1)),
                     Instruction::PushConst(InternalVal::Int(2)),
                     Instruction::Eval(3),
-                    Instruction::Define(SmolStr::new("x")),
+                    Instruction::Define("x".into()),
                 ]
                 .into()
             }
@@ -802,7 +799,7 @@ mod tests {
         assert_eq!(
             Compiler::compile(&mut vm, "(if true 1 2)").unwrap(),
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::Bool(true)),
@@ -845,7 +842,7 @@ mod tests {
         assert_eq!(
             Compiler::compile(&mut vm, "(if true 1)").unwrap(),
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::Bool(true)),
@@ -891,11 +888,11 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
                     vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                        name: "".to_string(),
+                        name: "".into(),
                         arg_count: 0,
                         instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into(),
                     })
@@ -913,11 +910,11 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
                     vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                        name: "".to_string(),
+                        name: "".into(),
                         arg_count: 3,
                         instructions: vec![
                             Instruction::GetArg(1),
@@ -940,12 +937,12 @@ mod tests {
         assert_eq!(
             actual,
             ByteCode {
-                name: "".to_string(),
+                name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(InternalVal::ByteCodeFunction(
                         vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                            name: "foo".to_string(),
+                            name: "foo".into(),
                             arg_count: 1,
                             instructions: vec![
                                 Instruction::PushCurrentFunction,
@@ -955,7 +952,7 @@ mod tests {
                             .into(),
                         })
                     )),
-                    Instruction::Define(SmolStr::new("foo")),
+                    Instruction::Define("foo".into()),
                 ]
                 .into()
             },

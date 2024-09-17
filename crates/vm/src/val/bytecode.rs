@@ -6,7 +6,7 @@ use super::{InternalVal, NativeFunction};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ByteCode {
     /// The name of the function.
-    pub name: String,
+    pub name: SmolStr,
     /// The number of arguments for the bytecode.
     pub arg_count: usize,
     /// The instructions for the bytecode.
