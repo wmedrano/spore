@@ -63,13 +63,18 @@ struct TempMarkData {
 impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
-        self.run_gc_mark(values);
+        let mut temp_data = std::mem::take(&mut self.temp_mark_data);
+        self.run_gc_mark(values, &mut temp_data);
+        self.temp_mark_data = temp_data;
         self.run_gc_sweep();
     }
 
-    fn run_gc_mark(&mut self, values: impl Iterator<Item = InternalVal>) {
-        let mut temp_data = std::mem::take(&mut self.temp_mark_data);
-        temp_data.clear();
+    fn run_gc_mark(
+        &mut self,
+        values: impl Iterator<Item = InternalVal>,
+        temp_data: &mut TempMarkData,
+    ) {
+        temp_data.clear_retaining_capacity();
         for val in values {
             self.gc_mark_one(val, &mut temp_data.current_queue);
         }
@@ -100,15 +105,25 @@ impl ValStore {
             }
             std::mem::swap(&mut temp_data.current_queue, &mut temp_data.next_queue);
         }
-        self.temp_mark_data = temp_data;
     }
 
     fn gc_mark_one(&mut self, val: InternalVal, child_queue: &mut Vec<InternalVal>) {
+        let has_gc = |v| match v {
+            InternalVal::Void => false,
+            InternalVal::Bool(_) => false,
+            InternalVal::Int(_) => false,
+            InternalVal::Float(_) => false,
+            InternalVal::String(_) => true,
+            InternalVal::List(_) => true,
+            InternalVal::ByteCodeFunction(_) => true,
+            InternalVal::NativeFunction(_) => false,
+        };
+        let mut add_child = |v| {
+            if has_gc(v) {
+                child_queue.push(v);
+            }
+        };
         match val {
-            InternalVal::Void => {}
-            InternalVal::Bool(_) => {}
-            InternalVal::Int(_) => {}
-            InternalVal::Float(_) => {}
             InternalVal::String(id) => {
                 if let Some(entry) = self.strings.get_mut(id.id as usize) {
                     entry.color = self.alive_color;
@@ -120,7 +135,7 @@ impl ValStore {
                         debug_assert_ne!(entry.color, Color::Tombstone);
                         entry.color = self.alive_color;
                         for child_val in entry.inner.iter() {
-                            child_queue.push(*child_val);
+                            add_child(*child_val);
                         }
                     }
                 }
@@ -131,13 +146,13 @@ impl ValStore {
                         if entry.color != self.alive_color {
                             entry.color = self.alive_color;
                             for child_val in bc.values() {
-                                child_queue.push(child_val);
+                                add_child(child_val);
                             }
                         }
                     }
                 }
             }
-            InternalVal::NativeFunction(_) => {}
+            v => assert!(!has_gc(v)),
         }
     }
 
@@ -346,7 +361,7 @@ impl ValStore {
 }
 
 impl TempMarkData {
-    fn clear(&mut self) {
+    fn clear_retaining_capacity(&mut self) {
         self.current_queue.clear();
         self.next_queue.clear();
     }
@@ -366,7 +381,7 @@ impl<T> Clone for ValId<T> {
 }
 impl<T> std::hash::Hash for ValId<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        state.write(&self.id.to_ne_bytes());
+        self.id.hash(state);
     }
 }
 

@@ -27,7 +27,7 @@ impl Token {
     }
 
     /// Parse an input source into a stream of tokens.
-    pub fn parse_tokens<'a>(input_source: &'a str) -> impl 'a + Iterator<Item = Token> {
+    pub fn parse_tokens(input_source: &str) -> impl '_ + Iterator<Item = Token> {
         let mut start = 0;
         std::iter::from_fn(move || {
             Token::parse_next(input_source, start).inspect(|t| start = t.end)
