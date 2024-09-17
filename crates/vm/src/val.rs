@@ -144,12 +144,6 @@ impl<'a> Drop for Val<'a> {
     }
 }
 
-impl<'a> PartialEq for Val<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.v == other.v
-    }
-}
-
 impl<'a> Val<'a> {
     pub fn is_void(&self) -> bool {
         matches!(self.v, InternalVal::Void)

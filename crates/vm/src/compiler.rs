@@ -63,17 +63,39 @@ impl<'a> Compiler<'a> {
 
     fn compile_one(&mut self, ir: &Ir, ctx: CompilerContext) -> Result<()> {
         match ir {
-            Ir::Define { identifier, expr } => {
-                if ctx != CompilerContext::Module {
-                    return Err(CompileError::DefineNotAllowedInSubexpression);
-                }
-                if !expr.is_expression() {
-                    return Err(CompileError::ExpectedExpression { context: "define" });
-                }
-                self.compile_one(expr, CompilerContext::Subexpression)?;
-                self.instructions
-                    .push(Instruction::Define(SmolStr::new(identifier)));
+            Ir::Constant(const_val) => {
+                let instruction = match const_val {
+                    Constant::Bool(x) => Instruction::PushConst(InternalVal::Bool(*x)),
+                    Constant::Int(x) => Instruction::PushConst(InternalVal::Int(*x)),
+                    Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
+                    Constant::String(x) => Instruction::PushConst(InternalVal::String(
+                        self.vm.val_store.insert_string(x.to_string()),
+                    )),
+                };
+                self.instructions.push(instruction);
             }
+            Ir::Deref(ident) => match self.arg_idx(ident) {
+                Some(idx) => self.instructions.push(Instruction::GetArg(idx)),
+                None if self
+                    .function_name
+                    .as_ref()
+                    .map(|s| s.as_str() == *ident)
+                    .unwrap_or(false) =>
+                {
+                    self.instructions.push(Instruction::PushCurrentFunction)
+                }
+                None => {
+                    let maybe_inlined_val = self
+                        .settings
+                        .enable_aggressive_inline
+                        .then(|| self.vm.values.get(*ident))
+                        .flatten()
+                        .map(|c| Instruction::PushConst(*c));
+                    let instruction =
+                        maybe_inlined_val.unwrap_or(Instruction::Deref(SmolStr::new(ident)));
+                    self.instructions.push(instruction)
+                }
+            },
             Ir::FunctionCall { function, args } => {
                 if !function.is_expression() {
                     return Err(CompileError::ExpectedExpression {
@@ -109,6 +131,17 @@ impl<'a> Compiler<'a> {
                     }),
                     None => self.instructions.push(Instruction::Eval(args.len() + 1)),
                 }
+            }
+            Ir::Define { identifier, expr } => {
+                if ctx != CompilerContext::Module {
+                    return Err(CompileError::DefineNotAllowedInSubexpression);
+                }
+                if !expr.is_expression() {
+                    return Err(CompileError::ExpectedExpression { context: "define" });
+                }
+                self.compile_one(expr, CompilerContext::Subexpression)?;
+                self.instructions
+                    .push(Instruction::Define(SmolStr::new(identifier)));
             }
             Ir::If {
                 predicate,
@@ -150,39 +183,6 @@ impl<'a> Compiler<'a> {
                     Instruction::JumpIf(false_jump_idx - true_jump_idx);
                 self.instructions[false_jump_idx] =
                     Instruction::Jump(self.instructions.len() - false_jump_idx);
-            }
-            Ir::Deref(ident) => match self.arg_idx(ident) {
-                Some(idx) => self.instructions.push(Instruction::GetArg(idx)),
-                None if self
-                    .function_name
-                    .as_ref()
-                    .map(|s| s.as_str() == *ident)
-                    .unwrap_or(false) =>
-                {
-                    self.instructions.push(Instruction::PushCurrentFunction)
-                }
-                None => {
-                    let maybe_inlined_val = self
-                        .settings
-                        .enable_aggressive_inline
-                        .then(|| self.vm.values.get(*ident))
-                        .flatten()
-                        .map(|c| Instruction::PushConst(*c));
-                    let instruction =
-                        maybe_inlined_val.unwrap_or(Instruction::Deref(SmolStr::new(ident)));
-                    self.instructions.push(instruction)
-                }
-            },
-            Ir::Constant(const_val) => {
-                let instruction = match const_val {
-                    Constant::Bool(x) => Instruction::PushConst(InternalVal::Bool(*x)),
-                    Constant::Int(x) => Instruction::PushConst(InternalVal::Int(*x)),
-                    Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
-                    Constant::String(x) => Instruction::PushConst(InternalVal::String(
-                        self.vm.val_store.insert_string(x.to_string()),
-                    )),
-                };
-                self.instructions.push(instruction);
             }
             Ir::Lambda {
                 name,
@@ -249,13 +249,10 @@ enum Constant<'a> {
 /// Contains the intermediate representation. This is a slightly more processed AST that is usefull
 /// for compiling.
 enum Ir<'a> {
-    /// A define expression of the form: (define <name> <expr>)
-    Define {
-        /// The identifier to define.
-        identifier: &'a str,
-        /// The value of the definition.
-        expr: Box<Self>,
-    },
+    /// A constant literal.
+    Constant(Constant<'a>),
+    /// Dereference a symbol.
+    Deref(&'a str),
     /// A function call expression of the form: (<function> <args>...)
     FunctionCall {
         /// The function to call.
@@ -263,16 +260,19 @@ enum Ir<'a> {
         /// The arguments to the function.
         args: Vec<Self>,
     },
+    /// A define expression of the form: (define <name> <expr>)
+    Define {
+        /// The identifier to define.
+        identifier: &'a str,
+        /// The value of the definition.
+        expr: Box<Self>,
+    },
     /// A if expression.
     If {
         predicate: Box<Self>,
         true_expr: Box<Self>,
         false_expr: Option<Box<Self>>,
     },
-    /// Dereference a symbol.
-    Deref(&'a str),
-    /// A constant literal.
-    Constant(Constant<'a>),
     /// A lambda.
     Lambda {
         name: Option<&'a str>,
@@ -284,11 +284,11 @@ enum Ir<'a> {
 impl<'a> Ir<'a> {
     fn new(node: &'a Node<'a>) -> Result<Ir> {
         let ir = match node {
-            Node::Identifier(ident) => Ir::Deref(ident),
             Node::Bool(b) => Ir::Constant(Constant::Bool(*b)),
             Node::Int(int) => Ir::Constant(Constant::Int(*int)),
             Node::Float(float) => Ir::Constant(Constant::Float(*float)),
             Node::String(string) => Ir::Constant(Constant::String(string.as_str())),
+            Node::Identifier(ident) => Ir::Deref(ident),
             Node::Tree(tree) => match tree.as_slice() {
                 [Node::Identifier("define"), define_args @ ..] => match define_args {
                     [Node::Identifier(identifier), expr] => Ir::Define {
@@ -399,11 +399,11 @@ impl<'a> Ir<'a> {
     /// do not.
     fn is_expression(&self) -> bool {
         match self {
-            Ir::Define { .. } => false,
-            Ir::FunctionCall { .. } => true,
-            Ir::If { .. } => true,
-            Ir::Deref(_) => true,
             Ir::Constant(_) => true,
+            Ir::Deref(_) => true,
+            Ir::FunctionCall { .. } => true,
+            Ir::Define { .. } => false,
+            Ir::If { .. } => true,
             Ir::Lambda { .. } => true,
         }
     }
@@ -447,21 +447,90 @@ mod tests {
         );
     }
 
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Constants
+    ////////////////////////////////////////////////////////////////////////////////
+
     #[test]
-    fn simple_expression_is_evaluated() {
+    fn literal_value_produces_single_push_const() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
+        assert_eq!(
+            Compiler::compile(&mut vm, "true").unwrap(),
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![Instruction::PushConst(InternalVal::Bool(true))].into()
+            }
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "1").unwrap(),
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into()
+            }
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "1.0").unwrap(),
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![Instruction::PushConst(InternalVal::Float(1.0))].into()
+            }
+        );
+        let got = Compiler::compile(&mut vm, "\"string\"").unwrap();
+        assert_eq!(
+            got,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                // Warning: Checking for 0 is brittle as it involves knowing the internal details of
+                // the id system.
+                instructions: vec![got.instructions[0].clone()].into()
+            }
+        );
+        assert_eq!(
+            vm.eval_str("\"string\"")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string(),
+            "string"
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Deref
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn single_identifier_is_dereffed() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "my-variable").unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".to_string(),
                 arg_count: 0,
-                instructions: vec![
-                    Instruction::Deref(SmolStr::new("+")),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
-                    Instruction::Eval(3),
-                ]
+                instructions: vec![Instruction::Deref(SmolStr::new("my-variable"))].into()
+            }
+        );
+    }
+
+    #[test]
+    fn single_identifier_with_aggressive_inline_is_push_const() {
+        let mut vm = Vm::new(VmSettings {
+            enable_aggressive_inline: true,
+        });
+        let actual = Compiler::compile(&mut vm, "+").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![Instruction::PushConst(InternalVal::NativeFunction(
+                    crate::builtins::add
+                ))]
                 .into()
             }
         );
@@ -485,6 +554,83 @@ mod tests {
                         func: crate::builtins::add,
                         arg_count: 2
                     },
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn aggressive_inline_with_nonexistant_function_falls_back_to_deref() {
+        let mut vm = Vm::new(VmSettings {
+            enable_aggressive_inline: true,
+        });
+        let actual = Compiler::compile(&mut vm, "(does-not-exist 1 2)").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::Deref(SmolStr::new("does-not-exist")),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Eval(3),
+                ]
+                .into()
+            }
+        );
+        let actual = Compiler::compile(&mut vm, "((get-fn) 1 2)").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::Deref(SmolStr::new("get-fn")),
+                    Instruction::Eval(1),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Eval(3),
+                ]
+                .into()
+            }
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Function Call
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn function_call_with_no_args_evalutes_function() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(+)").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![Instruction::Deref(SmolStr::new("+")), Instruction::Eval(1)]
+                    .into()
+            }
+        );
+    }
+
+    #[test]
+    fn function_call_args_evalutes_function_on_args() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2)").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::Deref(SmolStr::new("+")),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Eval(3),
                 ]
                 .into()
             }
@@ -538,6 +684,34 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn define_in_function_args_produces_error() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))").unwrap_err();
+        assert_eq!(
+            actual,
+            CompileError::ExpectedExpression {
+                context: "function call argument"
+            }
+        );
+    }
+
+    #[test]
+    fn define_in_function_call_produces_error() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "((define x 12))").unwrap_err();
+        assert_eq!(
+            actual,
+            CompileError::ExpectedExpression {
+                context: "function call"
+            }
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Define
+    ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
     fn define_defines_a_new_value() {
@@ -618,29 +792,97 @@ mod tests {
         );
     }
 
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: If
+    ////////////////////////////////////////////////////////////////////////////////
+
     #[test]
-    fn define_in_function_args_produces_error() {
+    fn if_expression_produces_branching_instructions() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))").unwrap_err();
         assert_eq!(
-            actual,
-            CompileError::ExpectedExpression {
-                context: "function call argument"
+            Compiler::compile(&mut vm, "(if true 1 2)").unwrap(),
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(InternalVal::Bool(true)),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::Jump(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                ]
+                .into()
             }
         );
     }
 
     #[test]
-    fn define_in_function_call_produces_error() {
+    fn if_expression_with_non_expression_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "((define x 12))").unwrap_err();
         assert_eq!(
-            actual,
+            Compiler::compile(&mut vm, "(if (define x 1) 1 2)").unwrap_err(),
             CompileError::ExpectedExpression {
-                context: "function call"
+                context: "if predicate"
+            }
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if true (define x 1) 2)").unwrap_err(),
+            CompileError::ExpectedExpression {
+                context: "if expression, true branch"
+            }
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if true 1 (define x 2))").unwrap_err(),
+            CompileError::ExpectedExpression {
+                context: "if expression, false branch"
             }
         );
     }
+
+    #[test]
+    fn if_expression_with_empty_false_branch_defaults_to_void() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if true 1)").unwrap(),
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(InternalVal::Bool(true)),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(InternalVal::Void),
+                    Instruction::Jump(2),
+                    Instruction::PushConst(InternalVal::Int(1)),
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn if_with_wrong_number_of_args_produces_arity_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if)").unwrap_err(),
+            CompileError::ExpressionHasWrongArgs {
+                expression: "if",
+                expected: 2,
+                actual: 0
+            },
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if true 1 2 3)").unwrap_err(),
+            CompileError::ExpressionHasWrongArgs {
+                expression: "if",
+                expected: 3,
+                actual: 4
+            },
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Lambda
+    ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
     fn lambda_produces_lambda_expr() {
@@ -692,6 +934,35 @@ mod tests {
     }
 
     #[test]
+    fn lambda_that_calls_self_with_push_current_function_instruction() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(define (foo n) (foo n))").unwrap();
+        assert_eq!(
+            actual,
+            ByteCode {
+                name: "".to_string(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(InternalVal::ByteCodeFunction(
+                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                            name: "foo".to_string(),
+                            arg_count: 1,
+                            instructions: vec![
+                                Instruction::PushCurrentFunction,
+                                Instruction::GetArg(0),
+                                Instruction::Eval(2)
+                            ]
+                            .into(),
+                        })
+                    )),
+                    Instruction::Define(SmolStr::new("foo")),
+                ]
+                .into()
+            },
+        );
+    }
+
+    #[test]
     fn lambda_with_same_arg_defined_twice_produces_error() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda (arg0 arg0) (arg0 arg0))").unwrap_err();
@@ -711,5 +982,19 @@ mod tests {
                 context: "lambda definition expressions"
             }
         );
+    }
+
+    #[test]
+    fn lambda_with_define_statement_produces_error() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(lambda () (define x 12))").unwrap_err();
+        assert_eq!(actual, CompileError::DefineNotAllowedInSubexpression,);
+    }
+
+    #[test]
+    fn lambda_with_invalid_expression_produces_error() {
+        let mut vm = Vm::default();
+        let actual = Compiler::compile(&mut vm, "(lambda () (+ ()))").unwrap_err();
+        assert_eq!(actual, CompileError::EmptyExpression);
     }
 }

@@ -388,8 +388,8 @@ mod tests {
             vm.eval_str("(if false (+ 1 2) (+ 3 4))").unwrap().as_int(),
             Some(7)
         );
-        let got = vm.eval_str("(if false (+ 1 2))").unwrap().is_void();
-        assert!(got, "{got}");
+        let got = vm.eval_str("(if false (+ 1 2))").unwrap();
+        assert!(got.is_void(), "{got}");
     }
 
     #[test]
@@ -502,5 +502,22 @@ mod tests {
                     .collect(),
             }
         );
+    }
+
+    #[test]
+    fn aggressive_inline_produces_same_results_when_there_are_no_redefinitions() {
+        let mut aggressive_inline_vm = Vm::new(VmSettings {
+            enable_aggressive_inline: true,
+        });
+        let mut default_vm = Vm::new(VmSettings {
+            enable_aggressive_inline: false,
+        });
+        let srcs = ["(define x 12)", "x", "(+ x x)"];
+        for src in srcs {
+            assert_eq!(
+                aggressive_inline_vm.eval_str(src).unwrap().to_string(),
+                default_vm.eval_str(src).unwrap().to_string(),
+            )
+        }
     }
 }
