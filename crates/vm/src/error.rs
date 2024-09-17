@@ -1,11 +1,16 @@
 use thiserror::Error;
 
+use crate::AstParseError;
+
+/// A `Result` with `VmError` as the error branch.
 pub type VmResult<T> = Result<T, VmError>;
 
+/// Describes an error encountered when running the Vm.
 #[derive(Debug, Error, PartialEq)]
 pub enum VmError {
-    #[error("exepcted type {expected} but found type {actual}")]
+    #[error("{context} expected type {expected} but found type {actual}")]
     TypeError {
+        context: &'static str,
         expected: &'static str,
         actual: &'static str,
         value: String,
@@ -33,6 +38,7 @@ pub enum VmError {
     CustomError(String),
 }
 
+/// Describes a generic error along with its stacktrace.
 pub struct BacktraceError(std::backtrace::Backtrace);
 
 impl BacktraceError {
@@ -64,6 +70,7 @@ impl PartialEq for BacktraceError {
     }
 }
 
+/// Describes an error during compilation to Spore bytecode.
 #[derive(Debug, Error, PartialEq)]
 pub enum CompileError {
     #[error("syntax error occurred: {0}")]
@@ -86,15 +93,4 @@ pub enum CompileError {
     DefineNotAllowedInSubexpression,
     #[error("argument {0} was defined multiple times")]
     ArgumentDefinedMultipleTimes(String),
-}
-
-/// Describes an AST parsing error.
-#[derive(Debug, Error, PartialEq)]
-pub enum AstParseError {
-    #[error("opening parenthesis was unclosed")]
-    UnclosedParen,
-    #[error("found unexpected closing parenthesis")]
-    UnexpectedCloseParen,
-    #[error("string was not properly closed, did you forget \"?")]
-    UnclosedString,
 }

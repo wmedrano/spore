@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use smol_str::SmolStr;
-pub use val::Val;
+use val::Val;
 
 use compiler::Compiler;
-use error::{BacktraceError, VmError, VmResult};
+use error::BacktraceError;
 use val::{
     bytecode::{ByteCode, Instruction},
     native_function::{NativeFunction, NativeFunctionContext},
@@ -12,16 +12,18 @@ use val::{
 };
 use val_store::{ValId, ValStore};
 
+pub use ast::AstParseError;
+pub use error::{CompileError, VmError, VmResult};
+
 mod ast;
 mod builtins;
 mod compiler;
+mod error;
 mod tokenizer;
 mod val;
 mod val_store;
 
-pub mod error;
-
-/// The spore virtual machine.
+/// The Spore virtual machine.
 #[derive(Debug)]
 pub struct Vm {
     /// The data stack. This is used to store temporary values used for computation.
@@ -38,14 +40,17 @@ pub struct Vm {
     pub(crate) settings: VmSettings,
 }
 
+/// Settings for the Spore virtual machine.
 #[derive(Copy, Clone, Debug, Default)]
 pub struct VmSettings {
+    /// If aggressive inlining should be used. This should be disabled for any interactive
+    /// development where values may be redefined.
     pub enable_aggressive_inline: bool,
 }
 
 /// Used to decide the next instruction to take.
 #[derive(Default, Debug)]
-pub struct StackFrame {
+struct StackFrame {
     bytecode_id: ValId<Arc<ByteCode>>,
     /// The instructions that will be taken.
     bytecode: Arc<ByteCode>,
@@ -79,23 +84,27 @@ impl Vm {
         vm.register_native_function("+", builtins::add);
         vm.register_native_function("<", builtins::less);
         vm.register_native_function("list", builtins::list);
+        vm.register_native_function("string-join", builtins::string_join);
         vm.register_native_function("working-directory", builtins::working_directory);
         vm
     }
 
     /// Run the garbage collector.
     pub fn run_gc(&mut self) {
-        let stack = self.stack.iter().copied();
-        let vals = self.values.values().copied();
-        let stack_frame =
-            std::iter::once(InternalVal::ByteCodeFunction(self.stack_frame.bytecode_id))
-                .chain(self.stack_frame.bytecode.values());
-        let stack_frames = self.previous_stack_frames.iter().flat_map(|sf| {
-            std::iter::once(InternalVal::ByteCodeFunction(sf.bytecode_id))
-                .chain(sf.bytecode.values())
-        });
-        self.val_store
-            .run_gc(stack.chain(vals).chain(stack_frame).chain(stack_frames))
+        let vals = self
+            .stack
+            .iter()
+            .copied()
+            .chain(self.values.values().copied())
+            .chain(std::iter::once(InternalVal::ByteCodeFunction(
+                self.stack_frame.bytecode_id,
+            )))
+            .chain(self.stack_frame.bytecode.values())
+            .chain(self.previous_stack_frames.iter().flat_map(|sf| {
+                std::iter::once(InternalVal::ByteCodeFunction(sf.bytecode_id))
+                    .chain(sf.bytecode.values())
+            }));
+        self.val_store.run_gc(vals)
     }
 
     /// Register a native function that can be called within the virtual machine.
@@ -177,6 +186,7 @@ impl Vm {
                 v => {
                     let v = v.unwrap_or(InternalVal::Void);
                     return Err(VmError::TypeError {
+                        context: "if",
                         expected: InternalVal::BOOL_TYPE_NAME,
                         actual: v.type_name(),
                         value: v.formatted(self).to_string(),
@@ -265,6 +275,7 @@ impl Vm {
                 Ok(())
             }
             v => Err(VmError::TypeError {
+                context: "function call",
                 expected: InternalVal::FUNCTION_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.formatted(self).to_string(),
@@ -337,6 +348,7 @@ mod tests {
         assert_eq!(
             actual,
             VmError::TypeError {
+                context: "+",
                 expected: InternalVal::INT_TYPE_NAME,
                 actual: InternalVal::BOOL_TYPE_NAME,
                 value: "true".to_string(),
@@ -388,6 +400,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
             VmError::TypeError {
+                context: "if",
                 expected: InternalVal::BOOL_TYPE_NAME,
                 actual: InternalVal::INT_TYPE_NAME,
                 value: "1".to_string(),
@@ -396,6 +409,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(if 1 (+ 1 2))").unwrap_err(),
             VmError::TypeError {
+                context: "if",
                 expected: InternalVal::BOOL_TYPE_NAME,
                 actual: InternalVal::INT_TYPE_NAME,
                 value: "1".to_string(),

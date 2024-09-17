@@ -55,12 +55,20 @@ pub struct ValStore {
 impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
+        // Unsafe OK: Unsoundness acknowledged.
+        unsafe { self.run_gc_mark(values) };
+        self.run_gc_sweep();
+    }
+
+    // # Safety
+    // Borrows mutably multiple times. Soundness of implementation needs more scrutiny.
+    unsafe fn run_gc_mark(&mut self, values: impl Iterator<Item = InternalVal>) {
         let self_ptr: *mut ValStore = self;
         let mark_bytecode_child_vals = move |bc: &ByteCode| {
-            unsafe { &mut *self_ptr }.run_gc(bc.values());
+            unsafe { &mut *self_ptr }.run_gc_mark(bc.values());
         };
         let mark_list_vals = move |vals: &ListVal| {
-            unsafe { &mut *self_ptr }.run_gc(vals.iter().copied());
+            unsafe { &mut *self_ptr }.run_gc_mark(vals.iter().copied());
         };
         // 1. Mark.
         for val in values {
@@ -104,7 +112,9 @@ impl ValStore {
                 }
             }
         }
-        // 2. Sweep.
+    }
+
+    fn run_gc_sweep(&mut self) {
         for (idx, string) in self
             .strings
             .iter_mut()

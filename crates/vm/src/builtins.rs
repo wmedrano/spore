@@ -17,6 +17,7 @@ pub fn add(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
             }
             v => {
                 return Err(VmError::TypeError {
+                    context: "+",
                     expected: InternalVal::INT_TYPE_NAME,
                     actual: v.type_name(),
                     value: v.formatted(ctx.vm()).to_string(),
@@ -38,11 +39,13 @@ fn less_two_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
         (InternalVal::Float(a), InternalVal::Int(b)) => Ok(*a < (*b as f64)),
         (InternalVal::Int(a), InternalVal::Float(b)) => Ok((*a as f64) < *b),
         (a, InternalVal::Int(_)) | (a, InternalVal::Float(_)) => Err(VmError::TypeError {
+            context: "<",
             expected: "int or float",
             actual: a.type_name(),
             value: a.formatted(vm).to_string(),
         }),
         (_, b) => Err(VmError::TypeError {
+            context: "<",
             expected: "int or float",
             actual: b.type_name(),
             value: b.formatted(vm).to_string(),
@@ -63,6 +66,68 @@ pub fn less_impl(vm: &Vm, args: &[InternalVal]) -> VmResult<InternalVal> {
 
 pub fn less(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     less_impl(ctx.vm(), ctx.args())
+}
+
+pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
+    let args = ctx.args();
+    let (strings, separator) = match args {
+        [] => {
+            return Err(VmError::ArityError {
+                function: "string-join".to_string(),
+                expected: 1,
+                actual: 0,
+            })
+        }
+        [InternalVal::List(list)] => (*list, ""),
+        [v] => {
+            return Err(VmError::TypeError {
+                context: "string-join",
+                expected: InternalVal::LIST_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            });
+        }
+        [InternalVal::List(list), InternalVal::String(string)] => {
+            (*list, ctx.vm().val_store.get_str(*string))
+        }
+        [_, v] => {
+            return Err(VmError::TypeError {
+                context: "string-join",
+                expected: InternalVal::STRING_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            });
+        }
+        _ => {
+            return Err(VmError::ArityError {
+                function: "string-join".to_string(),
+                expected: 2,
+                actual: args.len(),
+            })
+        }
+    };
+    let mut result = String::new();
+    for (idx, string_id) in ctx.vm().val_store.get_list(strings).iter().enumerate() {
+        if idx > 0 {
+            result.push_str(separator);
+        }
+        match string_id {
+            InternalVal::String(string_id) => {
+                result.push_str(ctx.vm().val_store.get_str(*string_id));
+            }
+            v => {
+                return Err(VmError::TypeError {
+                    context: "string-join",
+                    expected: InternalVal::STRING_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })
+            }
+        };
+    }
+    // Unsafe OK: Value is returned immediately so vm does not have chance to run garbage
+    // collection.
+    Ok(unsafe { ctx.new_string(result) })
 }
 
 pub fn list(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {

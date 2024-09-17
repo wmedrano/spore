@@ -1,8 +1,5 @@
 use anyhow::Result;
-use spore_vm::{
-    error::{AstParseError, CompileError, VmError},
-    Vm,
-};
+use spore_vm::{AstParseError, CompileError, Vm, VmError};
 
 /// A Read-Eval-Print Loop (REPL) for interacting with a Spore VM.
 pub struct Repl {

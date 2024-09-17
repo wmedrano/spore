@@ -1,9 +1,19 @@
-use crate::{
-    error::AstParseError,
-    tokenizer::{Token, TokenType},
-};
+use thiserror::Error;
+
+use crate::tokenizer::{Token, TokenType};
 
 type Result<T> = std::result::Result<T, AstParseError>;
+
+/// Describes an AST parsing error.
+#[derive(Debug, Error, PartialEq)]
+pub enum AstParseError {
+    #[error("opening parenthesis was unclosed")]
+    UnclosedParen,
+    #[error("found unexpected closing parenthesis")]
+    UnexpectedCloseParen,
+    #[error("string was not properly closed, did you forget \"?")]
+    UnclosedString,
+}
 
 /// Describes a node in the AST.
 #[derive(Debug, PartialEq)]
@@ -96,6 +106,11 @@ impl<'a> Node<'a> {
                 let mut escaped = false;
                 for ch in contents[1..contents.len() - 1].chars() {
                     if escaped {
+                        let ch = match ch {
+                            'n' => '\n',
+                            't' => '\t',
+                            ch => ch,
+                        };
                         res.push(ch);
                         escaped = false;
                     } else {
@@ -187,6 +202,20 @@ mod tests {
             actual,
             vec![Node::String("this \"is\" a string".to_string())]
         );
+    }
+
+    #[test]
+    fn backslash_with_n_produces_newline() {
+        let src = "\"\\nn\\n\"";
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(actual, vec![Node::String("\nn\n".to_string())]);
+    }
+
+    #[test]
+    fn backslash_with_t_produces_tab() {
+        let src = "\"\\tt\\t\"";
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(actual, vec![Node::String("\tt\t".to_string())]);
     }
 
     #[test]
