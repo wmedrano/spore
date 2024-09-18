@@ -8,7 +8,10 @@ use ratatui::{
     DefaultTerminal,
 };
 use smol_str::{format_smolstr, SmolStr, ToSmolStr};
-use spore_vm::{Vm, VmError, VmSettings};
+use spore_vm::{
+    val::{InternalVal, NativeFunctionContext},
+    Vm, VmError, VmResult, VmSettings,
+};
 
 fn main() -> anyhow::Result<()> {
     init_logger();
@@ -68,9 +71,7 @@ fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     }
 }
 
-fn read_event(
-    mut ctx: spore_vm::NativeFunctionContext,
-) -> spore_vm::VmResult<spore_vm::InternalVal> {
+fn read_event(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: SmolStr = match event {
         event::Event::Key(KeyEvent {

@@ -2,26 +2,21 @@ use std::{collections::HashMap, sync::Arc};
 
 use log::info;
 use smol_str::SmolStr;
-use val::Val;
 
 use compiler::Compiler;
 use error::BacktraceError;
-use val::bytecode::{ByteCode, Instruction};
+use val::{ByteCode, Instruction, InternalVal, NativeFunction, NativeFunctionContext, Val};
 use val_store::{ValId, ValStore};
 
 pub use ast::AstParseError;
 pub use error::{CompileError, VmError, VmResult};
-pub use val::{
-    native_function::{NativeFunction, NativeFunctionContext},
-    InternalVal,
-};
 
 mod ast;
 mod builtins;
 mod compiler;
 mod error;
 mod tokenizer;
-mod val;
+pub mod val;
 mod val_store;
 
 /// The Spore virtual machine.
@@ -206,13 +201,13 @@ impl Vm {
         match arg_count {
             0 => {
                 // Unsafe OK: stack_start is stack length.
-                let v = func(unsafe { NativeFunctionContext::new(self, self.stack.len()) })?;
+                let v = func(NativeFunctionContext::new(self, self.stack.len()))?;
                 self.stack.push(v);
             }
             _ => {
                 let stack_start = self.stack.len() - arg_count;
                 // Unsafe OK: stack_start is less than stack length.
-                let res = func(unsafe { NativeFunctionContext::new(self, stack_start) })?;
+                let res = func(NativeFunctionContext::new(self, stack_start))?;
                 self.stack.truncate(stack_start + 1);
                 self.stack[stack_start] = res;
             }
@@ -236,9 +231,7 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             InternalVal::NativeFunction(func) => {
-                // Unsafe OK: stack_start is less than stack length.
-                self.stack[function_idx] =
-                    func(unsafe { NativeFunctionContext::new(self, stack_start) })?;
+                self.stack[function_idx] = func(NativeFunctionContext::new(self, stack_start))?;
                 self.stack.truncate(stack_start);
                 Ok(())
             }

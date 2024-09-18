@@ -1,81 +1,32 @@
-use std::sync::Arc;
+use crate::Vm;
 
-use bytecode::ByteCode;
-use native_function::NativeFunction;
-use smol_str::SmolStr;
+use super::InternalVal;
 
-use crate::{val_store::ValId, Vm};
-
-pub mod bytecode;
-pub mod native_function;
-
-pub type ListVal = Vec<InternalVal>;
-
-/// Contains a Spore value.
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub enum InternalVal {
-    /// A type that contains a single value. Used to represent nothingness.
-    #[default]
-    Void,
-    /// Either true or false.
-    Bool(bool),
-    /// A 64 bit signed integer
-    Int(i64),
-    /// A 64 bit floating point number.
-    Float(f64),
-    /// A string.
-    String(ValId<SmolStr>),
-    /// A list.
-    List(ValId<ListVal>),
-    /// A function implemented in Spore's bytecode.
-    ByteCodeFunction(ValId<Arc<ByteCode>>),
-    /// A function implemented in Rust.
-    NativeFunction(NativeFunction),
+pub struct ValFormatter<'a> {
+    vm: &'a Vm,
+    v: InternalVal,
+    quote_strings: bool,
 }
 
-impl InternalVal {
-    pub const FUNCTION_TYPE_NAME: &'static str = "function";
-    pub const BOOL_TYPE_NAME: &'static str = "bool";
-    pub const INT_TYPE_NAME: &'static str = "int";
-    pub const FLOAT_TYPE_NAME: &'static str = "float";
-    pub const VOID_TYPE_NAME: &'static str = "void";
-    pub const STRING_TYPE_NAME: &'static str = "string";
-    pub const LIST_TYPE_NAME: &'static str = "list";
-
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            InternalVal::Void => InternalVal::VOID_TYPE_NAME,
-            InternalVal::Bool(_) => InternalVal::BOOL_TYPE_NAME,
-            InternalVal::Int(_) => InternalVal::INT_TYPE_NAME,
-            InternalVal::Float(_) => InternalVal::FLOAT_TYPE_NAME,
-            InternalVal::String(_) => InternalVal::STRING_TYPE_NAME,
-            InternalVal::List(_) => InternalVal::LIST_TYPE_NAME,
-            InternalVal::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
-            InternalVal::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
-        }
-    }
-
-    pub fn formatted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
+impl<'a> ValFormatter<'a> {
+    /// Create a new value formatter that implements display.
+    pub fn new(vm: &'a Vm, v: InternalVal) -> ValFormatter {
         ValFormatter {
             vm,
-            v: *self,
+            v,
             quote_strings: false,
         }
     }
 
-    pub fn format_quoted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
+    /// Create a new value formatter that implements display. Strings are printed in quotes. For
+    /// example, a string containing the string test-string will print to "test-string".
+    pub fn new_quoted(vm: &'a Vm, v: InternalVal) -> ValFormatter {
         ValFormatter {
             vm,
-            v: *self,
+            v,
             quote_strings: true,
         }
     }
-}
-
-struct ValFormatter<'a> {
-    vm: &'a Vm,
-    v: InternalVal,
-    quote_strings: bool,
 }
 
 impl<'a> std::fmt::Display for ValFormatter<'a> {
@@ -121,82 +72,9 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct Val<'a> {
-    pub(crate) vm: &'a mut Vm,
-    pub(crate) v: InternalVal,
-    _internal: (),
-}
-
-impl<'a> Val<'a> {
-    pub(crate) fn new(vm: &'a mut Vm, v: InternalVal) -> Val<'a> {
-        vm.val_store.keep_alive(v);
-        Val {
-            vm,
-            v,
-            _internal: (),
-        }
-    }
-}
-
-impl<'a> Drop for Val<'a> {
-    fn drop(&mut self) {
-        self.vm.val_store.allow_death(self.v);
-    }
-}
-
-impl<'a> Val<'a> {
-    pub fn is_void(&self) -> bool {
-        matches!(self.v, InternalVal::Void)
-    }
-
-    pub fn as_bool(&self) -> Option<bool> {
-        match self.v {
-            InternalVal::Bool(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn as_int(&self) -> Option<i64> {
-        match self.v {
-            InternalVal::Int(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn as_float(&self) -> Option<f64> {
-        match self.v {
-            InternalVal::Float(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> Option<&str> {
-        match self.v {
-            InternalVal::String(x) => Some(self.vm.val_store.get_str(x)),
-            _ => None,
-        }
-    }
-}
-
-impl<'a> std::fmt::Display for Val<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.v.formatted(self.vm).fmt(f)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vm;
-
-    #[test]
-    fn internal_val_is_small() {
-        assert_eq!(
-            std::mem::size_of::<InternalVal>(),
-            2 * std::mem::size_of::<usize>()
-        );
-    }
 
     #[test]
     fn format_void_is_empty() {

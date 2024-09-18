@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use smol_str::SmolStr;
 
-use crate::val::{bytecode::ByteCode, InternalVal, ListVal};
+use crate::val::{ByteCode, InternalVal, ListVal};
 
 type IdRepr = u32;
 

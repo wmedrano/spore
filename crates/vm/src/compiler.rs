@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use crate::{
     ast::Node,
     error::CompileError,
-    val::bytecode::{ByteCode, Instruction},
-    InternalVal, Vm, VmSettings,
+    val::{ByteCode, Instruction, InternalVal},
+    Vm, VmSettings,
 };
 
 type Result<T> = std::result::Result<T, CompileError>;

@@ -2,10 +2,7 @@ use smol_str::SmolStr;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{
-        native_function::{NativeFunction, NativeFunctionContext},
-        InternalVal,
-    },
+    val::{InternalVal, NativeFunction, NativeFunctionContext},
     Vm,
 };
 
@@ -31,7 +28,7 @@ pub fn equal(ctx: NativeFunctionContext) -> VmResult<InternalVal> {
 }
 
 pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
-    use InternalVal::*;
+    use crate::val::InternalVal::*;
     match (a, b) {
         (Void, Void) => true,
         (Bool(a), Bool(b)) => a == b,

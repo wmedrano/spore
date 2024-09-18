@@ -2,7 +2,7 @@ use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::InternalVal;
+use super::internal::InternalVal;
 
 pub type NativeFunction = fn(NativeFunctionContext) -> VmResult<InternalVal>;
 
@@ -14,12 +14,7 @@ pub struct NativeFunctionContext<'a> {
 impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// Stack start must be less than or equal to the Vm's stack length.
-    pub unsafe fn new(vm: &mut Vm, stack_start: usize) -> NativeFunctionContext {
-        debug_assert!(
-            stack_start <= vm.stack.len(),
-            "left: {stack_start}, right: {stack_len}",
-            stack_len = vm.stack.len()
-        );
+    pub fn new(vm: &mut Vm, stack_start: usize) -> NativeFunctionContext {
         NativeFunctionContext { vm, stack_start }
     }
 
