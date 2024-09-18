@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use smol_str::SmolStr;
+use compact_str::CompactString;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
@@ -10,7 +10,7 @@ use crate::{
 /// ValStore manages the lifetime of Val objects.
 #[derive(Debug, Default)]
 pub struct ValStore {
-    strings: ObjectStore<SmolStr>,
+    strings: ObjectStore<CompactString>,
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
     customs: ObjectStore<CustomVal>,
@@ -116,16 +116,16 @@ impl ValStore {
             InternalValImpl::Int(_) => {}
             InternalValImpl::Float(_) => {}
             InternalValImpl::String(id) => {
-                self.strings.keep_reachable(id);
+                self.strings.mark_always_reachable(id);
             }
             InternalValImpl::List(id) => {
-                self.lists.keep_reachable(id);
+                self.lists.mark_always_reachable(id);
             }
             InternalValImpl::ByteCodeFunction(id) => {
-                self.bytecodes.keep_reachable(id);
+                self.bytecodes.mark_always_reachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
-            InternalValImpl::Custom(id) => self.customs.keep_reachable(id),
+            InternalValImpl::Custom(id) => self.customs.mark_always_reachable(id),
         }
     }
 
@@ -138,28 +138,28 @@ impl ValStore {
             InternalValImpl::Int(_) => {}
             InternalValImpl::Float(_) => {}
             InternalValImpl::String(id) => {
-                self.strings.allow_unreachable(id);
+                self.strings.unmark_always_reachable(id);
             }
             InternalValImpl::List(id) => {
-                self.lists.allow_unreachable(id);
+                self.lists.unmark_always_reachable(id);
             }
             InternalValImpl::ByteCodeFunction(id) => {
-                self.bytecodes.allow_unreachable(id);
+                self.bytecodes.unmark_always_reachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
-            InternalValImpl::Custom(id) => self.customs.allow_unreachable(id),
+            InternalValImpl::Custom(id) => self.customs.unmark_always_reachable(id),
         }
     }
 
     /// Get a string by its id.
-    pub fn get_str(&self, id: ValId<SmolStr>) -> &str {
+    pub fn get_str(&self, id: ValId<CompactString>) -> &str {
         let res = self.strings.get(id);
         debug_assert!(res.is_some());
-        res.map(SmolStr::as_str).unwrap_or("")
+        res.map(CompactString::as_str).unwrap_or("")
     }
 
     /// Insert a string and get its id.
-    pub fn insert_string(&mut self, s: SmolStr) -> ValId<SmolStr> {
+    pub fn insert_string(&mut self, s: CompactString) -> ValId<CompactString> {
         self.strings.insert(s, self.reachable_color)
     }
 

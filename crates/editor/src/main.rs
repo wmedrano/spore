@@ -1,5 +1,6 @@
 use std::{fs::File, time::Duration};
 
+use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
 use log::info;
 use ratatui::{
@@ -8,7 +9,6 @@ use ratatui::{
     DefaultTerminal,
 };
 use rope::SporeRope;
-use smol_str::{format_smolstr, SmolStr, ToSmolStr};
 use spore_vm::{
     val::{NativeFunctionContext, ValBuilder},
     Vm, VmError, VmResult, VmSettings,
@@ -88,10 +88,10 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(Duration::from_millis(10)).unwrap() {
         // Unsafe OK: Returning immediately.
-        return Ok(unsafe { ctx.new_string("".to_smolstr()) });
+        return Ok(unsafe { ctx.new_string(CompactString::default()) });
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
-    let event_str: SmolStr = match event {
+    let event_str: CompactString = match event {
         event::Event::Key(KeyEvent {
             kind: KeyEventKind::Press,
             code,
@@ -111,9 +111,9 @@ fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             KeyCode::BackTab => "<backtab>".into(),
             KeyCode::Delete => "<delete>".into(),
             KeyCode::Insert => "<insert>".into(),
-            KeyCode::F(n) => format_smolstr!("<f{n}>"),
+            KeyCode::F(n) => format_compact!("<f{n}>"),
             KeyCode::Char(' ') => "<space>".into(),
-            KeyCode::Char(ch) => ch.to_smolstr(),
+            KeyCode::Char(ch) => format_compact!("{ch}"),
             KeyCode::Null => "<null>".into(),
             KeyCode::Esc => "<esc>".into(),
             KeyCode::CapsLock => "<caps-lock>".into(),

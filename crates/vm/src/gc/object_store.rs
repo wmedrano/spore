@@ -11,9 +11,12 @@ pub struct ValWithColor<T> {
     keep_reachable_count: u32,
 }
 
+/// A collection of `T` values that may be garbage collected.
 #[derive(Clone, Debug)]
 pub struct ObjectStore<T> {
+    /// Backing storage for all the objects.
     objects: Vec<ValWithColor<T>>,
+    /// List of id (indices) for free entries within [objects].
     free_object_ids: Vec<ValId<T>>,
 }
 
@@ -27,15 +30,16 @@ impl<T> Default for ObjectStore<T> {
 }
 
 impl<T> ObjectStore<T> {
-    /// Mark `id` as always reachable.
-    pub fn keep_reachable(&mut self, id: ValId<T>) {
+    /// Mark `id` as always reachable. Undoing teach call to `mark_always_reachable` requires
+    /// calling [unmark_always_reachable].
+    pub fn mark_always_reachable(&mut self, id: ValId<T>) {
         if let Some(obj) = self.objects.get_mut(id.as_usize()) {
             obj.keep_reachable_count += 1;
         }
     }
 
     /// Allow `id` to be labeled as `unreachable`.
-    pub fn allow_unreachable(&mut self, id: ValId<T>) {
+    pub fn unmark_always_reachable(&mut self, id: ValId<T>) {
         if let Some(obj) = self.objects.get_mut(id.as_usize()) {
             obj.keep_reachable_count -= 1;
         }
@@ -138,7 +142,7 @@ impl Color {
 mod tests {
     use std::{any::Any, sync::Arc};
 
-    use smol_str::SmolStr;
+    use compact_str::CompactString;
 
     use crate::val::ByteCode;
 
@@ -150,10 +154,10 @@ mod tests {
             std::mem::size_of::<ValWithColor<Box<dyn Any>>>(),
             8 + std::mem::size_of::<Box<dyn Any>>()
         );
-        assert_eq!(std::mem::size_of::<SmolStr>(), 24);
+        assert_eq!(std::mem::size_of::<String>(), 24);
         assert_eq!(
-            std::mem::size_of::<ValWithColor<SmolStr>>(),
-            8 + std::mem::size_of::<SmolStr>()
+            std::mem::size_of::<ValWithColor<CompactString>>(),
+            8 + std::mem::size_of::<String>()
         );
         assert_eq!(
             std::mem::size_of::<ValWithColor<Arc<ByteCode>>>(),

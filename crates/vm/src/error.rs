@@ -1,4 +1,4 @@
-use smol_str::SmolStr;
+use compact_str::CompactString;
 use thiserror::Error;
 
 use crate::AstParseError;
@@ -18,7 +18,7 @@ pub enum VmError {
     },
     #[error("wrong arity, function {function} expected {expected} args but found {actual} args")]
     ArityError {
-        function: SmolStr,
+        function: CompactString,
         expected: usize,
         actual: usize,
     },
@@ -33,7 +33,7 @@ pub enum VmError {
     )]
     MaximumRecursionDepth {
         max_depth: usize,
-        call_stack: Vec<SmolStr>,
+        call_stack: Vec<CompactString>,
     },
     #[error("{0}")]
     CustomError(String),

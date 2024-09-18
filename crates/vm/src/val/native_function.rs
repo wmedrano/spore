@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use smol_str::SmolStr;
+use compact_str::CompactString;
 
 use crate::{error::VmResult, Vm};
 
@@ -103,7 +103,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// Garbage collector may clean up this value. For safety, the value must be returned
     /// immediately.
-    pub unsafe fn new_string(&mut self, s: SmolStr) -> ValBuilder<'a> {
+    pub unsafe fn new_string(&mut self, s: CompactString) -> ValBuilder<'a> {
         let string_id = self.vm.val_store.insert_string(s);
         ValBuilder {
             val: string_id.into(),

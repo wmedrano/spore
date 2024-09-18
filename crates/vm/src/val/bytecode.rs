@@ -1,4 +1,4 @@
-use smol_str::SmolStr;
+use compact_str::CompactString;
 
 use super::{InternalVal, NativeFunction};
 
@@ -6,7 +6,7 @@ use super::{InternalVal, NativeFunction};
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ByteCode {
     /// The name of the function.
-    pub name: SmolStr,
+    pub name: CompactString,
     /// The number of arguments for the bytecode.
     pub arg_count: usize,
     /// The instructions for the bytecode.
@@ -41,9 +41,9 @@ pub enum Instruction {
     /// Get the nth argument from the start of the continuation's stack.
     GetArg(usize),
     /// Get the value of a symbol at push it onto the stack.
-    Deref(SmolStr),
+    Deref(CompactString),
     /// Pop the top value of the stack and assign it to the given symbol.
-    Define(SmolStr),
+    Define(CompactString),
     /// Pop the top `n` values of the stack. The deepmost value should be function with the rest of
     /// the values acting as the arguments.
     Eval(usize),

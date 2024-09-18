@@ -1,7 +1,6 @@
 use std::{any::Any, sync::RwLock};
 
 use crop::Rope;
-use smol_str::ToSmolStr;
 use spore_vm::{
     val::{CustomType, NativeFunctionContext, ValBuilder},
     Vm, VmResult,
@@ -30,7 +29,7 @@ fn rope_to_string(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         None => todo!(),
     };
     // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(s.to_smolstr()) })
+    Ok(unsafe { ctx.new_string(s.into()) })
 }
 
 fn rope_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {

@@ -1,4 +1,4 @@
-use smol_str::{SmolStr, ToSmolStr};
+use compact_str::CompactString;
 
 use crate::{
     error::{VmError, VmResult},
@@ -153,7 +153,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             })
         }
     };
-    let mut result = String::new();
+    let mut result = CompactString::default();
     for (idx, string_id) in ctx.vm().val_store.get_list(strings).iter().enumerate() {
         if idx > 0 {
             result.push_str(separator);
@@ -173,7 +173,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         };
     }
     // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(result.to_smolstr()) })
+    Ok(unsafe { ctx.new_string(result) })
 }
 
 pub fn list(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
@@ -191,7 +191,7 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder>
             actual: arg_len,
         });
     }
-    let working_directory: SmolStr = match std::env::current_dir() {
+    let working_directory: CompactString = match std::env::current_dir() {
         Ok(path) => path.to_string_lossy().into(),
         // Untested OK: It is hard to create a working directory error and is not common.
         Err(err) => return Err(VmError::CustomError(err.to_string())),

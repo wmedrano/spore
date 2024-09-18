@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
+use compact_str::CompactString;
 use log::info;
-use smol_str::SmolStr;
 
 use compiler::Compiler;
 use error::BacktraceError;
@@ -30,7 +30,7 @@ pub struct Vm {
     /// The data stack. This is used to store temporary values used for computation.
     stack: Vec<InternalVal>,
     /// Map from binding name to value. This is used to store global values.
-    values: HashMap<SmolStr, InternalVal>,
+    values: HashMap<CompactString, InternalVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
     stack_frame: StackFrame,
     /// The pending stack frames.
