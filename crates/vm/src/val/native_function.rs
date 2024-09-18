@@ -4,7 +4,11 @@ use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::{custom::CustomVal, internal::InternalVal, ListVal, Val};
+use super::{
+    custom::{CustomType, CustomVal},
+    internal::InternalVal,
+    ListVal, Val,
+};
 
 pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
@@ -20,6 +24,23 @@ pub struct ValBuilder<'a> {
 }
 
 impl ValBuilder<'static> {
+    /// Create a new value from an internal.
+    ///
+    /// # Safety
+    /// `InternalVal` must be a valid value that has not been garbage collected.
+    pub unsafe fn new_internal(v: InternalVal) -> ValBuilder<'static> {
+        ValBuilder {
+            val: v,
+            _lt: PhantomData,
+        }
+    }
+
+    pub fn new_void() -> ValBuilder<'static> {
+        ValBuilder {
+            val: ().into(),
+            _lt: PhantomData,
+        }
+    }
     pub fn new_bool(x: bool) -> ValBuilder<'static> {
         ValBuilder {
             val: x.into(),
@@ -104,8 +125,9 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// Garbage collector may clean up this value. For safety, the value must be returned
     /// immediately.
-    pub unsafe fn new_custom(&mut self, c: CustomVal) -> ValBuilder<'a> {
-        let custom_id = self.vm.val_store.insert_custom(c);
+    pub unsafe fn new_custom(&mut self, obj: impl CustomType) -> ValBuilder<'a> {
+        let custom_val = CustomVal::new(obj);
+        let custom_id = self.vm.val_store.insert_custom(custom_val);
         ValBuilder {
             val: custom_id.into(),
             _lt: PhantomData,

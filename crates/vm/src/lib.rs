@@ -6,8 +6,9 @@ use smol_str::SmolStr;
 use compiler::Compiler;
 use error::BacktraceError;
 use val::{
-    custom::CustomVal, internal::InternalValImpl, ByteCode, Instruction, InternalVal,
-    NativeFunction, NativeFunctionContext, Val, ValId,
+    custom::{CustomType, CustomVal},
+    internal::InternalValImpl,
+    ByteCode, Instruction, InternalVal, NativeFunction, NativeFunctionContext, Val, ValId,
 };
 use val_store::{is_garbage_collected, ValStore};
 
@@ -113,8 +114,8 @@ impl Vm {
     }
 
     /// Register a custom value that is accessible globally.
-    pub fn register_custom_value(&mut self, name: &str, val: CustomVal) {
-        let id = self.val_store.insert_custom(val);
+    pub fn register_custom_value(&mut self, name: &str, val: impl CustomType) {
+        let id = self.val_store.insert_custom(CustomVal::new(val));
         self.values.insert(name.into(), id.into());
     }
 

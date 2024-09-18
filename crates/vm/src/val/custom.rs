@@ -1,7 +1,7 @@
 use std::any::Any;
 
 #[derive(Debug)]
-pub struct CustomVal(Box<dyn CustomType>);
+pub(crate) struct CustomVal(Box<dyn CustomType>);
 
 impl CustomVal {
     pub fn new(val: impl CustomType) -> CustomVal {
@@ -27,15 +27,6 @@ pub trait CustomType: 'static + std::fmt::Display + std::fmt::Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-impl<T> CustomType for T
-where
-    T: 'static + Sized + std::fmt::Display + std::fmt::Debug,
-{
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,6 +40,12 @@ mod tests {
         number: i64,
     }
 
+    impl CustomType for MyType {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
     impl std::fmt::Display for MyType {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "magic number {}", self.number)
@@ -58,7 +55,7 @@ mod tests {
     #[test]
     fn custom_type_can_be_printed() {
         let mut vm = Vm::default();
-        vm.register_custom_value("custom-value", CustomVal::new(MyType { number: 42 }));
+        vm.register_custom_value("custom-value", MyType { number: 42 });
         assert_eq!(
             vm.eval_str("custom-value").unwrap().to_string(),
             "magic number 42"
@@ -68,7 +65,7 @@ mod tests {
     #[test]
     fn custom_type_can_be_accessed() {
         let mut vm = Vm::default();
-        vm.register_custom_value("custom-value", CustomVal::new(MyType { number: 42 }));
+        vm.register_custom_value("custom-value", MyType { number: 42 });
         assert_eq!(
             vm.eval_str("custom-value").unwrap().as_custom::<MyType>(),
             Some(&MyType { number: 42 })
@@ -81,7 +78,7 @@ mod tests {
             let number = ctx.arg(0).as_int().unwrap();
             let v = MyType { number };
             // Unsafe OK: Value returned immediately.
-            Ok(unsafe { ctx.new_custom(CustomVal::new(v)) })
+            Ok(unsafe { ctx.new_custom(v) })
         }
         let mut vm = Vm::default();
         vm.register_native_function("custom-function", custom_function);

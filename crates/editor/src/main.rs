@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::{fs::File, time::Duration};
 
 use crossterm::event::KeyEvent;
 use log::info;
@@ -7,17 +7,20 @@ use ratatui::{
     widgets::Paragraph,
     DefaultTerminal,
 };
+use rope::SporeRope;
 use smol_str::{format_smolstr, SmolStr, ToSmolStr};
 use spore_vm::{
     val::{NativeFunctionContext, ValBuilder},
     Vm, VmError, VmResult, VmSettings,
 };
 
+mod rope;
+
 fn main() -> anyhow::Result<()> {
     init_logger();
     let mut terminal = ratatui::init();
     terminal.clear()?;
-    let app_result = run(terminal);
+    let app_result = run(new_vm(), terminal);
     ratatui::restore();
     app_result
 }
@@ -31,22 +34,33 @@ fn init_logger() {
         .init();
 }
 
-fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+fn new_vm() -> Vm {
     let mut vm = Vm::new(VmSettings {
         enable_aggressive_inline: false,
     });
     vm.register_native_function("read-event", read_event);
+    SporeRope::register(&mut vm);
+    vm
+}
+
+fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     let main_src = r#"
-(define (buffer-lines event)
-    (list
-        "Hello Spore!"
-        (string-join (list "Working Directory: " (working-directory)))
-        (string-join (list "Event: " event))
-        "Press <esc> to quit."))
+(define buffer-contents (new-rope))
+
+(define (set-buffer! event)
+    (rope-clear! buffer-contents buffer-contents)
+    (rope-append! buffer-contents "Hello Spore!\n")
+    (rope-append! buffer-contents "Working Directory: ")
+    (rope-append! buffer-contents (working-directory))
+    (rope-append! buffer-contents "\nEvent: ")
+    (rope-append! buffer-contents event)
+    (rope-append! buffer-contents "\nPress <esc> to quit.")
+    (rope->string buffer-contents))
+
 (define (handle-event event)
     (if (= event "<esc>")
         false
-        (string-join (buffer-lines event) "\n")))
+        (set-buffer! event)))
 "#;
     vm.eval_str(main_src)?;
     let mut has_init = false;
@@ -72,6 +86,10 @@ fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 }
 
 fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    if !event::poll(Duration::from_millis(10)).unwrap() {
+        // Unsafe OK: Returning immediately.
+        return Ok(unsafe { ctx.new_string("".to_smolstr()) });
+    };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: SmolStr = match event {
         event::Event::Key(KeyEvent {

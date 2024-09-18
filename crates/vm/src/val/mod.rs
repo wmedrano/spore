@@ -6,7 +6,7 @@ pub(crate) mod internal;
 mod native_function;
 
 pub use bytecode::{ByteCode, Instruction};
-use custom::CustomType;
+pub use custom::CustomType;
 pub use formatter::ValFormatter;
 pub use id::ValId;
 use internal::InternalValImpl;
