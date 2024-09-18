@@ -7,9 +7,9 @@ use compiler::Compiler;
 use error::BacktraceError;
 use val::{
     internal::InternalValImpl, ByteCode, Instruction, InternalVal, NativeFunction,
-    NativeFunctionContext, Val,
+    NativeFunctionContext, Val, ValId,
 };
-use val_store::{ValId, ValStore};
+use val_store::{is_garbage_collected, ValStore};
 
 pub use ast::AstParseError;
 pub use error::{CompileError, VmError, VmResult};
@@ -18,6 +18,7 @@ mod ast;
 mod builtins;
 mod compiler;
 mod error;
+mod gc;
 mod tokenizer;
 pub mod val;
 mod val_store;
@@ -93,20 +94,17 @@ impl Vm {
 
     /// Run the garbage collector.
     pub fn run_gc(&mut self) {
-        let vals = self
-            .stack
-            .iter()
-            .copied()
-            .chain(self.values.values().copied())
-            .chain(std::iter::once(
-                InternalValImpl::ByteCodeFunction(self.stack_frame.bytecode_id).into(),
-            ))
-            .chain(self.stack_frame.bytecode.values())
-            .chain(self.previous_stack_frames.iter().flat_map(|sf| {
-                std::iter::once(InternalValImpl::ByteCodeFunction(sf.bytecode_id).into())
-                    .chain(sf.bytecode.values())
-            }));
-        self.val_store.run_gc(vals)
+        let is_gc = |v: &InternalVal| is_garbage_collected(*v);
+        self.val_store.run_gc(|vals| {
+            vals.extend(self.stack.iter().copied().filter(is_gc));
+            vals.extend(self.values.values().copied().filter(is_gc));
+            vals.push(self.stack_frame.bytecode_id.into());
+            vals.extend(self.stack_frame.bytecode.values().filter(is_gc));
+            for previous_frame in self.previous_stack_frames.iter() {
+                vals.push(previous_frame.bytecode_id.into());
+                vals.extend(previous_frame.bytecode.values().filter(is_gc));
+            }
+        })
     }
 
     /// Register a native function that can be called within the virtual machine.

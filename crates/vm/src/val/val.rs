@@ -11,7 +11,7 @@ pub struct Val<'a> {
 
 impl<'a> Val<'a> {
     pub(crate) fn new(vm: &'a mut Vm, v: InternalVal) -> Val<'a> {
-        vm.val_store.keep_alive(v);
+        vm.val_store.keep_reachable(v);
         Val {
             vm,
             v,
@@ -22,7 +22,7 @@ impl<'a> Val<'a> {
 
 impl<'a> Drop for Val<'a> {
     fn drop(&mut self) {
-        self.vm.val_store.allow_death(self.v);
+        self.vm.val_store.allow_unreachable(self.v);
     }
 }
 

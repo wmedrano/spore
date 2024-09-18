@@ -1,57 +1,19 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use smol_str::SmolStr;
 
-use crate::val::{internal::InternalValImpl, ByteCode, InternalVal, ListVal};
-
-type IdRepr = u32;
-
-/// A unique identifier for an object in `ValStore`.
-#[derive(Debug, Default)]
-pub struct ValId<T> {
-    id: IdRepr,
-    _marker: PhantomData<T>,
-}
-
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-enum Color {
-    /// A color that may mark if a value is used or unused.
-    #[default]
-    Red,
-    /// A color that may mark if a value is used or unused.
-    Blue,
-    /// Denotes that the value does not exist.
-    Tombstone,
-}
-
-impl Color {
-    /// Swaps `Red` and `Blue`. `Tombstone` is returned unchanged.
-    pub fn swap(self) -> Color {
-        match self {
-            Color::Red => Color::Blue,
-            Color::Blue => Color::Red,
-            Color::Tombstone => Color::Tombstone,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct ValWithColor<T> {
-    inner: T,
-    color: Color,
-    keep_alive_count: u32,
-}
+use crate::{
+    gc::object_store::{Color, ObjectStore},
+    val::{internal::InternalValImpl, ByteCode, InternalVal, ListVal, ValId},
+};
 
 /// ValStore manages the lifetime of Val objects.
 #[derive(Clone, Debug, Default)]
 pub struct ValStore {
-    strings: Vec<ValWithColor<SmolStr>>,
-    lists: Vec<ValWithColor<ListVal>>,
-    bytecodes: Vec<ValWithColor<Option<Arc<ByteCode>>>>,
-    free_string_ids: Vec<ValId<SmolStr>>,
-    free_list_ids: Vec<ValId<ListVal>>,
-    free_bytecode_ids: Vec<ValId<Arc<ByteCode>>>,
-    alive_color: Color,
+    strings: ObjectStore<SmolStr>,
+    lists: ObjectStore<ListVal>,
+    bytecodes: ObjectStore<Arc<ByteCode>>,
+    reachable_color: Color,
     // Data used for GC mark phase.
     temp_mark_data: TempMarkData,
 }
@@ -64,19 +26,19 @@ struct TempMarkData {
 
 impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
-    pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
+    pub fn run_gc(&mut self, populate_vals: impl Fn(&mut Vec<InternalVal>)) {
         let mut temp_data = std::mem::take(&mut self.temp_mark_data);
-        self.run_gc_mark(&mut temp_data, values);
+        self.run_gc_mark(&mut temp_data, populate_vals);
         self.temp_mark_data = temp_data;
         self.run_gc_sweep();
-        self.alive_color = self.alive_color.swap();
+        self.reachable_color = self.reachable_color.other();
     }
 
     /// Run the GC mark phase.
     fn run_gc_mark(
         &mut self,
         temp_data: &mut TempMarkData,
-        values: impl Iterator<Item = InternalVal>,
+        values: impl Fn(&mut Vec<InternalVal>),
     ) {
         self.init_gc_mark(temp_data, values);
         while !temp_data.current_queue.is_empty() {
@@ -89,37 +51,22 @@ impl ValStore {
 
     /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
     /// `temp_data.current_queue`.
-    fn init_gc_mark(
-        &self,
-        temp_data: &mut TempMarkData,
-        values: impl Iterator<Item = InternalVal>,
-    ) {
+    fn init_gc_mark(&self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<InternalVal>)) {
         temp_data.clear_retaining_capacity();
-        for val in values {
-            if is_garbage_collected(val) {
-                temp_data.current_queue.push(val);
-            }
+        values(&mut temp_data.current_queue);
+        // for val in values {
+        //     if is_garbage_collected(val) {
+        //         temp_data.current_queue.push(val);
+        //     }
+        // }
+        for (id, _) in self.strings.iter_keep_reachable() {
+            temp_data.current_queue.push(id.into())
         }
-        for (idx, colored_vals) in self.strings.iter().enumerate() {
-            if colored_vals.keep_alive_count > 0 {
-                temp_data
-                    .current_queue
-                    .push(InternalValImpl::String(ValId::new(idx as u32)).into());
-            }
+        for (id, _) in self.lists.iter_keep_reachable() {
+            temp_data.current_queue.push(id.into());
         }
-        for (idx, colored_vals) in self.lists.iter().enumerate() {
-            if colored_vals.keep_alive_count > 0 {
-                temp_data
-                    .current_queue
-                    .push(InternalValImpl::List(ValId::new(idx as u32)).into());
-            }
-        }
-        for (idx, colored_vals) in self.bytecodes.iter().enumerate() {
-            if colored_vals.keep_alive_count > 0 {
-                temp_data
-                    .current_queue
-                    .push(InternalValImpl::ByteCodeFunction(ValId::new(idx as u32)).into());
-            }
+        for (id, _) in self.bytecodes.iter_keep_reachable() {
+            temp_data.current_queue.push(id.into());
         }
     }
 
@@ -131,127 +78,69 @@ impl ValStore {
         };
         match val.0 {
             InternalValImpl::String(id) => {
-                if let Some(entry) = self.strings.get_mut(id.id as usize) {
-                    entry.color = self.alive_color;
-                }
+                self.strings.set_color(id, self.reachable_color);
             }
             InternalValImpl::List(id) => {
-                if let Some(entry) = self.lists.get_mut(id.id as usize) {
-                    if entry.color != self.alive_color {
-                        debug_assert_ne!(entry.color, Color::Tombstone);
-                        entry.color = self.alive_color;
-                        for child_val in entry.inner.iter() {
-                            add_child(*child_val);
-                        }
+                if let Some(list) = self.lists.set_color(id, self.reachable_color) {
+                    for child_val in list.iter() {
+                        add_child(*child_val);
                     }
                 }
             }
             InternalValImpl::ByteCodeFunction(id) => {
-                if let Some(entry) = self.bytecodes.get_mut(id.id as usize) {
-                    if let Some(bc) = entry.inner.as_ref() {
-                        if entry.color != self.alive_color {
-                            entry.color = self.alive_color;
-                            for child_val in bc.values() {
-                                add_child(child_val);
-                            }
-                        }
+                if let Some(bc) = self.bytecodes.set_color(id, self.reachable_color) {
+                    for child_val in bc.values() {
+                        add_child(child_val);
                     }
                 }
             }
-            _ => assert!(!is_garbage_collected(val)),
+            _ => {}
         }
     }
 
     fn run_gc_sweep(&mut self) {
-        for (idx, string) in self
-            .strings
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, s)| s.color != self.alive_color && s.color != Color::Tombstone)
-            .filter(|(_, s)| s.keep_alive_count == 0)
-        {
-            *string = ValWithColor {
-                inner: Default::default(),
-                color: Color::Tombstone,
-                keep_alive_count: 0,
-            };
-            self.free_string_ids.push(ValId::new(idx as u32));
-        }
-        for (idx, list) in self
-            .lists
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, s)| s.color != self.alive_color && s.color != Color::Tombstone)
-            .filter(|(_, s)| s.keep_alive_count == 0)
-        {
-            *list = ValWithColor {
-                inner: Vec::new(),
-                color: Color::Tombstone,
-                keep_alive_count: 0,
-            };
-            self.free_list_ids.push(ValId::new(idx as u32));
-        }
-        for (idx, bc) in self
-            .bytecodes
-            .iter_mut()
-            .enumerate()
-            .filter(|(_, x)| x.color != self.alive_color && x.color != Color::Tombstone)
-            .filter(|(_, x)| x.keep_alive_count == 0)
-        {
-            *bc = ValWithColor {
-                inner: None,
-                color: Color::Tombstone,
-                keep_alive_count: 0,
-            };
-            self.free_bytecode_ids.push(ValId::new(idx as u32));
-        }
+        let unreachable_color = self.reachable_color.other();
+        self.strings.remove_all_with_color(unreachable_color);
+        self.lists.remove_all_with_color(unreachable_color);
+        self.bytecodes.remove_all_with_color(unreachable_color);
     }
 
-    pub fn keep_alive(&mut self, value: InternalVal) {
+    /// Marks `value` as reachable so that it doesn't get garbage collected.
+    pub fn keep_reachable(&mut self, value: InternalVal) {
         match value.0 {
             InternalValImpl::Void => {}
             InternalValImpl::Bool(_) => {}
             InternalValImpl::Int(_) => {}
             InternalValImpl::Float(_) => {}
             InternalValImpl::String(id) => {
-                if let Some(s) = self.strings.get_mut(id.id as usize) {
-                    s.keep_alive_count += 1;
-                }
+                self.strings.keep_reachable(id);
             }
             InternalValImpl::List(id) => {
-                if let Some(s) = self.lists.get_mut(id.id as usize) {
-                    s.keep_alive_count += 1;
-                }
+                self.lists.keep_reachable(id);
             }
             InternalValImpl::ByteCodeFunction(id) => {
-                if let Some(bc) = self.bytecodes.get_mut(id.id as usize) {
-                    bc.keep_alive_count += 1;
-                }
+                self.bytecodes.keep_reachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
         }
     }
 
-    pub fn allow_death(&mut self, value: InternalVal) {
+    /// Removes the `rechable` marking set by `keep_reachable` so that the value may get garbage
+    /// collected.
+    pub fn allow_unreachable(&mut self, value: InternalVal) {
         match value.0 {
             InternalValImpl::Void => {}
             InternalValImpl::Bool(_) => {}
             InternalValImpl::Int(_) => {}
             InternalValImpl::Float(_) => {}
             InternalValImpl::String(id) => {
-                if let Some(s) = self.strings.get_mut(id.id as usize) {
-                    s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
-                }
+                self.strings.allow_unreachable(id);
             }
             InternalValImpl::List(id) => {
-                if let Some(s) = self.lists.get_mut(id.id as usize) {
-                    s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
-                }
+                self.lists.allow_unreachable(id);
             }
             InternalValImpl::ByteCodeFunction(id) => {
-                if let Some(bc) = self.bytecodes.get_mut(id.id as usize) {
-                    bc.keep_alive_count -= bc.keep_alive_count.saturating_sub(1);
-                }
+                self.bytecodes.allow_unreachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
         }
@@ -259,69 +148,37 @@ impl ValStore {
 
     /// Get a string by its id.
     pub fn get_str(&self, id: ValId<SmolStr>) -> &str {
-        let res = self.strings.get(id.id as usize);
+        let res = self.strings.get(id);
         debug_assert!(res.is_some());
-        res.map(|s| s.inner.as_str()).unwrap_or("")
+        res.map(SmolStr::as_str).unwrap_or("")
     }
 
     /// Insert a string and get its id.
     pub fn insert_string(&mut self, s: SmolStr) -> ValId<SmolStr> {
-        let val = ValWithColor {
-            inner: s,
-            color: self.alive_color,
-            keep_alive_count: 0,
-        };
-        match self.free_string_ids.pop() {
-            Some(id) => {
-                self.strings[id.id as usize] = val;
-                id
-            }
-            None => {
-                let id = ValId::new(self.strings.len() as u32);
-                self.strings.push(val);
-                id
-            }
-        }
+        self.strings.insert(s, self.reachable_color)
     }
 
     pub const EMPTY_LIST: &ListVal = &ListVal::new();
 
     /// Get a list by its id.
     pub fn get_list(&self, id: ValId<ListVal>) -> &ListVal {
-        let res = self.lists.get(id.id as usize);
+        let res = self.lists.get(id);
         debug_assert!(res.is_some(), "{id:?} not found.");
-        res.map(|s| &s.inner).unwrap_or(Self::EMPTY_LIST)
+        res.unwrap_or(Self::EMPTY_LIST)
     }
 
     /// Insert a list and get its id.
     pub fn insert_list(&mut self, list: ListVal) -> ValId<ListVal> {
-        let val = ValWithColor {
-            inner: list,
-            color: self.alive_color,
-            keep_alive_count: 0,
-        };
-        match self.free_list_ids.pop() {
-            Some(id) => {
-                self.lists[id.id as usize] = val;
-                id
-            }
-            None => {
-                let id = ValId::new(self.lists.len() as u32);
-                self.lists.push(val);
-                id
-            }
-        }
+        // We mark as unreachable to recurse through `list`'s elements during the next GC mark
+        // phase.
+        self.lists.insert(list, self.reachable_color.other())
     }
 
     /// Get a bytecode by its id.
     pub fn get_bytecode(&self, id: ValId<Arc<ByteCode>>) -> &Arc<ByteCode> {
-        let res = self.bytecodes.get(id.id as usize);
-        match res {
-            Some(ValWithColor {
-                inner: Some(bc), ..
-            }) => bc,
-            _ => panic!("{id:?} not found."),
-        }
+        let res = self.bytecodes.get(id);
+        debug_assert!(res.is_some(), "{id:?} not found");
+        res.unwrap()
     }
 
     /// Get bytecode id for any bytecode that is equal to `bytecode`. If it does not exist, then it
@@ -330,14 +187,9 @@ impl ValStore {
     /// Warning: This may be very slow.
     #[cfg(test)]
     pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
-        for (idx, val) in self.bytecodes.iter().enumerate() {
-            if val
-                .inner
-                .as_ref()
-                .map(|bc| bc.as_ref() == &bytecode)
-                .unwrap_or(false)
-            {
-                return ValId::new(idx as u32);
+        for (id, val) in self.bytecodes.iter() {
+            if val.as_ref() == &bytecode {
+                return id;
             }
         }
         self.insert_bytecode(bytecode)
@@ -345,29 +197,15 @@ impl ValStore {
 
     /// Insert bytecode into the store and return its id.
     pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
-        let val = ValWithColor {
-            inner: Some(bytecode.into()),
-            // Consider the value dead so that we have to traverse its children during the next
-            // mark.
-            color: self.alive_color.swap(),
-            keep_alive_count: 0,
-        };
-        match self.free_bytecode_ids.pop() {
-            Some(id) => {
-                self.bytecodes[id.id as usize] = val;
-                id
-            }
-            None => {
-                let id = ValId::new(self.bytecodes.len() as u32);
-                self.bytecodes.push(val);
-                id
-            }
-        }
+        // We mark as unreachable to recurse through `list`'s elements during the next GC mark
+        // phase.
+        self.bytecodes
+            .insert(bytecode.into(), self.reachable_color.other())
     }
 }
 
 /// Returns `true` if `v` is managed by the garbage collector.
-fn is_garbage_collected(v: InternalVal) -> bool {
+pub fn is_garbage_collected(v: InternalVal) -> bool {
     match v.0 {
         InternalValImpl::Void => false,
         InternalValImpl::Bool(_) => false,
@@ -387,27 +225,6 @@ impl TempMarkData {
     }
 }
 
-impl<T> PartialEq for ValId<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-impl<T> Eq for ValId<T> {}
-impl<T> Copy for ValId<T> {}
-impl<T> Clone for ValId<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl<T> ValId<T> {
-    pub fn new(id: IdRepr) -> ValId<T> {
-        ValId {
-            id,
-            _marker: PhantomData,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +232,6 @@ mod tests {
     #[test]
     fn hacks_for_code_coverage() {
         // This is optimized away due to being a Copy type.
-        let _ = ValId::<()>::new(0).clone();
+        let _ = ValId::<()>::new(0u32).clone();
     }
 }

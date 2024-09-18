@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use smol_str::SmolStr;
 
-use crate::{val_store::ValId, Vm};
+use crate::Vm;
 
-use super::{bytecode::ByteCode, formatter::ValFormatter, NativeFunction};
+use super::{bytecode::ByteCode, formatter::ValFormatter, NativeFunction, ValId};
 
 pub type ListVal = Vec<InternalVal>;
 
@@ -81,6 +81,7 @@ to_internal_val_impl!(f64 => Float);
 to_internal_val_impl!(NativeFunction => NativeFunction);
 to_internal_val_impl!(ValId<SmolStr> => String);
 to_internal_val_impl!(ValId<ListVal> => List);
+to_internal_val_impl!(ValId<Arc<ByteCode>> => ByteCodeFunction);
 
 impl From<()> for InternalVal {
     fn from(_: ()) -> InternalVal {
