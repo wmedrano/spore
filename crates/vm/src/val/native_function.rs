@@ -4,11 +4,49 @@ use crate::{error::VmResult, Vm};
 
 use super::internal::InternalVal;
 
-pub type NativeFunction = fn(NativeFunctionContext) -> VmResult<InternalVal>;
+pub type NativeFunction = fn(NativeFunctionContext) -> VmResult<ValBuilder>;
 
 pub struct NativeFunctionContext<'a> {
     vm: &'a mut Vm,
     stack_start: usize,
+}
+
+#[derive(Debug)]
+enum ValBuilderImpl {
+    Literal(InternalVal),
+    String(SmolStr),
+}
+
+#[derive(Debug)]
+pub struct ValBuilder(ValBuilderImpl);
+
+impl ValBuilder {
+    pub fn new_void() -> ValBuilder {
+        ValBuilder(ValBuilderImpl::Literal(InternalVal::Void))
+    }
+
+    pub fn new_bool(x: bool) -> ValBuilder {
+        ValBuilder(ValBuilderImpl::Literal(InternalVal::Bool(x)))
+    }
+
+    pub fn new_int(x: i64) -> ValBuilder {
+        ValBuilder(ValBuilderImpl::Literal(InternalVal::Int(x)))
+    }
+
+    pub fn new_float(x: f64) -> ValBuilder {
+        ValBuilder(ValBuilderImpl::Literal(InternalVal::Float(x)))
+    }
+
+    pub fn new_string(x: SmolStr) -> ValBuilder {
+        ValBuilder(ValBuilderImpl::String(x))
+    }
+
+    pub(crate) fn to_internal(self, vm: &mut Vm) -> InternalVal {
+        match self.0 {
+            ValBuilderImpl::Literal(v) => v,
+            ValBuilderImpl::String(v) => InternalVal::String(vm.val_store.insert_string(v)),
+        }
+    }
 }
 
 impl<'a> NativeFunctionContext<'a> {
@@ -33,22 +71,12 @@ impl<'a> NativeFunctionContext<'a> {
         self.vm.stack.len() - self.stack_start
     }
 
-    /// Create a new void value.
-    pub fn new_void(&self) -> InternalVal {
-        InternalVal::Void
-    }
-
     /// # Safety
     /// The list may be garbage collected if the VM begins its instruction cycle. Safe to call as
     /// final return value call in native function.
-    pub unsafe fn new_list(&mut self, list: Vec<InternalVal>) -> InternalVal {
-        InternalVal::List(self.vm.val_store.insert_list(list))
-    }
-
-    /// # Safety
-    /// The string may be garbage collected if the VM begins its instruction cycle. Safe to call as
-    /// final return value call in native function.
-    pub unsafe fn new_string(&mut self, string: SmolStr) -> InternalVal {
-        InternalVal::String(self.vm.val_store.insert_string(string))
+    pub unsafe fn new_list(&mut self, list: Vec<InternalVal>) -> ValBuilder {
+        ValBuilder(ValBuilderImpl::Literal(InternalVal::List(
+            self.vm.val_store.insert_list(list),
+        )))
     }
 }

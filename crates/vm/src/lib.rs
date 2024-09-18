@@ -201,7 +201,8 @@ impl Vm {
         match arg_count {
             0 => {
                 // Unsafe OK: stack_start is stack length.
-                let v = func(NativeFunctionContext::new(self, self.stack.len()))?;
+                let builder = func(NativeFunctionContext::new(self, self.stack.len()))?;
+                let v = builder.to_internal(self);
                 self.stack.push(v);
             }
             _ => {
@@ -209,7 +210,7 @@ impl Vm {
                 // Unsafe OK: stack_start is less than stack length.
                 let res = func(NativeFunctionContext::new(self, stack_start))?;
                 self.stack.truncate(stack_start + 1);
-                self.stack[stack_start] = res;
+                self.stack[stack_start] = res.to_internal(self);
             }
         };
         Ok(())
@@ -231,7 +232,9 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             InternalVal::NativeFunction(func) => {
-                self.stack[function_idx] = func(NativeFunctionContext::new(self, stack_start))?;
+                let builder = func(NativeFunctionContext::new(self, stack_start))?;
+                let v = builder.to_internal(self);
+                self.stack[function_idx] = v;
                 self.stack.truncate(stack_start);
                 Ok(())
             }
