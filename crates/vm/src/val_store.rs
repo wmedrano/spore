@@ -66,20 +66,39 @@ impl ValStore {
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, values: impl Iterator<Item = InternalVal>) {
         let mut temp_data = std::mem::take(&mut self.temp_mark_data);
-        self.run_gc_mark(values, &mut temp_data);
+        self.run_gc_mark(&mut temp_data, values);
         self.temp_mark_data = temp_data;
         self.run_gc_sweep();
         self.alive_color = self.alive_color.swap();
     }
 
+    /// Run the GC mark phase.
     fn run_gc_mark(
         &mut self,
-        values: impl Iterator<Item = InternalVal>,
         temp_data: &mut TempMarkData,
+        values: impl Iterator<Item = InternalVal>,
+    ) {
+        self.init_gc_mark(temp_data, values);
+        while !temp_data.current_queue.is_empty() {
+            for val in temp_data.current_queue.drain(..) {
+                self.gc_mark_one(val, &mut temp_data.next_queue);
+            }
+            std::mem::swap(&mut temp_data.current_queue, &mut temp_data.next_queue);
+        }
+    }
+
+    /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
+    /// `temp_data.current_queue`.
+    fn init_gc_mark(
+        &self,
+        temp_data: &mut TempMarkData,
+        values: impl Iterator<Item = InternalVal>,
     ) {
         temp_data.clear_retaining_capacity();
         for val in values {
-            self.gc_mark_one(val, &mut temp_data.current_queue);
+            if is_garbage_collected(val) {
+                temp_data.current_queue.push(val);
+            }
         }
         for (idx, colored_vals) in self.strings.iter().enumerate() {
             if colored_vals.keep_alive_count > 0 {
@@ -102,27 +121,11 @@ impl ValStore {
                     .push(InternalValImpl::ByteCodeFunction(ValId::new(idx as u32)).into());
             }
         }
-        while !temp_data.current_queue.is_empty() {
-            for val in temp_data.current_queue.drain(..) {
-                self.gc_mark_one(val, &mut temp_data.next_queue);
-            }
-            std::mem::swap(&mut temp_data.current_queue, &mut temp_data.next_queue);
-        }
     }
 
     fn gc_mark_one(&mut self, val: InternalVal, child_queue: &mut Vec<InternalVal>) {
-        let has_gc = |v: InternalVal| match v.0 {
-            InternalValImpl::Void => false,
-            InternalValImpl::Bool(_) => false,
-            InternalValImpl::Int(_) => false,
-            InternalValImpl::Float(_) => false,
-            InternalValImpl::String(_) => true,
-            InternalValImpl::List(_) => true,
-            InternalValImpl::ByteCodeFunction(_) => true,
-            InternalValImpl::NativeFunction(_) => false,
-        };
         let mut add_child = |v| {
-            if has_gc(v) {
+            if is_garbage_collected(v) {
                 child_queue.push(v);
             }
         };
@@ -155,7 +158,7 @@ impl ValStore {
                     }
                 }
             }
-            _ => assert!(!has_gc(val)),
+            _ => assert!(!is_garbage_collected(val)),
         }
     }
 
@@ -360,6 +363,20 @@ impl ValStore {
                 id
             }
         }
+    }
+}
+
+/// Returns `true` if `v` is managed by the garbage collector.
+fn is_garbage_collected(v: InternalVal) -> bool {
+    match v.0 {
+        InternalValImpl::Void => false,
+        InternalValImpl::Bool(_) => false,
+        InternalValImpl::Int(_) => false,
+        InternalValImpl::Float(_) => false,
+        InternalValImpl::String(_) => true,
+        InternalValImpl::List(_) => true,
+        InternalValImpl::ByteCodeFunction(_) => true,
+        InternalValImpl::NativeFunction(_) => false,
     }
 }
 

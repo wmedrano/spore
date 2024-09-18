@@ -1,53 +1,60 @@
+use std::marker::PhantomData;
+
 use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::internal::{InternalVal, InternalValImpl};
+use super::{internal::InternalVal, ListVal};
 
-pub type NativeFunction = fn(NativeFunctionContext) -> VmResult<ValBuilder>;
+pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
 pub struct NativeFunctionContext<'a> {
     vm: &'a mut Vm,
     stack_start: usize,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum ValBuilderImpl {
-    Literal(InternalVal),
-    String(SmolStr),
+#[derive(Debug)]
+pub struct ValBuilder<'a> {
+    val: InternalVal,
+    _lt: PhantomData<&'a InternalVal>,
 }
 
-#[derive(Debug)]
-pub struct ValBuilder(ValBuilderImpl);
-
-impl ValBuilder {
-    pub fn new_void() -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(().into()))
-    }
-
-    pub fn new_bool(x: bool) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(x.into()))
-    }
-
-    pub fn new_int(x: i64) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(x.into()))
-    }
-
-    pub fn new_float(x: f64) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(x.into()))
-    }
-
-    pub fn new_string(x: SmolStr) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::String(x))
-    }
-
-    pub(crate) fn to_internal(self, vm: &mut Vm) -> InternalVal {
-        match self.0 {
-            ValBuilderImpl::Literal(v) => v,
-            ValBuilderImpl::String(v) => {
-                InternalValImpl::String(vm.val_store.insert_string(v)).into()
-            }
+impl ValBuilder<'static> {
+    pub fn new_void() -> ValBuilder<'static> {
+        ValBuilder {
+            val: ().into(),
+            _lt: PhantomData,
         }
+    }
+
+    pub fn new_bool(x: bool) -> ValBuilder<'static> {
+        ValBuilder {
+            val: x.into(),
+            _lt: PhantomData,
+        }
+    }
+
+    pub fn new_int(x: i64) -> ValBuilder<'static> {
+        ValBuilder {
+            val: x.into(),
+            _lt: PhantomData,
+        }
+    }
+
+    pub fn new_float(x: f64) -> ValBuilder<'static> {
+        ValBuilder {
+            val: x.into(),
+            _lt: PhantomData,
+        }
+    }
+}
+
+impl<'a> ValBuilder<'a> {
+    /// # Safety
+    /// The garbage collector may clean up the value. This value must be discarded or inserted into
+    /// the VM immediately.
+    pub(crate) unsafe fn build(self) -> InternalVal {
+        self.val
     }
 }
 
@@ -74,11 +81,24 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     /// # Safety
-    /// The list may be garbage collected if the VM begins its instruction cycle. Safe to call as
-    /// final return value call in native function.
-    pub unsafe fn new_list(&mut self, list: Vec<InternalVal>) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(
-            InternalValImpl::List(self.vm.val_store.insert_list(list)).into(),
-        ))
+    /// Garbage collector may clean up this value. For safety, the value must be returned
+    /// immediately.
+    pub unsafe fn new_string(&mut self, s: SmolStr) -> ValBuilder<'a> {
+        let string_id = self.vm.val_store.insert_string(s);
+        ValBuilder {
+            val: string_id.into(),
+            _lt: PhantomData,
+        }
+    }
+
+    /// # Safety
+    /// Garbage collector may clean up this value. For safety, the value must be returned
+    /// immediately.
+    pub unsafe fn new_list(&mut self, list: ListVal) -> ValBuilder<'a> {
+        let list_id = self.vm.val_store.insert_list(list);
+        ValBuilder {
+            val: list_id.into(),
+            _lt: PhantomData,
+        }
     }
 }

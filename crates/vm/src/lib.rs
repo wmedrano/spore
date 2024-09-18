@@ -202,17 +202,18 @@ impl Vm {
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
         match arg_count {
             0 => {
-                // Unsafe OK: stack_start is stack length.
                 let builder = func(NativeFunctionContext::new(self, self.stack.len()))?;
-                let v = builder.to_internal(self);
+                // Unsafe OK: Value is inserted into VM immediately.
+                let v = unsafe { builder.build() };
                 self.stack.push(v);
             }
             _ => {
                 let stack_start = self.stack.len() - arg_count;
-                // Unsafe OK: stack_start is less than stack length.
-                let res = func(NativeFunctionContext::new(self, stack_start))?;
+                let builder = func(NativeFunctionContext::new(self, stack_start))?;
+                // Unsafe OK: Value is inserted into VM immediately.
+                let v = unsafe { builder.build() };
                 self.stack.truncate(stack_start + 1);
-                self.stack[stack_start] = res.to_internal(self);
+                self.stack[stack_start] = v;
             }
         };
         Ok(())
@@ -235,7 +236,8 @@ impl Vm {
         match func_val.0 {
             InternalValImpl::NativeFunction(func) => {
                 let builder = func(NativeFunctionContext::new(self, stack_start))?;
-                let v = builder.to_internal(self);
+                // Unsafe OK: Value is inserted into VM immediately.
+                let v = unsafe { builder.build() };
                 self.stack[function_idx] = v;
                 self.stack.truncate(stack_start);
                 Ok(())

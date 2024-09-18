@@ -9,7 +9,7 @@ use ratatui::{
 };
 use smol_str::{format_smolstr, SmolStr, ToSmolStr};
 use spore_vm::{
-    val::{InternalVal, NativeFunctionContext},
+    val::{NativeFunctionContext, ValBuilder},
     Vm, VmError, VmResult, VmSettings,
 };
 
@@ -71,7 +71,7 @@ fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     }
 }
 
-fn read_event(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
+fn read_event<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: SmolStr = match event {
         event::Event::Key(KeyEvent {
@@ -108,7 +108,8 @@ fn read_event(mut ctx: NativeFunctionContext) -> VmResult<InternalVal> {
             KeyCode::Media(_) => "<unknown>".into(),
             KeyCode::Modifier(_) => "<unknown>".into(),
         },
-        _ => return Ok(ctx.new_void()),
+        _ => return Ok(ValBuilder::new_void()),
     };
+    // Unsafe OK: Value is returned immediately.
     Ok(unsafe { ctx.new_string(event_str) })
 }

@@ -455,7 +455,7 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::Bool(true))].into()
+                instructions: vec![Instruction::PushConst(true.into())].into()
             }
         );
         assert_eq!(
@@ -463,7 +463,7 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into()
+                instructions: vec![Instruction::PushConst(1.into())].into()
             }
         );
         assert_eq!(
@@ -471,7 +471,7 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::Float(1.0))].into()
+                instructions: vec![Instruction::PushConst(1.0.into())].into()
             }
         );
         let got = Compiler::compile(&mut vm, "\"string\"").unwrap();
@@ -524,9 +524,9 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::NativeFunction(
-                    crate::builtins::add
-                ))]
+                instructions: vec![Instruction::PushConst(
+                    InternalValImpl::NativeFunction(crate::builtins::add).into()
+                )]
                 .into()
             }
         );
@@ -544,8 +544,8 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::EvalNative {
                         func: crate::builtins::add,
                         arg_count: 2
@@ -569,8 +569,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("does-not-exist".into()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -585,8 +585,8 @@ mod tests {
                 instructions: vec![
                     Instruction::Deref("get-fn".into()),
                     Instruction::Eval(1),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -623,8 +623,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -643,12 +643,12 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(3)),
-                    Instruction::PushConst(InternalVal::Int(4)),
+                    Instruction::PushConst(3.into()),
+                    Instruction::PushConst(4.into()),
                     Instruction::Eval(3),
                 ]
                 .into()
@@ -667,11 +667,11 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(3)),
-                    Instruction::PushConst(InternalVal::Int(4)),
+                    Instruction::PushConst(3.into()),
+                    Instruction::PushConst(4.into()),
                     Instruction::Eval(3),
                     Instruction::Eval(4),
                 ]
@@ -718,7 +718,7 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::Int(12)),
+                    Instruction::PushConst(12.into()),
                     Instruction::Define("x".into()),
                 ]
                 .into()
@@ -736,19 +736,22 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::ByteCodeFunction(
-                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                            name: "foo".into(),
-                            arg_count: 2,
-                            instructions: vec![
-                                Instruction::Deref("+".into()),
-                                Instruction::GetArg(0),
-                                Instruction::GetArg(1),
-                                Instruction::Eval(3),
-                            ]
-                            .into(),
-                        })
-                    )),
+                    Instruction::PushConst(
+                        InternalValImpl::ByteCodeFunction(
+                            vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                                name: "foo".into(),
+                                arg_count: 2,
+                                instructions: vec![
+                                    Instruction::Deref("+".into()),
+                                    Instruction::GetArg(0),
+                                    Instruction::GetArg(1),
+                                    Instruction::Eval(3),
+                                ]
+                                .into(),
+                            })
+                        )
+                        .into()
+                    ),
                     Instruction::Define("foo".into()),
                 ]
                 .into()
@@ -767,8 +770,8 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::Deref("+".into()),
-                    Instruction::PushConst(InternalVal::Int(1)),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                     Instruction::Define("x".into()),
                 ]
@@ -800,11 +803,11 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::Bool(true)),
+                    Instruction::PushConst(true.into()),
                     Instruction::JumpIf(2),
-                    Instruction::PushConst(InternalVal::Int(2)),
+                    Instruction::PushConst(2.into()),
                     Instruction::Jump(2),
-                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(1.into()),
                 ]
                 .into()
             }
@@ -843,11 +846,11 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::Bool(true)),
+                    Instruction::PushConst(true.into()),
                     Instruction::JumpIf(2),
-                    Instruction::PushConst(InternalVal::Void),
+                    Instruction::PushConst(().into()),
                     Instruction::Jump(2),
-                    Instruction::PushConst(InternalVal::Int(1)),
+                    Instruction::PushConst(1.into()),
                 ]
                 .into()
             }
@@ -888,13 +891,16 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
-                    vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                        name: "".into(),
-                        arg_count: 0,
-                        instructions: vec![Instruction::PushConst(InternalVal::Int(1))].into(),
-                    })
-                ))]
+                instructions: vec![Instruction::PushConst(
+                    InternalValImpl::ByteCodeFunction(vm.val_store.get_or_insert_bytecode_slow(
+                        ByteCode {
+                            name: "".into(),
+                            arg_count: 0,
+                            instructions: vec![Instruction::PushConst(1.into())].into(),
+                        }
+                    ))
+                    .into()
+                )]
                 .into()
             }
         );
@@ -910,19 +916,22 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(InternalVal::ByteCodeFunction(
-                    vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                        name: "".into(),
-                        arg_count: 3,
-                        instructions: vec![
-                            Instruction::GetArg(1),
-                            Instruction::GetArg(0),
-                            Instruction::GetArg(2),
-                            Instruction::Eval(3)
-                        ]
-                        .into(),
-                    })
-                ))]
+                instructions: vec![Instruction::PushConst(
+                    InternalValImpl::ByteCodeFunction(
+                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                            name: "".into(),
+                            arg_count: 3,
+                            instructions: vec![
+                                Instruction::GetArg(1),
+                                Instruction::GetArg(0),
+                                Instruction::GetArg(2),
+                                Instruction::Eval(3)
+                            ]
+                            .into(),
+                        })
+                    )
+                    .into()
+                )]
                 .into()
             }
         );
@@ -938,18 +947,21 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
-                    Instruction::PushConst(InternalVal::ByteCodeFunction(
-                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
-                            name: "foo".into(),
-                            arg_count: 1,
-                            instructions: vec![
-                                Instruction::PushCurrentFunction,
-                                Instruction::GetArg(0),
-                                Instruction::Eval(2)
-                            ]
-                            .into(),
-                        })
-                    )),
+                    Instruction::PushConst(
+                        InternalValImpl::ByteCodeFunction(
+                            vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                                name: "foo".into(),
+                                arg_count: 1,
+                                instructions: vec![
+                                    Instruction::PushCurrentFunction,
+                                    Instruction::GetArg(0),
+                                    Instruction::Eval(2)
+                                ]
+                                .into(),
+                            })
+                        )
+                        .into()
+                    ),
                     Instruction::Define("foo".into()),
                 ]
                 .into()

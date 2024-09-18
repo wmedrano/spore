@@ -79,6 +79,8 @@ to_internal_val_impl!(bool => Bool);
 to_internal_val_impl!(i64 => Int);
 to_internal_val_impl!(f64 => Float);
 to_internal_val_impl!(NativeFunction => NativeFunction);
+to_internal_val_impl!(ValId<SmolStr> => String);
+to_internal_val_impl!(ValId<ListVal> => List);
 
 impl From<()> for InternalVal {
     fn from(_: ()) -> InternalVal {

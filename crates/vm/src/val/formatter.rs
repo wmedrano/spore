@@ -78,19 +78,22 @@ mod tests {
 
     #[test]
     fn format_void_is_empty() {
-        assert_eq!(InternalVal::Void.formatted(&Vm::default()).to_string(), "");
+        assert_eq!(
+            InternalVal::from(()).formatted(&Vm::default()).to_string(),
+            ""
+        );
     }
 
     #[test]
     fn format_bool_is_true_or_false() {
         assert_eq!(
-            InternalVal::Bool(true)
+            InternalVal::from(true)
                 .formatted(&Vm::default())
                 .to_string(),
             "true"
         );
         assert_eq!(
-            InternalVal::Bool(false)
+            InternalVal::from(false)
                 .formatted(&Vm::default())
                 .to_string(),
             "false"
@@ -100,11 +103,11 @@ mod tests {
     #[test]
     fn format_int_prints_number() {
         assert_eq!(
-            InternalVal::Int(0).formatted(&Vm::default()).to_string(),
+            InternalVal::from(0).formatted(&Vm::default()).to_string(),
             "0"
         );
         assert_eq!(
-            InternalVal::Int(-1).formatted(&Vm::default()).to_string(),
+            InternalVal::from(-1).formatted(&Vm::default()).to_string(),
             "-1"
         );
     }
@@ -112,13 +115,11 @@ mod tests {
     #[test]
     fn format_float_prints_number() {
         assert_eq!(
-            InternalVal::Float(0.0)
-                .formatted(&Vm::default())
-                .to_string(),
+            InternalVal::from(0.0).formatted(&Vm::default()).to_string(),
             "0"
         );
         assert_eq!(
-            InternalVal::Float(-1.5)
+            InternalVal::from(-1.5)
                 .formatted(&Vm::default())
                 .to_string(),
             "-1.5"
@@ -130,7 +131,7 @@ mod tests {
         let mut vm = Vm::default();
         let string_id = vm.val_store.insert_string("my string".into());
         assert_eq!(
-            InternalVal::String(string_id).formatted(&vm).to_string(),
+            InternalVal::from(string_id).formatted(&vm).to_string(),
             "my string"
         );
     }

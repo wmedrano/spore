@@ -7,7 +7,7 @@ fn main() {
     vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
         .unwrap();
     let start_time = std::time::Instant::now();
-    let ret = vm.eval_str("(fib 35)").unwrap();
+    let ret = vm.eval_str("(fib 30)").unwrap();
     println!("Evaluted in {:?}", start_time.elapsed());
     println!("{}", ret);
 }

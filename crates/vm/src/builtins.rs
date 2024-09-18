@@ -17,7 +17,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("working-directory", working_directory),
 ];
 
-pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn equal<'a>(ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
     let args = ctx.args();
     match args {
         [a, b] => Ok(ValBuilder::new_bool(equal_impl(ctx.vm(), *a, *b))),
@@ -51,7 +51,7 @@ pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
     }
 }
 
-pub fn add(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
@@ -100,7 +100,7 @@ fn less_two_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
     }
 }
 
-pub fn less_impl(vm: &Vm, args: &[InternalVal]) -> VmResult<ValBuilder> {
+pub fn less_impl(vm: &Vm, args: &[InternalVal]) -> VmResult<ValBuilder<'static>> {
     match args {
         [] | [_] => Ok(ValBuilder::new_bool(true)),
         [a, b] => Ok(ValBuilder::new_bool(less_two_impl(vm, a, b)?)),
@@ -111,11 +111,11 @@ pub fn less_impl(vm: &Vm, args: &[InternalVal]) -> VmResult<ValBuilder> {
     }
 }
 
-pub fn less(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     less_impl(ctx.vm(), ctx.args())
 }
 
-pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn string_join<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
     let args = ctx.args();
     let (strings, separator) = match args {
         [] => {
@@ -172,19 +172,17 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             }
         };
     }
-    // Unsafe OK: Value is returned immediately so vm does not have chance to run garbage
-    // collection.
-    Ok(ValBuilder::new_string(result.to_smolstr()))
+    // Unsafe OK: Value is returned immediately.
+    Ok(unsafe { ctx.new_string(result.to_smolstr()) })
 }
 
-pub fn list(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn list<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
     let list = ctx.args().to_vec();
-    // Unsafe OK: Value is returned immediately so vm does not have chance to run garbage
-    // collection.
+    // Unsafe OK: Value is returned immediately.
     Ok(unsafe { ctx.new_list(list) })
 }
 
-pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn working_directory<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
     let arg_len = ctx.arg_len();
     if arg_len != 0 {
         return Err(VmError::ArityError {
@@ -198,7 +196,8 @@ pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         // Untested OK: It is hard to create a working directory error and is not common.
         Err(err) => return Err(VmError::CustomError(err.to_string())),
     };
-    Ok(ValBuilder::new_string(working_directory))
+    // Unsafe OK: Value is returned immediately.
+    Ok(unsafe { ctx.new_string(working_directory) })
 }
 
 #[cfg(test)]
@@ -261,9 +260,8 @@ mod tests {
         );
         assert_eq!(vm.eval_str("(= + +)").unwrap().as_bool(), Some(true));
 
-        // TODO: Use interpretter once it is possible to build a void.
-        vm.values.insert("void1".into(), InternalVal::Void);
-        vm.values.insert("void2".into(), InternalVal::Void);
+        vm.values.insert("void1".into(), ().into());
+        vm.values.insert("void2".into(), ().into());
         assert_eq!(
             vm.eval_str("(= void1 void2)").unwrap().as_bool(),
             Some(true)
