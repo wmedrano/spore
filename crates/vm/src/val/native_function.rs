@@ -4,7 +4,7 @@ use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::{custom::CustomVal, internal::InternalVal, ListVal};
+use super::{custom::CustomVal, internal::InternalVal, ListVal, Val};
 
 pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
@@ -20,13 +20,6 @@ pub struct ValBuilder<'a> {
 }
 
 impl ValBuilder<'static> {
-    pub fn new_void() -> ValBuilder<'static> {
-        ValBuilder {
-            val: ().into(),
-            _lt: PhantomData,
-        }
-    }
-
     pub fn new_bool(x: bool) -> ValBuilder<'static> {
         ValBuilder {
             val: x.into(),
@@ -68,6 +61,12 @@ impl<'a> NativeFunctionContext<'a> {
     /// Get the underlying VM.
     pub fn vm(&self) -> &Vm {
         self.vm
+    }
+
+    /// Get the argument as a val.
+    pub fn arg(&mut self, idx: usize) -> Val {
+        let v = self.args()[idx];
+        Val::new(&mut self.vm, v)
     }
 
     /// Get the arguments to the function call.

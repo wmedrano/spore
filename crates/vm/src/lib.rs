@@ -6,8 +6,8 @@ use smol_str::SmolStr;
 use compiler::Compiler;
 use error::BacktraceError;
 use val::{
-    internal::InternalValImpl, ByteCode, Instruction, InternalVal, NativeFunction,
-    NativeFunctionContext, Val, ValId,
+    custom::CustomVal, internal::InternalValImpl, ByteCode, Instruction, InternalVal,
+    NativeFunction, NativeFunctionContext, Val, ValId,
 };
 use val_store::{is_garbage_collected, ValStore};
 
@@ -110,6 +110,12 @@ impl Vm {
     /// Register a native function that can be called within the virtual machine.
     pub fn register_native_function(&mut self, name: &str, func: NativeFunction) {
         self.values.insert(name.into(), func.into());
+    }
+
+    /// Register a custom value that is accessible globally.
+    pub fn register_custom_value(&mut self, name: &str, val: CustomVal) {
+        let id = self.val_store.insert_custom(val);
+        self.values.insert(name.into(), id.into());
     }
 
     /// Evaluate a string in the virtual machine.

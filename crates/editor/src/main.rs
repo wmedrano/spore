@@ -108,7 +108,7 @@ fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             KeyCode::Media(_) => "<unknown>".into(),
             KeyCode::Modifier(_) => "<unknown>".into(),
         },
-        _ => return Ok(ValBuilder::new_void()),
+        _ => "".into(),
     };
     // Unsafe OK: Value is returned immediately.
     Ok(unsafe { ctx.new_string(event_str) })

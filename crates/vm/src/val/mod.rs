@@ -6,6 +6,7 @@ pub(crate) mod internal;
 mod native_function;
 
 pub use bytecode::{ByteCode, Instruction};
+use custom::CustomType;
 pub use formatter::ValFormatter;
 pub use id::ValId;
 use internal::InternalValImpl;
@@ -67,6 +68,13 @@ impl<'a> Val<'a> {
     pub fn as_str(&self) -> Option<&str> {
         match self.v.0 {
             InternalValImpl::String(x) => Some(self.vm.val_store.get_str(x)),
+            _ => None,
+        }
+    }
+
+    pub fn as_custom<T: CustomType>(&self) -> Option<&T> {
+        match self.v.0 {
+            InternalValImpl::Custom(id) => self.vm.val_store.get_custom(id).get(),
             _ => None,
         }
     }

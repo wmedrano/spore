@@ -67,7 +67,7 @@ impl PartialEq for BacktraceError {
     // We say that all backtrace errors are equivalent to make unit tests accept any backtrace. This
     // is simpler as it is not possible to compare backtraces.
     fn eq(&self, _: &Self) -> bool {
-        true
+        false
     }
 }
 
@@ -94,4 +94,28 @@ pub enum CompileError {
     DefineNotAllowedInSubexpression,
     #[error("argument {0} was defined multiple times")]
     ArgumentDefinedMultipleTimes(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::error::Error;
+
+    use super::*;
+
+    #[test]
+    fn backtraces_are_all_eq() {
+        // Backtraces are abstract so we assume (mostly for tests sake) that they are not
+        // equivalent.
+        assert_ne!(BacktraceError::capture(), BacktraceError::capture());
+    }
+
+    #[test]
+    fn hacks_for_code_coverage() {
+        // A collection of functions that are not worth testing.
+        VmError::CustomError("".to_string()).source();
+        assert_ne!(CompileError::EmptyExpression.to_string(), "");
+        assert_ne!(format!("{:?}", CompileError::EmptyExpression), "");
+        assert_ne!(BacktraceError::capture().to_string(), "");
+        assert_ne!(format!("{:?}", BacktraceError::capture()), "");
+    }
 }

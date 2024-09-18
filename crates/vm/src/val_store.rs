@@ -197,6 +197,7 @@ impl ValStore {
                 return id;
             }
         }
+        // Untested OK: This typically triggers when tests fail.
         self.insert_bytecode(bytecode)
     }
 
