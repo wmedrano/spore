@@ -71,7 +71,7 @@ fn run(mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     }
 }
 
-fn read_event<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
+fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: SmolStr = match event {
         event::Event::Key(KeyEvent {

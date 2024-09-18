@@ -68,6 +68,10 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 )
             }
             InternalValImpl::NativeFunction(_) => write!(f, "<native-function>"),
+            InternalValImpl::Custom(c) => {
+                let c = self.vm.val_store.get_custom(*c);
+                write!(f, "{c}")
+            }
         }
     }
 }

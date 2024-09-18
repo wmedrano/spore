@@ -11,10 +11,19 @@ pub struct ValWithColor<T> {
     keep_reachable_count: u32,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ObjectStore<T> {
     objects: Vec<ValWithColor<T>>,
     free_object_ids: Vec<ValId<T>>,
+}
+
+impl<T> Default for ObjectStore<T> {
+    fn default() -> ObjectStore<T> {
+        ObjectStore {
+            objects: Vec::new(),
+            free_object_ids: Vec::new(),
+        }
+    }
 }
 
 impl<T> ObjectStore<T> {

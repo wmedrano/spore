@@ -4,7 +4,7 @@ use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::{internal::InternalVal, ListVal};
+use super::{custom::CustomVal, internal::InternalVal, ListVal};
 
 pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
@@ -98,6 +98,17 @@ impl<'a> NativeFunctionContext<'a> {
         let list_id = self.vm.val_store.insert_list(list);
         ValBuilder {
             val: list_id.into(),
+            _lt: PhantomData,
+        }
+    }
+
+    /// # Safety
+    /// Garbage collector may clean up this value. For safety, the value must be returned
+    /// immediately.
+    pub unsafe fn new_custom(&mut self, c: CustomVal) -> ValBuilder<'a> {
+        let custom_id = self.vm.val_store.insert_custom(c);
+        ValBuilder {
+            val: custom_id.into(),
             _lt: PhantomData,
         }
     }

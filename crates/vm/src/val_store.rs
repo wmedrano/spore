@@ -4,15 +4,16 @@ use smol_str::SmolStr;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
-    val::{internal::InternalValImpl, ByteCode, InternalVal, ListVal, ValId},
+    val::{custom::CustomVal, internal::InternalValImpl, ByteCode, InternalVal, ListVal, ValId},
 };
 
 /// ValStore manages the lifetime of Val objects.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct ValStore {
     strings: ObjectStore<SmolStr>,
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
+    customs: ObjectStore<CustomVal>,
     reachable_color: Color,
     // Data used for GC mark phase.
     temp_mark_data: TempMarkData,
@@ -54,11 +55,6 @@ impl ValStore {
     fn init_gc_mark(&self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<InternalVal>)) {
         temp_data.clear_retaining_capacity();
         values(&mut temp_data.current_queue);
-        // for val in values {
-        //     if is_garbage_collected(val) {
-        //         temp_data.current_queue.push(val);
-        //     }
-        // }
         for (id, _) in self.strings.iter_keep_reachable() {
             temp_data.current_queue.push(id.into())
         }
@@ -66,6 +62,9 @@ impl ValStore {
             temp_data.current_queue.push(id.into());
         }
         for (id, _) in self.bytecodes.iter_keep_reachable() {
+            temp_data.current_queue.push(id.into());
+        }
+        for (id, _) in self.customs.iter_keep_reachable() {
             temp_data.current_queue.push(id.into());
         }
     }
@@ -94,6 +93,9 @@ impl ValStore {
                     }
                 }
             }
+            InternalValImpl::Custom(id) => {
+                self.customs.set_color(id, self.reachable_color);
+            }
             _ => {}
         }
     }
@@ -103,6 +105,7 @@ impl ValStore {
         self.strings.remove_all_with_color(unreachable_color);
         self.lists.remove_all_with_color(unreachable_color);
         self.bytecodes.remove_all_with_color(unreachable_color);
+        self.customs.remove_all_with_color(unreachable_color);
     }
 
     /// Marks `value` as reachable so that it doesn't get garbage collected.
@@ -122,6 +125,7 @@ impl ValStore {
                 self.bytecodes.keep_reachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
+            InternalValImpl::Custom(id) => self.customs.keep_reachable(id),
         }
     }
 
@@ -143,6 +147,7 @@ impl ValStore {
                 self.bytecodes.allow_unreachable(id);
             }
             InternalValImpl::NativeFunction(_) => {}
+            InternalValImpl::Custom(id) => self.customs.allow_unreachable(id),
         }
     }
 
@@ -202,6 +207,20 @@ impl ValStore {
         self.bytecodes
             .insert(bytecode.into(), self.reachable_color.other())
     }
+
+    /// Get a custom value by its id.
+    pub fn get_custom(&self, id: ValId<CustomVal>) -> &CustomVal {
+        let c = self.customs.get(id);
+        debug_assert!(c.is_some(), "{id:?} not found");
+        c.unwrap()
+    }
+
+    /// Insert a custom value and get its id.
+    pub fn insert_custom(&mut self, custom: CustomVal) -> ValId<CustomVal> {
+        // We mark as unreachable to recurse through `list`'s elements during the next GC mark
+        // phase.
+        self.customs.insert(custom, self.reachable_color.other())
+    }
 }
 
 /// Returns `true` if `v` is managed by the garbage collector.
@@ -215,6 +234,7 @@ pub fn is_garbage_collected(v: InternalVal) -> bool {
         InternalValImpl::List(_) => true,
         InternalValImpl::ByteCodeFunction(_) => true,
         InternalValImpl::NativeFunction(_) => false,
+        InternalValImpl::Custom(_) => true,
     }
 }
 

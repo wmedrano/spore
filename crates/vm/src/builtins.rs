@@ -17,7 +17,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("working-directory", working_directory),
 ];
 
-pub fn equal<'a>(ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
+pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     match args {
         [a, b] => Ok(ValBuilder::new_bool(equal_impl(ctx.vm(), *a, *b))),
@@ -115,7 +115,7 @@ pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     less_impl(ctx.vm(), ctx.args())
 }
 
-pub fn string_join<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
+pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     let (strings, separator) = match args {
         [] => {
@@ -176,13 +176,13 @@ pub fn string_join<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilde
     Ok(unsafe { ctx.new_string(result.to_smolstr()) })
 }
 
-pub fn list<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
+pub fn list(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let list = ctx.args().to_vec();
     // Unsafe OK: Value is returned immediately.
     Ok(unsafe { ctx.new_list(list) })
 }
 
-pub fn working_directory<'a>(mut ctx: NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>> {
+pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let arg_len = ctx.arg_len();
     if arg_len != 0 {
         return Err(VmError::ArityError {

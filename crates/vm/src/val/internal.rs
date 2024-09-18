@@ -4,7 +4,9 @@ use smol_str::SmolStr;
 
 use crate::Vm;
 
-use super::{bytecode::ByteCode, formatter::ValFormatter, NativeFunction, ValId};
+use super::{
+    bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, NativeFunction, ValId,
+};
 
 pub type ListVal = Vec<InternalVal>;
 
@@ -28,6 +30,8 @@ pub(crate) enum InternalValImpl {
     ByteCodeFunction(ValId<Arc<ByteCode>>),
     /// A function implemented in Rust.
     NativeFunction(NativeFunction),
+    /// A custom type.
+    Custom(ValId<CustomVal>),
 }
 
 /// Contains a Spore value.
@@ -42,6 +46,7 @@ impl InternalVal {
     pub const VOID_TYPE_NAME: &'static str = "void";
     pub const STRING_TYPE_NAME: &'static str = "string";
     pub const LIST_TYPE_NAME: &'static str = "list";
+    pub const CUSTOM_TYPE_NAME: &'static str = "custom";
 
     pub fn type_name(&self) -> &'static str {
         match self.0 {
@@ -53,6 +58,7 @@ impl InternalVal {
             InternalValImpl::List(_) => InternalVal::LIST_TYPE_NAME,
             InternalValImpl::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
             InternalValImpl::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
+            InternalValImpl::Custom(_) => InternalVal::CUSTOM_TYPE_NAME,
         }
     }
 
@@ -82,6 +88,7 @@ to_internal_val_impl!(NativeFunction => NativeFunction);
 to_internal_val_impl!(ValId<SmolStr> => String);
 to_internal_val_impl!(ValId<ListVal> => List);
 to_internal_val_impl!(ValId<Arc<ByteCode>> => ByteCodeFunction);
+to_internal_val_impl!(ValId<CustomVal> => Custom);
 
 impl From<()> for InternalVal {
     fn from(_: ()) -> InternalVal {
