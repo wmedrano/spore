@@ -1,6 +1,6 @@
 mod bytecode;
 mod formatter;
-mod internal;
+pub(crate) mod internal;
 mod native_function;
 mod val;
 

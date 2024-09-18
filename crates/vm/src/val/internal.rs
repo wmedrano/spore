@@ -10,7 +10,7 @@ pub type ListVal = Vec<InternalVal>;
 
 /// Contains a Spore value.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
-pub enum InternalVal {
+pub(crate) enum InternalValImpl {
     /// A type that contains a single value. Used to represent nothingness.
     #[default]
     Void,
@@ -30,6 +30,10 @@ pub enum InternalVal {
     NativeFunction(NativeFunction),
 }
 
+/// Contains a Spore value.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct InternalVal(pub(crate) InternalValImpl);
+
 impl InternalVal {
     pub const FUNCTION_TYPE_NAME: &'static str = "function";
     pub const BOOL_TYPE_NAME: &'static str = "bool";
@@ -40,15 +44,15 @@ impl InternalVal {
     pub const LIST_TYPE_NAME: &'static str = "list";
 
     pub fn type_name(&self) -> &'static str {
-        match self {
-            InternalVal::Void => InternalVal::VOID_TYPE_NAME,
-            InternalVal::Bool(_) => InternalVal::BOOL_TYPE_NAME,
-            InternalVal::Int(_) => InternalVal::INT_TYPE_NAME,
-            InternalVal::Float(_) => InternalVal::FLOAT_TYPE_NAME,
-            InternalVal::String(_) => InternalVal::STRING_TYPE_NAME,
-            InternalVal::List(_) => InternalVal::LIST_TYPE_NAME,
-            InternalVal::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
-            InternalVal::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
+        match self.0 {
+            InternalValImpl::Void => InternalVal::VOID_TYPE_NAME,
+            InternalValImpl::Bool(_) => InternalVal::BOOL_TYPE_NAME,
+            InternalValImpl::Int(_) => InternalVal::INT_TYPE_NAME,
+            InternalValImpl::Float(_) => InternalVal::FLOAT_TYPE_NAME,
+            InternalValImpl::String(_) => InternalVal::STRING_TYPE_NAME,
+            InternalValImpl::List(_) => InternalVal::LIST_TYPE_NAME,
+            InternalValImpl::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
+            InternalValImpl::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
         }
     }
 
@@ -58,6 +62,33 @@ impl InternalVal {
 
     pub fn format_quoted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
         ValFormatter::new_quoted(vm, *self)
+    }
+}
+
+macro_rules! to_internal_val_impl {
+    ($rust_type:ty => $variant:ident) => {
+        impl From<$rust_type> for InternalVal {
+            fn from(v: $rust_type) -> InternalVal {
+                InternalVal(InternalValImpl::$variant(v))
+            }
+        }
+    };
+}
+
+to_internal_val_impl!(bool => Bool);
+to_internal_val_impl!(i64 => Int);
+to_internal_val_impl!(f64 => Float);
+to_internal_val_impl!(NativeFunction => NativeFunction);
+
+impl From<()> for InternalVal {
+    fn from(_: ()) -> InternalVal {
+        InternalVal(InternalValImpl::Void)
+    }
+}
+
+impl From<InternalValImpl> for InternalVal {
+    fn from(v: InternalValImpl) -> InternalVal {
+        InternalVal(v)
     }
 }
 

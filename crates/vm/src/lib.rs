@@ -5,7 +5,10 @@ use smol_str::SmolStr;
 
 use compiler::Compiler;
 use error::BacktraceError;
-use val::{ByteCode, Instruction, InternalVal, NativeFunction, NativeFunctionContext, Val};
+use val::{
+    internal::InternalValImpl, ByteCode, Instruction, InternalVal, NativeFunction,
+    NativeFunctionContext, Val,
+};
 use val_store::{ValId, ValStore};
 
 pub use ast::AstParseError;
@@ -95,12 +98,12 @@ impl Vm {
             .iter()
             .copied()
             .chain(self.values.values().copied())
-            .chain(std::iter::once(InternalVal::ByteCodeFunction(
-                self.stack_frame.bytecode_id,
-            )))
+            .chain(std::iter::once(
+                InternalValImpl::ByteCodeFunction(self.stack_frame.bytecode_id).into(),
+            ))
             .chain(self.stack_frame.bytecode.values())
             .chain(self.previous_stack_frames.iter().flat_map(|sf| {
-                std::iter::once(InternalVal::ByteCodeFunction(sf.bytecode_id))
+                std::iter::once(InternalValImpl::ByteCodeFunction(sf.bytecode_id).into())
                     .chain(sf.bytecode.values())
             }));
         self.val_store.run_gc(vals)
@@ -108,8 +111,7 @@ impl Vm {
 
     /// Register a native function that can be called within the virtual machine.
     pub fn register_native_function(&mut self, name: &str, func: NativeFunction) {
-        self.values
-            .insert(name.into(), InternalVal::NativeFunction(func));
+        self.values.insert(name.into(), func.into());
     }
 
     /// Evaluate a string in the virtual machine.
@@ -157,7 +159,7 @@ impl Vm {
         match instruction {
             Instruction::PushConst(c) => self.stack.push(*c),
             Instruction::PushCurrentFunction => {
-                let f = InternalVal::ByteCodeFunction(self.stack_frame.bytecode_id);
+                let f = InternalValImpl::ByteCodeFunction(self.stack_frame.bytecode_id).into();
                 self.stack.push(f);
             }
             Instruction::GetArg(n) => {
@@ -179,16 +181,16 @@ impl Vm {
             Instruction::EvalNative { func, arg_count } => {
                 self.execute_eval_native(*func, *arg_count)?
             }
-            Instruction::JumpIf(n) => match self.stack.pop() {
-                Some(InternalVal::Bool(true)) => self.stack_frame.bytecode_idx += *n,
-                Some(InternalVal::Bool(false)) => {}
+            Instruction::JumpIf(n) => match self.stack.pop().map(|v| v.0) {
+                Some(InternalValImpl::Bool(true)) => self.stack_frame.bytecode_idx += *n,
+                Some(InternalValImpl::Bool(false)) => {}
                 v => {
-                    let v = v.unwrap_or(InternalVal::Void);
+                    let v = v.unwrap_or(InternalValImpl::Void);
                     return Err(VmError::TypeError {
                         context: "if",
                         expected: InternalVal::BOOL_TYPE_NAME,
-                        actual: v.type_name(),
-                        value: v.formatted(self).to_string(),
+                        actual: InternalVal(v).type_name(),
+                        value: InternalVal(v).formatted(self).to_string(),
                     });
                 }
             },
@@ -230,15 +232,15 @@ impl Vm {
             .ok_or_else(BacktraceError::capture)?;
         let stack_start = function_idx + 1;
         let func_val = self.stack[function_idx];
-        match func_val {
-            InternalVal::NativeFunction(func) => {
+        match func_val.0 {
+            InternalValImpl::NativeFunction(func) => {
                 let builder = func(NativeFunctionContext::new(self, stack_start))?;
                 let v = builder.to_internal(self);
                 self.stack[function_idx] = v;
                 self.stack.truncate(stack_start);
                 Ok(())
             }
-            InternalVal::ByteCodeFunction(bytecode_id) => {
+            InternalValImpl::ByteCodeFunction(bytecode_id) => {
                 let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
@@ -274,11 +276,11 @@ impl Vm {
                 self.previous_stack_frames.push(previous_stack_frame);
                 Ok(())
             }
-            v => Err(VmError::TypeError {
+            _ => Err(VmError::TypeError {
                 context: "function call",
                 expected: InternalVal::FUNCTION_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.formatted(self).to_string(),
+                actual: func_val.type_name(),
+                value: func_val.formatted(self).to_string(),
             }),
         }
     }
@@ -286,11 +288,11 @@ impl Vm {
     /// Execute returning from the current stack frame.
     fn execute_return(&mut self) -> Option<InternalVal> {
         // 1. Return the current value to the top of the stack.
-        let ret_val = if self.stack_frame.stack_start < self.stack.len() {
+        let ret_val: InternalVal = if self.stack_frame.stack_start < self.stack.len() {
             // Unwrap OK: The above statement is never true when len == 0.
             self.stack.pop().unwrap()
         } else {
-            InternalVal::Void
+            ().into()
         };
         // 2. Set up the next continuation.
         match self.previous_stack_frames.pop() {

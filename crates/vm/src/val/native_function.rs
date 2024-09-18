@@ -2,7 +2,7 @@ use smol_str::SmolStr;
 
 use crate::{error::VmResult, Vm};
 
-use super::internal::InternalVal;
+use super::internal::{InternalVal, InternalValImpl};
 
 pub type NativeFunction = fn(NativeFunctionContext) -> VmResult<ValBuilder>;
 
@@ -11,7 +11,7 @@ pub struct NativeFunctionContext<'a> {
     stack_start: usize,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum ValBuilderImpl {
     Literal(InternalVal),
     String(SmolStr),
@@ -22,19 +22,19 @@ pub struct ValBuilder(ValBuilderImpl);
 
 impl ValBuilder {
     pub fn new_void() -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(InternalVal::Void))
+        ValBuilder(ValBuilderImpl::Literal(().into()))
     }
 
     pub fn new_bool(x: bool) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(InternalVal::Bool(x)))
+        ValBuilder(ValBuilderImpl::Literal(x.into()))
     }
 
     pub fn new_int(x: i64) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(InternalVal::Int(x)))
+        ValBuilder(ValBuilderImpl::Literal(x.into()))
     }
 
     pub fn new_float(x: f64) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(InternalVal::Float(x)))
+        ValBuilder(ValBuilderImpl::Literal(x.into()))
     }
 
     pub fn new_string(x: SmolStr) -> ValBuilder {
@@ -44,7 +44,9 @@ impl ValBuilder {
     pub(crate) fn to_internal(self, vm: &mut Vm) -> InternalVal {
         match self.0 {
             ValBuilderImpl::Literal(v) => v,
-            ValBuilderImpl::String(v) => InternalVal::String(vm.val_store.insert_string(v)),
+            ValBuilderImpl::String(v) => {
+                InternalValImpl::String(vm.val_store.insert_string(v)).into()
+            }
         }
     }
 }
@@ -75,8 +77,8 @@ impl<'a> NativeFunctionContext<'a> {
     /// The list may be garbage collected if the VM begins its instruction cycle. Safe to call as
     /// final return value call in native function.
     pub unsafe fn new_list(&mut self, list: Vec<InternalVal>) -> ValBuilder {
-        ValBuilder(ValBuilderImpl::Literal(InternalVal::List(
-            self.vm.val_store.insert_list(list),
-        )))
+        ValBuilder(ValBuilderImpl::Literal(
+            InternalValImpl::List(self.vm.val_store.insert_list(list)).into(),
+        ))
     }
 }

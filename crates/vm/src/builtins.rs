@@ -2,7 +2,9 @@ use smol_str::{SmolStr, ToSmolStr};
 
 use crate::{
     error::{VmError, VmResult},
-    val::{InternalVal, NativeFunction, NativeFunctionContext, ValBuilder},
+    val::{
+        internal::InternalValImpl, InternalVal, NativeFunction, NativeFunctionContext, ValBuilder,
+    },
     Vm,
 };
 
@@ -28,8 +30,8 @@ pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
-    use crate::val::InternalVal::*;
-    match (a, b) {
+    use crate::val::internal::InternalValImpl::*;
+    match (a.0, b.0) {
         (Void, Void) => true,
         (Bool(a), Bool(b)) => a == b,
         (Int(a), Int(b)) => a == b,
@@ -54,18 +56,18 @@ pub fn add(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
     for arg in ctx.args() {
-        match arg {
-            InternalVal::Int(x) => int_sum += *x,
-            InternalVal::Float(x) => {
-                float_sum += *x;
+        match arg.0 {
+            InternalValImpl::Int(x) => int_sum += x,
+            InternalValImpl::Float(x) => {
+                float_sum += x;
                 has_float = true;
             }
-            v => {
+            _ => {
                 return Err(VmError::TypeError {
                     context: "+",
                     expected: InternalVal::INT_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
+                    actual: arg.type_name(),
+                    value: arg.format_quoted(ctx.vm()).to_string(),
                 })
             }
         }
@@ -78,18 +80,18 @@ pub fn add(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 fn less_two_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
-    match (a, b) {
-        (InternalVal::Int(a), InternalVal::Int(b)) => Ok(*a < *b),
-        (InternalVal::Float(a), InternalVal::Float(b)) => Ok(*a < *b),
-        (InternalVal::Float(a), InternalVal::Int(b)) => Ok(*a < (*b as f64)),
-        (InternalVal::Int(a), InternalVal::Float(b)) => Ok((*a as f64) < *b),
-        (a, InternalVal::Int(_)) | (a, InternalVal::Float(_)) => Err(VmError::TypeError {
+    match (a.0, b.0) {
+        (InternalValImpl::Int(a), InternalValImpl::Int(b)) => Ok(a < b),
+        (InternalValImpl::Float(a), InternalValImpl::Float(b)) => Ok(a < b),
+        (InternalValImpl::Float(a), InternalValImpl::Int(b)) => Ok(a < (b as f64)),
+        (InternalValImpl::Int(a), InternalValImpl::Float(b)) => Ok((a as f64) < b),
+        (_, InternalValImpl::Int(_)) | (_, InternalValImpl::Float(_)) => Err(VmError::TypeError {
             context: "<",
             expected: "int or float",
             actual: a.type_name(),
             value: a.format_quoted(vm).to_string(),
         }),
-        (_, b) => Err(VmError::TypeError {
+        (_, _) => Err(VmError::TypeError {
             context: "<",
             expected: "int or float",
             actual: b.type_name(),
@@ -123,7 +125,7 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                 actual: 0,
             })
         }
-        [InternalVal::List(list)] => (*list, ""),
+        [InternalVal(InternalValImpl::List(list))] => (*list, ""),
         [v] => {
             return Err(VmError::TypeError {
                 context: "string-join arg(idx=0)",
@@ -132,7 +134,7 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                 value: v.format_quoted(ctx.vm()).to_string(),
             });
         }
-        [InternalVal::List(list), InternalVal::String(string)] => {
+        [InternalVal(InternalValImpl::List(list)), InternalVal(InternalValImpl::String(string))] => {
             (*list, ctx.vm().val_store.get_str(*string))
         }
         [_, v] => {
@@ -156,16 +158,16 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         if idx > 0 {
             result.push_str(separator);
         }
-        match string_id {
-            InternalVal::String(string_id) => {
-                result.push_str(ctx.vm().val_store.get_str(*string_id));
+        match string_id.0 {
+            InternalValImpl::String(string_id) => {
+                result.push_str(ctx.vm().val_store.get_str(string_id));
             }
-            v => {
+            _ => {
                 return Err(VmError::TypeError {
                     context: "string-join arg(idx=0)",
                     expected: InternalVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
+                    actual: string_id.type_name(),
+                    value: string_id.format_quoted(ctx.vm()).to_string(),
                 })
             }
         };

@@ -1,6 +1,6 @@
 use crate::Vm;
 
-use super::InternalVal;
+use super::{internal::InternalValImpl, InternalVal};
 
 pub struct ValFormatter<'a> {
     vm: &'a Vm,
@@ -31,20 +31,20 @@ impl<'a> ValFormatter<'a> {
 
 impl<'a> std::fmt::Display for ValFormatter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.v {
-            InternalVal::Void => Ok(()),
-            InternalVal::Bool(x) => write!(f, "{x}"),
-            InternalVal::Int(x) => write!(f, "{x}"),
-            InternalVal::Float(x) => write!(f, "{x}"),
+        match &self.v.0 {
+            InternalValImpl::Void => Ok(()),
+            InternalValImpl::Bool(x) => write!(f, "{x}"),
+            InternalValImpl::Int(x) => write!(f, "{x}"),
+            InternalValImpl::Float(x) => write!(f, "{x}"),
             // TODO: Allow printing with quotes.
-            InternalVal::String(x) => {
+            InternalValImpl::String(x) => {
                 if self.quote_strings {
                     write!(f, "{:?}", self.vm.val_store.get_str(*x))
                 } else {
                     write!(f, "{}", self.vm.val_store.get_str(*x))
                 }
             }
-            InternalVal::List(x) => {
+            InternalValImpl::List(x) => {
                 write!(f, "(")?;
                 for (idx, val) in self.vm.val_store.get_list(*x).iter().enumerate() {
                     if idx == 0 {
@@ -55,7 +55,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 }
                 write!(f, ")")
             }
-            InternalVal::ByteCodeFunction(bc) => {
+            InternalValImpl::ByteCodeFunction(bc) => {
                 let bc = self.vm.val_store.get_bytecode(*bc);
                 write!(
                     f,
@@ -67,7 +67,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                     }
                 )
             }
-            InternalVal::NativeFunction(_) => write!(f, "<native-function>"),
+            InternalValImpl::NativeFunction(_) => write!(f, "<native-function>"),
         }
     }
 }

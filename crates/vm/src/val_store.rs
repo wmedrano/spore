@@ -2,7 +2,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 use smol_str::SmolStr;
 
-use crate::val::{ByteCode, InternalVal, ListVal};
+use crate::val::{internal::InternalValImpl, ByteCode, InternalVal, ListVal};
 
 type IdRepr = u32;
 
@@ -85,21 +85,21 @@ impl ValStore {
             if colored_vals.keep_alive_count > 0 {
                 temp_data
                     .current_queue
-                    .push(InternalVal::String(ValId::new(idx as u32)));
+                    .push(InternalValImpl::String(ValId::new(idx as u32)).into());
             }
         }
         for (idx, colored_vals) in self.lists.iter().enumerate() {
             if colored_vals.keep_alive_count > 0 {
                 temp_data
                     .current_queue
-                    .push(InternalVal::List(ValId::new(idx as u32)));
+                    .push(InternalValImpl::List(ValId::new(idx as u32)).into());
             }
         }
         for (idx, colored_vals) in self.bytecodes.iter().enumerate() {
             if colored_vals.keep_alive_count > 0 {
                 temp_data
                     .current_queue
-                    .push(InternalVal::ByteCodeFunction(ValId::new(idx as u32)));
+                    .push(InternalValImpl::ByteCodeFunction(ValId::new(idx as u32)).into());
             }
         }
         while !temp_data.current_queue.is_empty() {
@@ -111,28 +111,28 @@ impl ValStore {
     }
 
     fn gc_mark_one(&mut self, val: InternalVal, child_queue: &mut Vec<InternalVal>) {
-        let has_gc = |v| match v {
-            InternalVal::Void => false,
-            InternalVal::Bool(_) => false,
-            InternalVal::Int(_) => false,
-            InternalVal::Float(_) => false,
-            InternalVal::String(_) => true,
-            InternalVal::List(_) => true,
-            InternalVal::ByteCodeFunction(_) => true,
-            InternalVal::NativeFunction(_) => false,
+        let has_gc = |v: InternalVal| match v.0 {
+            InternalValImpl::Void => false,
+            InternalValImpl::Bool(_) => false,
+            InternalValImpl::Int(_) => false,
+            InternalValImpl::Float(_) => false,
+            InternalValImpl::String(_) => true,
+            InternalValImpl::List(_) => true,
+            InternalValImpl::ByteCodeFunction(_) => true,
+            InternalValImpl::NativeFunction(_) => false,
         };
         let mut add_child = |v| {
             if has_gc(v) {
                 child_queue.push(v);
             }
         };
-        match val {
-            InternalVal::String(id) => {
+        match val.0 {
+            InternalValImpl::String(id) => {
                 if let Some(entry) = self.strings.get_mut(id.id as usize) {
                     entry.color = self.alive_color;
                 }
             }
-            InternalVal::List(id) => {
+            InternalValImpl::List(id) => {
                 if let Some(entry) = self.lists.get_mut(id.id as usize) {
                     if entry.color != self.alive_color {
                         debug_assert_ne!(entry.color, Color::Tombstone);
@@ -143,7 +143,7 @@ impl ValStore {
                     }
                 }
             }
-            InternalVal::ByteCodeFunction(id) => {
+            InternalValImpl::ByteCodeFunction(id) => {
                 if let Some(entry) = self.bytecodes.get_mut(id.id as usize) {
                     if let Some(bc) = entry.inner.as_ref() {
                         if entry.color != self.alive_color {
@@ -155,7 +155,7 @@ impl ValStore {
                     }
                 }
             }
-            v => assert!(!has_gc(v)),
+            _ => assert!(!has_gc(val)),
         }
     }
 
@@ -205,52 +205,52 @@ impl ValStore {
     }
 
     pub fn keep_alive(&mut self, value: InternalVal) {
-        match value {
-            InternalVal::Void => {}
-            InternalVal::Bool(_) => {}
-            InternalVal::Int(_) => {}
-            InternalVal::Float(_) => {}
-            InternalVal::String(id) => {
+        match value.0 {
+            InternalValImpl::Void => {}
+            InternalValImpl::Bool(_) => {}
+            InternalValImpl::Int(_) => {}
+            InternalValImpl::Float(_) => {}
+            InternalValImpl::String(id) => {
                 if let Some(s) = self.strings.get_mut(id.id as usize) {
                     s.keep_alive_count += 1;
                 }
             }
-            InternalVal::List(id) => {
+            InternalValImpl::List(id) => {
                 if let Some(s) = self.lists.get_mut(id.id as usize) {
                     s.keep_alive_count += 1;
                 }
             }
-            InternalVal::ByteCodeFunction(id) => {
+            InternalValImpl::ByteCodeFunction(id) => {
                 if let Some(bc) = self.bytecodes.get_mut(id.id as usize) {
                     bc.keep_alive_count += 1;
                 }
             }
-            InternalVal::NativeFunction(_) => {}
+            InternalValImpl::NativeFunction(_) => {}
         }
     }
 
     pub fn allow_death(&mut self, value: InternalVal) {
-        match value {
-            InternalVal::Void => {}
-            InternalVal::Bool(_) => {}
-            InternalVal::Int(_) => {}
-            InternalVal::Float(_) => {}
-            InternalVal::String(id) => {
+        match value.0 {
+            InternalValImpl::Void => {}
+            InternalValImpl::Bool(_) => {}
+            InternalValImpl::Int(_) => {}
+            InternalValImpl::Float(_) => {}
+            InternalValImpl::String(id) => {
                 if let Some(s) = self.strings.get_mut(id.id as usize) {
                     s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
                 }
             }
-            InternalVal::List(id) => {
+            InternalValImpl::List(id) => {
                 if let Some(s) = self.lists.get_mut(id.id as usize) {
                     s.keep_alive_count -= s.keep_alive_count.saturating_sub(1);
                 }
             }
-            InternalVal::ByteCodeFunction(id) => {
+            InternalValImpl::ByteCodeFunction(id) => {
                 if let Some(bc) = self.bytecodes.get_mut(id.id as usize) {
                     bc.keep_alive_count -= bc.keep_alive_count.saturating_sub(1);
                 }
             }
-            InternalVal::NativeFunction(_) => {}
+            InternalValImpl::NativeFunction(_) => {}
         }
     }
 

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::{
     ast::Node,
     error::CompileError,
-    val::{ByteCode, Instruction, InternalVal},
+    val::{internal::InternalValImpl, ByteCode, Instruction, InternalVal},
     Vm, VmSettings,
 };
 
@@ -63,12 +63,13 @@ impl<'a> Compiler<'a> {
         match ir {
             Ir::Constant(const_val) => {
                 let instruction = match const_val {
-                    Constant::Bool(x) => Instruction::PushConst(InternalVal::Bool(*x)),
-                    Constant::Int(x) => Instruction::PushConst(InternalVal::Int(*x)),
-                    Constant::Float(x) => Instruction::PushConst(InternalVal::Float(*x)),
-                    Constant::String(x) => Instruction::PushConst(InternalVal::String(
-                        self.vm.val_store.insert_string((*x).into()),
-                    )),
+                    Constant::Bool(x) => Instruction::PushConst((*x).into()),
+                    Constant::Int(x) => Instruction::PushConst((*x).into()),
+                    Constant::Float(x) => Instruction::PushConst((*x).into()),
+                    Constant::String(x) => Instruction::PushConst(
+                        InternalValImpl::String(self.vm.val_store.insert_string((*x).into()))
+                            .into(),
+                    ),
                 };
                 self.instructions.push(instruction);
             }
@@ -105,7 +106,7 @@ impl<'a> Compiler<'a> {
                     .enable_aggressive_inline
                     .then(|| match function.as_ref() {
                         Ir::Deref(ident) => match self.vm.values.get(*ident) {
-                            Some(InternalVal::NativeFunction(func)) => Some(*func),
+                            Some(InternalVal(InternalValImpl::NativeFunction(func))) => Some(*func),
                             _ => None,
                         },
                         _ => None,
@@ -153,8 +154,7 @@ impl<'a> Compiler<'a> {
                 }
                 self.compile_one(predicate, CompilerContext::Subexpression)?;
                 let true_jump_idx = self.instructions.len();
-                self.instructions
-                    .push(Instruction::PushConst(InternalVal::Void));
+                self.instructions.push(Instruction::PushConst(().into()));
                 match false_expr {
                     Some(expr) => {
                         if !expr.is_expression() {
@@ -164,13 +164,10 @@ impl<'a> Compiler<'a> {
                         }
                         self.compile_one(expr, CompilerContext::Subexpression)?
                     }
-                    None => self
-                        .instructions
-                        .push(Instruction::PushConst(InternalVal::Void)),
+                    None => self.instructions.push(Instruction::PushConst(().into())),
                 }
                 let false_jump_idx = self.instructions.len();
-                self.instructions
-                    .push(Instruction::PushConst(InternalVal::Void));
+                self.instructions.push(Instruction::PushConst(().into()));
                 if !true_expr.is_expression() {
                     return Err(CompileError::ExpectedExpression {
                         context: "if expression, true branch",
@@ -205,13 +202,14 @@ impl<'a> Compiler<'a> {
                 for expr in expressions.iter() {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val = InternalVal::ByteCodeFunction(
+                let lambda_val = InternalValImpl::ByteCodeFunction(
                     lambda_compiler.vm.val_store.insert_bytecode(ByteCode {
                         name: name.unwrap_or("").into(),
                         arg_count: args.len(),
                         instructions: lambda_compiler.instructions.into(),
                     }),
-                );
+                )
+                .into();
                 self.instructions.push(Instruction::PushConst(lambda_val));
             }
         };
