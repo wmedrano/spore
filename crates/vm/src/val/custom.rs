@@ -54,8 +54,7 @@ mod tests {
 
     #[test]
     fn custom_type_can_be_printed() {
-        let mut vm = Vm::default();
-        vm.register_custom_value("custom-value", MyType { number: 42 });
+        let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         assert_eq!(
             vm.eval_str("custom-value").unwrap().to_string(),
             "magic number 42"
@@ -64,8 +63,7 @@ mod tests {
 
     #[test]
     fn custom_type_can_be_accessed() {
-        let mut vm = Vm::default();
-        vm.register_custom_value("custom-value", MyType { number: 42 });
+        let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         assert_eq!(
             vm.eval_str("custom-value").unwrap().as_custom::<MyType>(),
             Some(&MyType { number: 42 })
@@ -80,8 +78,7 @@ mod tests {
             // Unsafe OK: Value returned immediately.
             Ok(unsafe { ctx.new_custom(v) })
         }
-        let mut vm = Vm::default();
-        vm.register_native_function("custom-function", custom_function);
+        let mut vm = Vm::default().with_native_function("custom-function", custom_function);
         assert_eq!(
             vm.eval_str("(custom-function 6)")
                 .unwrap()

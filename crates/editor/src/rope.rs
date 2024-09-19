@@ -10,11 +10,11 @@ use spore_vm::{
 pub struct SporeRope(RwLock<Rope>);
 
 impl SporeRope {
-    pub fn register(vm: &mut Vm) {
-        vm.register_native_function("new-rope", new_rope);
-        vm.register_native_function("rope->string", rope_to_string);
-        vm.register_native_function("rope-clear!", rope_clear);
-        vm.register_native_function("rope-append!", rope_append);
+    pub fn register(vm: Vm) -> Vm {
+        vm.with_native_function("new-rope", new_rope)
+            .with_native_function("rope->string", rope_to_string)
+            .with_native_function("rope-clear!", rope_clear)
+            .with_native_function("rope-append!", rope_append)
     }
 }
 

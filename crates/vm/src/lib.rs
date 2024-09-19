@@ -83,10 +83,10 @@ impl Vm {
             settings,
         };
         for (name, func) in builtins::BUILTINS {
-            vm.register_native_function(name, *func);
+            vm = vm.with_native_function(name, *func);
         }
         info!(
-            "Initialized Spore VM in {elapsed:?}",
+            "Initialized Spore VM in {elapsed:?} with {settings:?}",
             elapsed = start_t.elapsed()
         );
         vm
@@ -107,15 +107,26 @@ impl Vm {
         })
     }
 
-    /// Register a native function that can be called within the virtual machine.
-    pub fn register_native_function(&mut self, name: &str, func: NativeFunction) {
-        self.values.insert(name.into(), func.into());
+    /// Return the VM with the native function registered.
+    pub fn with_native_function(mut self, name: &str, func: NativeFunction) -> Self {
+        self.register_value(name, func);
+        self
     }
 
-    /// Register a custom value that is accessible globally.
-    pub fn register_custom_value(&mut self, name: &str, val: impl CustomType) {
+    /// Return the VM with a custom value that is accessible globally.
+    pub fn with_custom_value(mut self, name: &str, val: impl CustomType) -> Self {
         let id = self.objects.insert_custom(CustomVal::new(val));
-        self.values.insert(name.into(), id.into());
+        self.register_value(name, id);
+        self
+    }
+
+    fn register_value(&mut self, name: &str, val: impl Into<InternalVal>) {
+        let val = val.into();
+        info!(
+            "Registering {name:?} to value of type {tp}",
+            tp = val.type_name()
+        );
+        self.values.insert(name.into(), val);
     }
 
     /// Evaluate a string in the virtual machine.

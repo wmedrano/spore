@@ -2,7 +2,7 @@ use std::{fs::File, time::Duration};
 
 use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
-use log::error;
+use log::{error, warn};
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     widgets::Paragraph,
@@ -35,12 +35,11 @@ fn init_logger() {
 }
 
 fn new_vm() -> Vm {
-    let mut vm = Vm::new(VmSettings {
+    let vm = Vm::new(VmSettings {
         enable_aggressive_inline: false,
-    });
-    vm.register_native_function("read-event", read_event);
-    SporeRope::register(&mut vm);
-    vm
+    })
+    .with_native_function("read-event", read_event);
+    SporeRope::register(vm)
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
@@ -123,6 +122,9 @@ fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             KeyCode::Modifier(_) => "<unknown>".into(),
         },
         _ => "".into(),
+    };
+    if cfg!(debug_assertions) && event_str.is_heap_allocated() {
+        warn!("Generated large event string of length {len}. Large strings may negatively impact performance.", len=event_str.len());
     };
     // Unsafe OK: Value is returned immediately.
     Ok(unsafe { ctx.new_string(event_str) })
