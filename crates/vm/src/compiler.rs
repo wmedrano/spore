@@ -504,7 +504,7 @@ fn node_to_ident<'a>(node: &'a Node) -> Result<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::AstParseError;
+    use crate::error::AstParseError;
 
     use super::*;
 
@@ -1108,11 +1108,19 @@ mod tests {
     }
 
     #[test]
-    fn lambda_with_same_arg_defined_twice_produces_error() {
+    fn lambda_with_same_arg_defined_multiple_times_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(lambda (arg0 arg0) (arg0 arg0))").unwrap_err();
         assert_eq!(
-            actual,
+            Compiler::compile(&mut vm, "(lambda (arg0 arg0) 0)").unwrap_err(),
+            CompileError::ArgumentDefinedMultipleTimes("arg0".into())
+        );
+        // Tests the non-short arg optimized path.
+        assert!(
+            Compiler::compile(&mut vm, "(lambda (arg0 arg1 arg2 arg3 arg4 arg5 arg6) 0)").is_ok(),
+        );
+        assert_eq!(
+            Compiler::compile(&mut vm, "(lambda (arg0 arg0 arg0 arg0 arg0 arg0 arg0) 0)")
+                .unwrap_err(),
             CompileError::ArgumentDefinedMultipleTimes("arg0".into())
         );
     }

@@ -14,6 +14,7 @@ pub struct ByteCode {
 }
 
 impl ByteCode {
+    /// Iterate over all values referenced by the bytecode.
     pub fn values(&self) -> impl '_ + Iterator<Item = UnsafeVal> {
         self.instructions
             .iter()

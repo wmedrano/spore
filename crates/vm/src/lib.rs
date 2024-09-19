@@ -5,19 +5,16 @@ use gc::{is_garbage_collected, MemoryManager};
 use log::info;
 
 use compiler::Compiler;
-use error::BacktraceError;
+use error::{BacktraceError, VmError, VmResult};
 use val::{
     custom::{CustomType, CustomVal},
-    ByteCode, Instruction, NativeFunction, NativeFunctionContext, UnsafeVal, Val, ValId,
+    ByteCode, Instruction, NativeFunction, NativeFunctionContext, ProtectedVal, UnsafeVal, ValId,
 };
-
-pub use ast::AstParseError;
-pub use error::{CompileError, VmError, VmResult};
 
 mod ast;
 mod builtins;
 mod compiler;
-mod error;
+pub mod error;
 mod gc;
 mod tokenizer;
 pub mod val;
@@ -122,19 +119,20 @@ impl Vm {
     fn register_value(&mut self, name: &str, val: impl Into<UnsafeVal>) {
         let val = val.into();
         info!(
-            "Registering {name:?} to value of type {tp}",
+            "Registering {name:?} to value of type {tp}.",
             tp = val.type_name()
         );
         self.values.insert(name.into(), val);
     }
 
     /// Evaluate a string in the virtual machine.
-    pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
+    pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
         self.run_gc();
         let bytecode = Compiler::compile(self, source)?;
         let bytecode_id = self.objects.insert_bytecode(bytecode);
         let v = self.eval_bytecode(bytecode_id)?;
-        Ok(Val::new(self, v))
+        // Unsafe OK: `v` was just built so there is no chance for it to garage collect.
+        Ok(unsafe { ProtectedVal::new(self, v) })
     }
 
     /// Evaluate some bytecode in the virtual machine.
@@ -195,18 +193,9 @@ impl Vm {
             Instruction::EvalNative { func, arg_count } => {
                 self.execute_eval_native(*func, *arg_count)?
             }
-            Instruction::JumpIf(n) => match self.stack.pop() {
-                Some(UnsafeVal::Bool(true)) => self.stack_frame.bytecode_idx += *n,
-                Some(UnsafeVal::Bool(false)) => {}
-                v => {
-                    let v = v.unwrap_or(UnsafeVal::Void);
-                    return Err(VmError::TypeError {
-                        context: "if",
-                        expected: UnsafeVal::BOOL_TYPE_NAME,
-                        actual: v.type_name(),
-                        value: v.formatted(self).to_string(),
-                    });
-                }
+            Instruction::JumpIf(n) => match self.stack.pop().unwrap() {
+                UnsafeVal::Bool(false) | UnsafeVal::Void => {}
+                _ => self.stack_frame.bytecode_idx += *n,
             },
             Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
             Instruction::Return => return Ok(self.execute_return()),
@@ -215,18 +204,15 @@ impl Vm {
     }
 
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
+        let stack_start = self.stack.len() - arg_count;
+        let builder = func(NativeFunctionContext::new(self, stack_start))?;
+        // Unsafe OK: Value is inserted into VM immediately.
+        let v = unsafe { builder.build() };
         match arg_count {
             0 => {
-                let builder = func(NativeFunctionContext::new(self, self.stack.len()))?;
-                // Unsafe OK: Value is inserted into VM immediately.
-                let v = unsafe { builder.build() };
                 self.stack.push(v);
             }
             _ => {
-                let stack_start = self.stack.len() - arg_count;
-                let builder = func(NativeFunctionContext::new(self, stack_start))?;
-                // Unsafe OK: Value is inserted into VM immediately.
-                let v = unsafe { builder.build() };
                 self.stack.truncate(stack_start + 1);
                 self.stack[stack_start] = v;
             }
@@ -336,7 +322,7 @@ impl Vm {
 impl Drop for Vm {
     fn drop(&mut self) {
         info!(
-            "Dropping Spore VM. {gc_stats:#?}",
+            "Dropping Spore VM, final GC stats: {gc_stats:#?}",
             gc_stats = self.objects.stats()
         );
     }
@@ -423,26 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn if_statement_with_non_bool_predicate_produces_error() {
+    fn if_statement_with_truthy_predicate_true_branch() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
-            VmError::TypeError {
-                context: "if",
-                expected: UnsafeVal::BOOL_TYPE_NAME,
-                actual: UnsafeVal::INT_TYPE_NAME,
-                value: "1".to_string(),
-            }
+            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap().as_int(),
+            Some(3)
         );
-        assert_eq!(
-            vm.eval_str("(if 1 (+ 1 2))").unwrap_err(),
-            VmError::TypeError {
-                context: "if",
-                expected: UnsafeVal::BOOL_TYPE_NAME,
-                actual: UnsafeVal::INT_TYPE_NAME,
-                value: "1".to_string(),
-            }
-        );
+        assert_eq!(vm.eval_str("(if 1 (+ 1 2))").unwrap().as_int(), Some(3));
     }
 
     #[test]

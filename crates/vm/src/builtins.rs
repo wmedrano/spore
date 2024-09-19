@@ -10,7 +10,6 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("=", equal),
     ("+", add),
     ("<", less),
-    ("truthy?", truthy_p),
     ("not", not),
     ("string-join", string_join),
     ("new-box", new_box),
@@ -23,7 +22,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
 pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     match args {
-        [a, b] => Ok(ValBuilder::new_bool(equal_impl(ctx.vm(), *a, *b))),
+        [a, b] => Ok(ctx.new_bool(equal_impl(ctx.vm(), *a, *b))),
         _ => Err(VmError::ArityError {
             function: "=".into(),
             expected: 2,
@@ -76,9 +75,9 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
         }
     }
     if has_float {
-        Ok(ValBuilder::new_float(float_sum + int_sum as f64))
+        Ok(ctx.new_float(float_sum + int_sum as f64))
     } else {
-        Ok(ValBuilder::new_int(int_sum))
+        Ok(ctx.new_int(int_sum))
     }
 }
 
@@ -103,38 +102,25 @@ fn less_two_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> VmResult<bool> {
     }
 }
 
-pub fn less_impl(vm: &Vm, args: &[UnsafeVal]) -> VmResult<ValBuilder<'static>> {
+pub fn less_impl(vm: &Vm, args: &[UnsafeVal]) -> VmResult<bool> {
     match args {
-        [] | [_] => Ok(ValBuilder::new_bool(true)),
-        [a, b] => Ok(ValBuilder::new_bool(less_two_impl(vm, *a, *b)?)),
+        [] | [_] => Ok(true),
+        [a, b] => Ok(less_two_impl(vm, *a, *b)?),
         [a, b, ..] => match less_two_impl(vm, *a, *b)? {
             true => less_impl(vm, &args[1..]),
-            false => Ok(ValBuilder::new_bool(false)),
+            false => Ok(false),
         },
     }
 }
 
 pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
-    less_impl(ctx.vm(), ctx.args())
-}
-
-pub fn truthy_p<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
-    match ctx.args() {
-        [v] => match v {
-            UnsafeVal::Void | UnsafeVal::Bool(false) => Ok(ValBuilder::new_bool(false)),
-            _ => Ok(ValBuilder::new_bool(true)),
-        },
-        args => Err(VmError::ArityError {
-            function: "truthy?".into(),
-            expected: 1,
-            actual: args.len(),
-        }),
-    }
+    let res = less_impl(ctx.vm(), ctx.args())?;
+    Ok(ctx.new_bool(res))
 }
 
 pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
-        [UnsafeVal::Bool(b)] => Ok(ValBuilder::new_bool(!b)),
+        [UnsafeVal::Bool(b)] => Ok(ctx.new_bool(!b)),
         [v] => Err(VmError::TypeError {
             context: "function not",
             expected: UnsafeVal::BOOL_TYPE_NAME,
@@ -149,7 +135,7 @@ pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     }
 }
 
-pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     let (strings, separator) = match args {
         [] => {
@@ -206,14 +192,16 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             }
         };
     }
-    // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(result) })
+    Ok(ctx.new_string(result))
 }
 
-pub fn new_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn new_box(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
-        // Unsafe OK: Returns immediately so no garbage collection may happen.
-        [v] => Ok(unsafe { ctx.new_mutable_box(*v) }),
+        [v] => {
+            let v = *v;
+            // Unsafe OK: `ctx.args()` guarantees objects that will not be garbage collected.
+            Ok(unsafe { ctx.new_mutable_box(v) })
+        }
         args => Err(VmError::ArityError {
             function: "new-box".into(),
             expected: 1,
@@ -225,12 +213,12 @@ pub fn new_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
         // Unsafe OK: This is for sure safe...
-        [UnsafeVal::MutableBox(id), v] => unsafe {
-            let id = *id;
-            let v = *v;
-            let vm = ctx.vm_mut();
-            Ok(ValBuilder::new_internal(vm.objects.set_mutable_box(id, v)))
-        },
+        [UnsafeVal::MutableBox(id), inner_val] => {
+            let (id, inner_val) = (*id, *inner_val);
+            let boxed_val = ctx.vm_mut().objects.set_mutable_box(id, inner_val);
+            // Unsafe OK: `boxed_val` has just been created so it will not be garbage collected.
+            Ok(unsafe { ctx.with_unsafe_val(boxed_val) })
+        }
         [arg, _] => Err(VmError::TypeError {
             context: "set-box!",
             expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
@@ -247,12 +235,12 @@ pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 
 pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
-        // Unsafe OK: This is for sure safe...
-        [UnsafeVal::MutableBox(id)] => unsafe {
-            Ok(ValBuilder::new_internal(
-                *ctx.vm().objects.get_mutable_box(*id),
-            ))
-        },
+        [UnsafeVal::MutableBox(id)] => {
+            let boxed_val = *ctx.vm().objects.get_mutable_box(*id);
+            // Unsafe OK: `boxed_val` has just been retrieved so the VM does not have a chance to
+            // garbage collect it.
+            Ok(unsafe { ctx.with_unsafe_val(boxed_val) })
+        }
         [arg] => Err(VmError::TypeError {
             context: "unbox",
             expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
@@ -267,13 +255,13 @@ pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
-pub fn list(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let list = ctx.args().to_vec();
-    // Unsafe OK: Value is returned immediately.
+    // Unsafe OK: `ctx.args()` guarantees values will not be garbage collected.
     Ok(unsafe { ctx.new_list(list) })
 }
 
-pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let arg_len = ctx.arg_len();
     if arg_len != 0 {
         return Err(VmError::ArityError {
@@ -287,8 +275,7 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder>
         // Untested OK: It is hard to create a working directory error and is not common.
         Err(err) => return Err(VmError::CustomError(err.to_string())),
     };
-    // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(working_directory) })
+    Ok(ctx.new_string(working_directory))
 }
 
 #[cfg(test)]
@@ -495,53 +482,6 @@ mod tests {
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"fish\"".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn truthy_p_is_false_on_false_and_void() {
-        let mut vm = Vm::default();
-        assert_eq!(
-            vm.eval_str("(truthy? false)").unwrap().as_bool(),
-            Some(false)
-        );
-        assert_eq!(
-            vm.eval_str("(truthy? void)").unwrap().as_bool(),
-            Some(false)
-        );
-    }
-
-    #[test]
-    fn truthy_p_is_true_on_all_non_false_void_values() {
-        let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(truthy? true)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy? 1)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy? 1.0)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy? \"\")").unwrap().as_bool(), Some(true));
-        assert_eq!(
-            vm.eval_str("(truthy? truthy?)").unwrap().as_bool(),
-            Some(true)
-        );
-    }
-
-    #[test]
-    fn truthy_p_with_wrong_number_of_args_produces_error() {
-        let mut vm = Vm::default();
-        assert_eq!(
-            vm.eval_str("(truthy?)").unwrap_err(),
-            VmError::ArityError {
-                function: "truthy?".into(),
-                expected: 1,
-                actual: 0,
-            }
-        );
-        assert_eq!(
-            vm.eval_str("(truthy? 0 1)").unwrap_err(),
-            VmError::ArityError {
-                function: "truthy?".into(),
-                expected: 1,
-                actual: 2,
             }
         );
     }

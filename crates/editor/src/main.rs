@@ -10,8 +10,9 @@ use ratatui::{
 };
 use rope::SporeRope;
 use spore_vm::{
+    error::{VmError, VmResult},
     val::{NativeFunctionContext, ValBuilder},
-    Vm, VmError, VmResult, VmSettings,
+    Vm, VmSettings,
 };
 
 mod rope;
@@ -58,7 +59,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 
 (define (handle-event event)
     (if (= event "<esc>") (return false))
-    (if (truthy? event) (set-box! current-event event))
+    (if event (set-box! current-event event))
     (reset-buffer! (unbox current-event))
     (rope->string buffer-contents))
 "#;
@@ -81,9 +82,9 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(Duration::from_millis(10)).unwrap() {
-        return Ok(ValBuilder::new_bool(false));
+        return Ok(ctx.new_bool(false));
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: CompactString = match event {
@@ -126,6 +127,5 @@ fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if cfg!(debug_assertions) && event_str.is_heap_allocated() {
         warn!("Generated large event string of length {len}. Large strings may negatively impact performance.", len=event_str.len());
     };
-    // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(event_str) })
+    Ok(ctx.new_string(event_str))
 }

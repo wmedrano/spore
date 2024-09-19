@@ -1,7 +1,8 @@
+//! Contains errors definitions for the Spore VM.
 use compact_str::CompactString;
 use thiserror::Error;
 
-use crate::AstParseError;
+pub use crate::ast::AstParseError;
 
 /// A `Result` with `VmError` as the error branch.
 pub type VmResult<T> = Result<T, VmError>;

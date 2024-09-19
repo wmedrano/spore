@@ -5,13 +5,14 @@ use compact_str::CompactString;
 use crate::Vm;
 
 use super::{
-    bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, NativeFunction, ValId,
+    bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, ListVal, NativeFunction, ValId,
 };
 
-pub type ListVal = Vec<UnsafeVal>;
-
-/// Contains a Spore value. The value is considered unsafe as some variants contain references that
-/// may be mutated or garbage collected by the VM.
+/// Contains a Spore value.
+///
+/// # Safety
+///The value is considered unsafe as some variants contain references that may be mutated or garbage
+/// collected by the VM. Unsafe fields contain a `Safety` section in their documentation.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum UnsafeVal {
     /// A type that contains a single value. Used to represent nothingness.
@@ -23,29 +24,29 @@ pub enum UnsafeVal {
     Int(i64),
     /// A 64 bit floating point number.
     Float(f64),
-    /// A string.
+    /// A handle to a string within the VM.
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     String(ValId<CompactString>),
-    /// A box containing a mutable value.
+    /// A handle to a box containing a mutable value.
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     MutableBox(ValId<UnsafeVal>),
-    /// A list.
+    /// A handle to a list within the VM.
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     List(ValId<ListVal>),
-    /// A function implemented in Spore's bytecode.
+    /// A handle to a function implemented in Spore's bytecode.
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     ByteCodeFunction(ValId<Arc<ByteCode>>),
     /// A function implemented in Rust.
     NativeFunction(NativeFunction),
-    /// A custom type.
+    /// A handle to a custom type.
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
@@ -53,16 +54,26 @@ pub enum UnsafeVal {
 }
 
 impl UnsafeVal {
+    /// The display name for the function type.
     pub const FUNCTION_TYPE_NAME: &'static str = "function";
+    /// The display name for the boolean type.
     pub const BOOL_TYPE_NAME: &'static str = "bool";
+    /// The display name for the integer type.
     pub const INT_TYPE_NAME: &'static str = "int";
+    /// The display name for the float type.
     pub const FLOAT_TYPE_NAME: &'static str = "float";
+    /// The display name for the void type.
     pub const VOID_TYPE_NAME: &'static str = "void";
+    /// The display name for the string type.
     pub const STRING_TYPE_NAME: &'static str = "string";
+    /// The display name for the mutable box type.
     pub const MUTABLE_BOX_TYPE_NAME: &'static str = "mutable-box";
+    /// The display name for the list type.
     pub const LIST_TYPE_NAME: &'static str = "list";
+    /// The display name for the custom type.
     pub const CUSTOM_TYPE_NAME: &'static str = "custom";
 
+    /// Get the display name for the type of `self`.
     pub fn type_name(&self) -> &'static str {
         match self {
             UnsafeVal::Void => UnsafeVal::VOID_TYPE_NAME,
@@ -78,10 +89,13 @@ impl UnsafeVal {
         }
     }
 
+    /// Get a display formatter for the current value.
     pub fn formatted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
         ValFormatter::new(vm, *self)
     }
 
+    /// Get a display formatter for the current type. Unlike [Self::formatted], this will print
+    /// strings quoted. For example, `"hello"` will display as "hello" instead of hello.
     pub fn format_quoted<'a>(&self, vm: &'a Vm) -> impl 'a + std::fmt::Display {
         ValFormatter::new_quoted(vm, *self)
     }

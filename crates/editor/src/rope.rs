@@ -2,8 +2,9 @@ use std::{any::Any, sync::RwLock};
 
 use crop::Rope;
 use spore_vm::{
+    error::VmResult,
     val::{CustomType, NativeFunctionContext, ValBuilder},
-    Vm, VmResult,
+    Vm,
 };
 
 #[derive(Debug, Default)]
@@ -18,9 +19,8 @@ impl SporeRope {
     }
 }
 
-fn new_rope(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_custom(SporeRope::default()) })
+fn new_rope(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    Ok(ctx.new_custom(SporeRope::default()))
 }
 
 fn rope_to_string(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
@@ -28,8 +28,7 @@ fn rope_to_string(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         Some(r) => r.to_string(),
         None => todo!(),
     };
-    // Unsafe OK: Value is returned immediately.
-    Ok(unsafe { ctx.new_string(s.into()) })
+    Ok(ctx.new_string(s.into()))
 }
 
 fn rope_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
@@ -45,8 +44,10 @@ fn rope_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         }
         None => todo!(),
     };
+
+    let r = ctx.args()[0];
     // Unsafe OK: Internal value is from args which is guaranteed not to be garbage collected.
-    Ok(unsafe { ValBuilder::new_internal(ctx.args()[0]) })
+    Ok(unsafe { ctx.with_unsafe_val(r) })
 }
 
 fn rope_clear(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
@@ -58,8 +59,7 @@ fn rope_clear(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         }
         None => todo!(),
     };
-    // Unsafe OK: Value is returned immediately.
-    Ok(ValBuilder::new_void())
+    Ok(ctx.new_void())
 }
 
 impl CustomType for SporeRope {
