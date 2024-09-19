@@ -11,7 +11,7 @@ mod object_store;
 
 /// ValStore manages the lifetime of Val objects.
 #[derive(Debug, Default)]
-pub struct GarbageCollector {
+pub struct MemoryManager {
     strings: ObjectStore<CompactString>,
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
@@ -22,10 +22,13 @@ pub struct GarbageCollector {
     temp_mark_data: TempMarkData,
 }
 
+/// Contains garbage collection stats for a [MemoryManager].
 #[derive(Clone, Debug, Default)]
 pub struct GcStats {
     /// The number of times GC was invoked.
     gc_invocations: usize,
+    /// The size of GC metadata structures in bytes.
+    gc_metadata_size: usize,
     /// The total number of strings allocated.
     strings_allocated: usize,
     /// The total number of strings freed.
@@ -50,9 +53,19 @@ struct TempMarkData {
     next_queue: Vec<InternalVal>,
 }
 
-impl GarbageCollector {
+impl MemoryManager {
     /// Returns the garage collection stats.
-    pub fn stats(&self) -> &GcStats {
+    ///
+    /// The function is mutable as it updates some metadata components before returning the stats.
+    pub fn stats(&mut self) -> &GcStats {
+        let mark_queue_size = std::mem::size_of::<InternalVal>()
+            * (self.temp_mark_data.current_queue.capacity()
+                + self.temp_mark_data.next_queue.capacity());
+        self.stats.gc_metadata_size = mark_queue_size
+            + self.strings.metadata_size()
+            + self.lists.metadata_size()
+            + self.bytecodes.metadata_size()
+            + self.customs.metadata_size();
         &self.stats
     }
 

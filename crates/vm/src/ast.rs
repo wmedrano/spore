@@ -145,12 +145,17 @@ impl<'a> Node<'a> {
                 Node::String(res)
             }
             TokenType::Other => {
-                let has_leading_number = contents
+                let maybe_is_number = contents
                     .chars()
                     .next()
-                    .map(|ch| ch.is_digit(10))
+                    .map(|ch| {
+                        if ch.is_digit(10) {
+                            return true;
+                        }
+                        return contents.len() > 1 && matches!(ch, '-' | '+');
+                    })
                     .unwrap_or(false);
-                if has_leading_number {
+                if maybe_is_number {
                     if let Ok(int) = contents.parse() {
                         return Node::Int(int);
                     } else if let Ok(float) = contents.parse() {

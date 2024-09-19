@@ -93,7 +93,7 @@ pub enum CompileError {
     #[error("define is only allowed at the toplevel and not as a subexpression")]
     DefineNotAllowedInSubexpression,
     #[error("argument {0} was defined multiple times")]
-    ArgumentDefinedMultipleTimes(String),
+    ArgumentDefinedMultipleTimes(CompactString),
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bumpalo = { version = "3.16", features = ["collections"] }
 compact_str = "0.8"
 log = "0.4"
 thiserror = "1.0"

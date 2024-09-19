@@ -30,6 +30,12 @@ impl<T> Default for ObjectStore<T> {
 }
 
 impl<T: std::fmt::Debug> ObjectStore<T> {
+    /// The size of metadata structures in bytes.
+    pub fn metadata_size(&self) -> usize {
+        std::mem::size_of::<ValWithColor<T>>() * self.objects.capacity()
+            + std::mem::size_of::<ValId<T>>() * self.free_object_ids.capacity()
+    }
+
     /// Mark `id` as always reachable. Undoing teach call to `mark_always_reachable` requires
     /// calling [unmark_always_reachable].
     pub fn mark_always_reachable(&mut self, id: ValId<T>) {

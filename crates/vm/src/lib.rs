@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use compact_str::CompactString;
-use gc::{is_garbage_collected, GarbageCollector};
+use gc::{is_garbage_collected, MemoryManager};
 use log::info;
 
 use compiler::Compiler;
@@ -35,7 +35,7 @@ pub struct Vm {
     /// The pending stack frames.
     previous_stack_frames: Vec<StackFrame>,
     /// Manages lifetime of all values, aside from simple atoms like bool/int/float.
-    pub(crate) objects: GarbageCollector,
+    pub(crate) objects: MemoryManager,
     /// Contains bytecode compilation settings,
     settings: VmSettings,
 }
@@ -79,7 +79,7 @@ impl Vm {
             // Allocate for a function call depth of 64. This is more than enough for most programs.
             previous_stack_frames: Vec::with_capacity(64),
             stack_frame: StackFrame::default(),
-            objects: GarbageCollector::default(),
+            objects: MemoryManager::default(),
             settings,
         };
         for (name, func) in builtins::BUILTINS {
@@ -326,7 +326,7 @@ impl Vm {
 impl Drop for Vm {
     fn drop(&mut self) {
         info!(
-            "Tearing down Spore VM. {gc_stats:#?}",
+            "Dropping Spore VM. {gc_stats:#?}",
             gc_stats = self.objects.stats()
         );
     }
