@@ -8,8 +8,7 @@ use compiler::Compiler;
 use error::BacktraceError;
 use val::{
     custom::{CustomType, CustomVal},
-    internal::InternalValImpl,
-    ByteCode, Instruction, InternalVal, NativeFunction, NativeFunctionContext, Val, ValId,
+    ByteCode, Instruction, NativeFunction, NativeFunctionContext, UnsafeVal, Val, ValId,
 };
 
 pub use ast::AstParseError;
@@ -27,9 +26,9 @@ pub mod val;
 #[derive(Debug)]
 pub struct Vm {
     /// The data stack. This is used to store temporary values used for computation.
-    stack: Vec<InternalVal>,
+    stack: Vec<UnsafeVal>,
     /// Map from binding name to value. This is used to store global values.
-    values: HashMap<CompactString, InternalVal>,
+    values: HashMap<CompactString, UnsafeVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
     stack_frame: StackFrame,
     /// The pending stack frames.
@@ -94,7 +93,7 @@ impl Vm {
 
     /// Run the garbage collector.
     pub fn run_gc(&mut self) {
-        let is_gc = |v: &InternalVal| is_garbage_collected(*v);
+        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
         self.objects.run_gc(|vals| {
             vals.extend(self.stack.iter().copied().filter(is_gc));
             vals.extend(self.values.values().copied().filter(is_gc));
@@ -120,7 +119,7 @@ impl Vm {
         self
     }
 
-    fn register_value(&mut self, name: &str, val: impl Into<InternalVal>) {
+    fn register_value(&mut self, name: &str, val: impl Into<UnsafeVal>) {
         let val = val.into();
         info!(
             "Registering {name:?} to value of type {tp}",
@@ -139,7 +138,7 @@ impl Vm {
     }
 
     /// Evaluate some bytecode in the virtual machine.
-    fn eval_bytecode(&mut self, bytecode_id: ValId<Arc<ByteCode>>) -> VmResult<InternalVal> {
+    fn eval_bytecode(&mut self, bytecode_id: ValId<Arc<ByteCode>>) -> VmResult<UnsafeVal> {
         self.stack.clear();
         self.previous_stack_frames.clear();
         let bytecode = self.objects.get_bytecode(bytecode_id).clone();
@@ -160,7 +159,7 @@ impl Vm {
     ///
     /// If there are no more instructions to run, then `Some(return_value)` will be
     /// returned. Otherwise, `None` will be returned.
-    fn run_next(&mut self) -> VmResult<Option<InternalVal>> {
+    fn run_next(&mut self) -> VmResult<Option<UnsafeVal>> {
         let maybe_instruction = self
             .stack_frame
             .bytecode
@@ -174,7 +173,7 @@ impl Vm {
         match instruction {
             Instruction::PushConst(c) => self.stack.push(*c),
             Instruction::PushCurrentFunction => {
-                let f = InternalValImpl::ByteCodeFunction(self.stack_frame.bytecode_id).into();
+                let f = UnsafeVal::ByteCodeFunction(self.stack_frame.bytecode_id);
                 self.stack.push(f);
             }
             Instruction::GetArg(n) => {
@@ -196,16 +195,16 @@ impl Vm {
             Instruction::EvalNative { func, arg_count } => {
                 self.execute_eval_native(*func, *arg_count)?
             }
-            Instruction::JumpIf(n) => match self.stack.pop().map(|v| v.0) {
-                Some(InternalValImpl::Bool(true)) => self.stack_frame.bytecode_idx += *n,
-                Some(InternalValImpl::Bool(false)) => {}
+            Instruction::JumpIf(n) => match self.stack.pop() {
+                Some(UnsafeVal::Bool(true)) => self.stack_frame.bytecode_idx += *n,
+                Some(UnsafeVal::Bool(false)) => {}
                 v => {
-                    let v = v.unwrap_or(InternalValImpl::Void);
+                    let v = v.unwrap_or(UnsafeVal::Void);
                     return Err(VmError::TypeError {
                         context: "if",
-                        expected: InternalVal::BOOL_TYPE_NAME,
-                        actual: InternalVal(v).type_name(),
-                        value: InternalVal(v).formatted(self).to_string(),
+                        expected: UnsafeVal::BOOL_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.formatted(self).to_string(),
                     });
                 }
             },
@@ -249,8 +248,8 @@ impl Vm {
             .ok_or_else(BacktraceError::capture)?;
         let stack_start = function_idx + 1;
         let func_val = self.stack[function_idx];
-        match func_val.0 {
-            InternalValImpl::NativeFunction(func) => {
+        match func_val {
+            UnsafeVal::NativeFunction(func) => {
                 let builder = func(NativeFunctionContext::new(self, stack_start))?;
                 // Unsafe OK: Value is inserted into VM immediately.
                 let v = unsafe { builder.build() };
@@ -258,7 +257,7 @@ impl Vm {
                 self.stack.truncate(stack_start);
                 Ok(())
             }
-            InternalValImpl::ByteCodeFunction(bytecode_id) => {
+            UnsafeVal::ByteCodeFunction(bytecode_id) => {
                 let bytecode = self.objects.get_bytecode(bytecode_id).clone();
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
@@ -296,7 +295,7 @@ impl Vm {
             }
             _ => Err(VmError::TypeError {
                 context: "function invocation",
-                expected: InternalVal::FUNCTION_TYPE_NAME,
+                expected: UnsafeVal::FUNCTION_TYPE_NAME,
                 actual: func_val.type_name(),
                 value: func_val.formatted(self).to_string(),
             }),
@@ -304,9 +303,9 @@ impl Vm {
     }
 
     /// Execute returning from the current stack frame.
-    fn execute_return(&mut self) -> Option<InternalVal> {
+    fn execute_return(&mut self) -> Option<UnsafeVal> {
         // 1. Return the current value to the top of the stack.
-        let ret_val: InternalVal = if self.stack_frame.stack_start < self.stack.len() {
+        let ret_val: UnsafeVal = if self.stack_frame.stack_start < self.stack.len() {
             // Unwrap OK: The above statement is never true when len == 0.
             self.stack.pop().unwrap()
         } else {
@@ -378,8 +377,8 @@ mod tests {
             actual,
             VmError::TypeError {
                 context: "+",
-                expected: InternalVal::INT_TYPE_NAME,
-                actual: InternalVal::BOOL_TYPE_NAME,
+                expected: UnsafeVal::INT_TYPE_NAME,
+                actual: UnsafeVal::BOOL_TYPE_NAME,
                 value: "true".to_string(),
             }
         );
@@ -430,8 +429,8 @@ mod tests {
             vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap_err(),
             VmError::TypeError {
                 context: "if",
-                expected: InternalVal::BOOL_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::BOOL_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "1".to_string(),
             }
         );
@@ -439,8 +438,8 @@ mod tests {
             vm.eval_str("(if 1 (+ 1 2))").unwrap_err(),
             VmError::TypeError {
                 context: "if",
-                expected: InternalVal::BOOL_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::BOOL_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "1".to_string(),
             }
         );

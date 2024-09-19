@@ -8,7 +8,7 @@ type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 use crate::{
     ast::Node,
     error::CompileError,
-    val::{internal::InternalValImpl, ByteCode, Instruction, InternalVal},
+    val::{ByteCode, Instruction, UnsafeVal},
     Vm, VmSettings,
 };
 
@@ -52,7 +52,7 @@ impl<'a> Compiler<'a> {
     fn compile_impl(&mut self, input_source: &str, ctx: CompilerContext) -> Result<()> {
         for node_or_err in Node::parse(input_source) {
             let node = node_or_err.map_err(CompileError::AstError)?;
-            let ir = Ir::new(&self.arena, &node)?;
+            let ir = Ir::new(self.arena, &node)?;
             self.compile_one(&ir, ctx)?;
         }
         Ok(())
@@ -75,9 +75,9 @@ impl<'a> Compiler<'a> {
                     Constant::Bool(x) => Instruction::PushConst((*x).into()),
                     Constant::Int(x) => Instruction::PushConst((*x).into()),
                     Constant::Float(x) => Instruction::PushConst((*x).into()),
-                    Constant::String(x) => Instruction::PushConst(
-                        InternalValImpl::String(self.vm.objects.insert_string((*x).into())).into(),
-                    ),
+                    Constant::String(x) => Instruction::PushConst(UnsafeVal::String(
+                        self.vm.objects.insert_string((*x).into()),
+                    )),
                 };
                 self.instructions.push(instruction);
             }
@@ -114,7 +114,7 @@ impl<'a> Compiler<'a> {
                     .enable_aggressive_inline
                     .then(|| match function {
                         Ir::Deref(ident) => match self.vm.values.get(*ident) {
-                            Some(InternalVal(InternalValImpl::NativeFunction(func))) => Some(*func),
+                            Some(UnsafeVal::NativeFunction(func)) => Some(*func),
                             _ => None,
                         },
                         _ => None,
@@ -197,7 +197,7 @@ impl<'a> Compiler<'a> {
                         context: "lambda definition expressions",
                     });
                 }
-                let mut arguments_vec = BumpVec::new_in(&self.arena);
+                let mut arguments_vec = BumpVec::new_in(self.arena);
                 for arg in args.iter() {
                     arguments_vec.push(CompactString::new(arg));
                 }
@@ -207,7 +207,7 @@ impl<'a> Compiler<'a> {
                     settings: self.settings,
                     function_name: name.map(CompactString::new),
                     arguments: arguments_vec,
-                    instructions: BumpVec::new_in(&self.arena),
+                    instructions: BumpVec::new_in(self.arena),
                 };
                 if let Some(dupe) = find_duplicate(&lambda_compiler.arguments) {
                     return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
@@ -215,14 +215,13 @@ impl<'a> Compiler<'a> {
                 for expr in expressions.iter() {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val = InternalValImpl::ByteCodeFunction(
+                let lambda_val = UnsafeVal::ByteCodeFunction(
                     lambda_compiler.vm.objects.insert_bytecode(ByteCode {
                         name: name.unwrap_or("").into(),
                         arg_count: args.len(),
                         instructions: lambda_compiler.instructions.into_bump_slice().into(),
                     }),
-                )
-                .into();
+                );
                 self.instructions.push(Instruction::PushConst(lambda_val));
             }
             Ir::Return { expr } => {
@@ -340,12 +339,12 @@ impl<'a> Ir<'a> {
                     [Node::Tree(lambda_signature), exprs @ ..] => {
                         match lambda_signature.as_slice() {
                             [Node::Identifier(identifier), args @ ..] => {
-                                let mut args_vec = BumpVec::new_in(&arena);
+                                let mut args_vec = BumpVec::new_in(arena);
                                 for arg in args.iter() {
                                     let ident = node_to_ident(arg)?;
                                     args_vec.push(ident);
                                 }
-                                let mut exprs_vec = BumpVec::new_in(&arena);
+                                let mut exprs_vec = BumpVec::new_in(arena);
                                 for expr in exprs.iter() {
                                     let expr_ir = Ir::new(arena, expr)?;
                                     exprs_vec.push(expr_ir);
@@ -403,12 +402,12 @@ impl<'a> Ir<'a> {
                             })
                         }
                     };
-                    let mut args_vec = BumpVec::new_in(&arena);
+                    let mut args_vec = BumpVec::new_in(arena);
                     for arg in lambda_args.iter() {
                         let ident = node_to_ident(arg)?;
                         args_vec.push(ident);
                     }
-                    let mut exprs_vec = BumpVec::new_in(&arena);
+                    let mut exprs_vec = BumpVec::new_in(arena);
                     for expr in exprs.iter() {
                         let expr_ir = Ir::new(arena, expr)?;
                         exprs_vec.push(expr_ir);
@@ -452,7 +451,7 @@ impl<'a> Ir<'a> {
                         }
                     },
                     ident => {
-                        let mut args_vec = BumpVec::new_in(&arena);
+                        let mut args_vec = BumpVec::new_in(arena);
                         for arg in args.iter() {
                             let arg_ir = Ir::new(arena, arg)?;
                             args_vec.push(arg_ir);
@@ -614,7 +613,7 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    InternalValImpl::NativeFunction(crate::builtins::add).into()
+                    UnsafeVal::NativeFunction(crate::builtins::add).into()
                 )]
                 .into()
             }
@@ -826,7 +825,7 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(
-                        InternalValImpl::ByteCodeFunction(
+                        UnsafeVal::ByteCodeFunction(
                             vm.objects.get_or_insert_bytecode_slow(ByteCode {
                                 name: "foo".into(),
                                 arg_count: 2,
@@ -1033,13 +1032,11 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    InternalValImpl::ByteCodeFunction(vm.objects.get_or_insert_bytecode_slow(
-                        ByteCode {
-                            name: "".into(),
-                            arg_count: 0,
-                            instructions: vec![Instruction::PushConst(1.into())].into(),
-                        }
-                    ))
+                    UnsafeVal::ByteCodeFunction(vm.objects.get_or_insert_bytecode_slow(ByteCode {
+                        name: "".into(),
+                        arg_count: 0,
+                        instructions: vec![Instruction::PushConst(1.into())].into(),
+                    }))
                     .into()
                 )]
                 .into()
@@ -1058,7 +1055,7 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    InternalValImpl::ByteCodeFunction(
+                    UnsafeVal::ByteCodeFunction(
                         vm.objects.get_or_insert_bytecode_slow(ByteCode {
                             name: "".into(),
                             arg_count: 3,
@@ -1089,7 +1086,7 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(
-                        InternalValImpl::ByteCodeFunction(
+                        UnsafeVal::ByteCodeFunction(
                             vm.objects.get_or_insert_bytecode_slow(ByteCode {
                                 name: "foo".into(),
                                 arg_count: 1,

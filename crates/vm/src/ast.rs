@@ -149,10 +149,10 @@ impl<'a> Node<'a> {
                     .chars()
                     .next()
                     .map(|ch| {
-                        if ch.is_digit(10) {
+                        if ch.is_ascii_digit() {
                             return true;
                         }
-                        return contents.len() > 1 && matches!(ch, '-' | '+');
+                        contents.len() > 1 && matches!(ch, '-' | '+')
                     })
                     .unwrap_or(false);
                 if maybe_is_number {

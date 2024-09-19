@@ -4,7 +4,7 @@ use compact_str::CompactString;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
-    val::{custom::CustomVal, internal::InternalValImpl, ByteCode, InternalVal, ListVal, ValId},
+    val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId},
 };
 
 mod object_store;
@@ -13,7 +13,7 @@ mod object_store;
 #[derive(Debug, Default)]
 pub struct MemoryManager {
     strings: ObjectStore<CompactString>,
-    mutable_boxes: ObjectStore<InternalVal>,
+    mutable_boxes: ObjectStore<UnsafeVal>,
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
     customs: ObjectStore<CustomVal>,
@@ -54,8 +54,8 @@ pub struct GcStats {
 
 #[derive(Clone, Debug, Default)]
 struct TempMarkData {
-    current_queue: Vec<InternalVal>,
-    next_queue: Vec<InternalVal>,
+    current_queue: Vec<UnsafeVal>,
+    next_queue: Vec<UnsafeVal>,
 }
 
 impl MemoryManager {
@@ -63,7 +63,7 @@ impl MemoryManager {
     ///
     /// The function is mutable as it updates some metadata components before returning the stats.
     pub fn stats(&mut self) -> &GcStats {
-        let mark_queue_size = std::mem::size_of::<InternalVal>()
+        let mark_queue_size = std::mem::size_of::<UnsafeVal>()
             * (self.temp_mark_data.current_queue.capacity()
                 + self.temp_mark_data.next_queue.capacity());
         self.stats.gc_metadata_size = mark_queue_size
@@ -75,7 +75,7 @@ impl MemoryManager {
     }
 
     /// Run the garbage collector. All known values must be in `values`.
-    pub fn run_gc(&mut self, populate_vals: impl Fn(&mut Vec<InternalVal>)) {
+    pub fn run_gc(&mut self, populate_vals: impl Fn(&mut Vec<UnsafeVal>)) {
         self.stats.gc_invocations += 1;
         let mut temp_data = std::mem::take(&mut self.temp_mark_data);
         self.run_gc_mark(&mut temp_data, populate_vals);
@@ -85,11 +85,7 @@ impl MemoryManager {
     }
 
     /// Run the GC mark phase.
-    fn run_gc_mark(
-        &mut self,
-        temp_data: &mut TempMarkData,
-        values: impl Fn(&mut Vec<InternalVal>),
-    ) {
+    fn run_gc_mark(&mut self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<UnsafeVal>)) {
         self.init_gc_mark(temp_data, values);
         while !temp_data.current_queue.is_empty() {
             for val in temp_data.current_queue.drain(..) {
@@ -101,7 +97,7 @@ impl MemoryManager {
 
     /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
     /// `temp_data.current_queue`.
-    fn init_gc_mark(&self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<InternalVal>)) {
+    fn init_gc_mark(&self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<UnsafeVal>)) {
         temp_data.clear_retaining_capacity();
         values(&mut temp_data.current_queue);
         for (id, _) in self.strings.iter_keep_reachable() {
@@ -121,36 +117,36 @@ impl MemoryManager {
         }
     }
 
-    fn gc_mark_one(&mut self, val: InternalVal, child_queue: &mut Vec<InternalVal>) {
+    fn gc_mark_one(&mut self, val: UnsafeVal, child_queue: &mut Vec<UnsafeVal>) {
         let mut add_child = |v| {
             if is_garbage_collected(v) {
                 child_queue.push(v);
             }
         };
-        match val.0 {
-            InternalValImpl::String(id) => {
+        match val {
+            UnsafeVal::String(id) => {
                 self.strings.set_color(id, self.reachable_color);
             }
-            InternalValImpl::MutableBox(id) => {
+            UnsafeVal::MutableBox(id) => {
                 if let Some(unboxed) = self.mutable_boxes.set_color(id, self.reachable_color) {
                     add_child(*unboxed);
                 }
             }
-            InternalValImpl::List(id) => {
+            UnsafeVal::List(id) => {
                 if let Some(list) = self.lists.set_color(id, self.reachable_color) {
                     for child_val in list.iter() {
                         add_child(*child_val);
                     }
                 }
             }
-            InternalValImpl::ByteCodeFunction(id) => {
+            UnsafeVal::ByteCodeFunction(id) => {
                 if let Some(bc) = self.bytecodes.set_color(id, self.reachable_color) {
                     for child_val in bc.values() {
                         add_child(child_val);
                     }
                 }
             }
-            InternalValImpl::Custom(id) => {
+            UnsafeVal::Custom(id) => {
                 self.customs.set_color(id, self.reachable_color);
             }
             _ => {}
@@ -168,51 +164,51 @@ impl MemoryManager {
     }
 
     /// Marks `value` as reachable so that it doesn't get garbage collected.
-    pub fn keep_reachable(&mut self, value: InternalVal) {
-        match value.0 {
-            InternalValImpl::Void => {}
-            InternalValImpl::Bool(_) => {}
-            InternalValImpl::Int(_) => {}
-            InternalValImpl::Float(_) => {}
-            InternalValImpl::String(id) => {
+    pub fn keep_reachable(&mut self, value: UnsafeVal) {
+        match value {
+            UnsafeVal::Void => {}
+            UnsafeVal::Bool(_) => {}
+            UnsafeVal::Int(_) => {}
+            UnsafeVal::Float(_) => {}
+            UnsafeVal::String(id) => {
                 self.strings.mark_always_reachable(id);
             }
-            InternalValImpl::MutableBox(id) => {
+            UnsafeVal::MutableBox(id) => {
                 self.mutable_boxes.mark_always_reachable(id);
             }
-            InternalValImpl::List(id) => {
+            UnsafeVal::List(id) => {
                 self.lists.mark_always_reachable(id);
             }
-            InternalValImpl::ByteCodeFunction(id) => {
+            UnsafeVal::ByteCodeFunction(id) => {
                 self.bytecodes.mark_always_reachable(id);
             }
-            InternalValImpl::NativeFunction(_) => {}
-            InternalValImpl::Custom(id) => self.customs.mark_always_reachable(id),
+            UnsafeVal::NativeFunction(_) => {}
+            UnsafeVal::Custom(id) => self.customs.mark_always_reachable(id),
         }
     }
 
     /// Removes the `rechable` marking set by `keep_reachable` so that the value may get garbage
     /// collected.
-    pub fn allow_unreachable(&mut self, value: InternalVal) {
-        match value.0 {
-            InternalValImpl::Void => {}
-            InternalValImpl::Bool(_) => {}
-            InternalValImpl::Int(_) => {}
-            InternalValImpl::Float(_) => {}
-            InternalValImpl::MutableBox(id) => {
+    pub fn allow_unreachable(&mut self, value: UnsafeVal) {
+        match value {
+            UnsafeVal::Void => {}
+            UnsafeVal::Bool(_) => {}
+            UnsafeVal::Int(_) => {}
+            UnsafeVal::Float(_) => {}
+            UnsafeVal::MutableBox(id) => {
                 self.mutable_boxes.unmark_always_reachable(id);
             }
-            InternalValImpl::String(id) => {
+            UnsafeVal::String(id) => {
                 self.strings.unmark_always_reachable(id);
             }
-            InternalValImpl::List(id) => {
+            UnsafeVal::List(id) => {
                 self.lists.unmark_always_reachable(id);
             }
-            InternalValImpl::ByteCodeFunction(id) => {
+            UnsafeVal::ByteCodeFunction(id) => {
                 self.bytecodes.unmark_always_reachable(id);
             }
-            InternalValImpl::NativeFunction(_) => {}
-            InternalValImpl::Custom(id) => self.customs.unmark_always_reachable(id),
+            UnsafeVal::NativeFunction(_) => {}
+            UnsafeVal::Custom(id) => self.customs.unmark_always_reachable(id),
         }
     }
 
@@ -230,14 +226,14 @@ impl MemoryManager {
     }
 
     /// Get a string by its id.
-    pub fn get_mutable_box(&self, id: ValId<InternalVal>) -> &InternalVal {
+    pub fn get_mutable_box(&self, id: ValId<UnsafeVal>) -> &UnsafeVal {
         let res = self.mutable_boxes.get(id);
         debug_assert!(res.is_some());
         res.unwrap()
     }
 
     /// Set the mutable box value and return the previous value.
-    pub fn set_mutable_box(&mut self, id: ValId<InternalVal>, v: InternalVal) -> InternalVal {
+    pub fn set_mutable_box(&mut self, id: ValId<UnsafeVal>, v: UnsafeVal) -> UnsafeVal {
         let slot = self.mutable_boxes.get_mut(id).unwrap();
         let old = *slot;
         *slot = v;
@@ -245,7 +241,7 @@ impl MemoryManager {
     }
 
     /// Insert a string and get its id.
-    pub fn insert_mutable_box(&mut self, v: InternalVal) -> ValId<InternalVal> {
+    pub fn insert_mutable_box(&mut self, v: UnsafeVal) -> ValId<UnsafeVal> {
         self.stats.mutable_boxes_allocated += 1;
         self.mutable_boxes.insert(v, self.reachable_color)
     }
@@ -315,18 +311,18 @@ impl MemoryManager {
 }
 
 /// Returns `true` if `v` is managed by the garbage collector.
-pub fn is_garbage_collected(v: InternalVal) -> bool {
-    match v.0 {
-        InternalValImpl::Void => false,
-        InternalValImpl::Bool(_) => false,
-        InternalValImpl::Int(_) => false,
-        InternalValImpl::Float(_) => false,
-        InternalValImpl::String(_) => true,
-        InternalValImpl::MutableBox(_) => true,
-        InternalValImpl::List(_) => true,
-        InternalValImpl::ByteCodeFunction(_) => true,
-        InternalValImpl::NativeFunction(_) => false,
-        InternalValImpl::Custom(_) => true,
+pub fn is_garbage_collected(v: UnsafeVal) -> bool {
+    match v {
+        UnsafeVal::Void => false,
+        UnsafeVal::Bool(_) => false,
+        UnsafeVal::Int(_) => false,
+        UnsafeVal::Float(_) => false,
+        UnsafeVal::String(_) => true,
+        UnsafeVal::MutableBox(_) => true,
+        UnsafeVal::List(_) => true,
+        UnsafeVal::ByteCodeFunction(_) => true,
+        UnsafeVal::NativeFunction(_) => false,
+        UnsafeVal::Custom(_) => true,
     }
 }
 

@@ -181,7 +181,7 @@ mod tests {
 
     use compact_str::CompactString;
 
-    use crate::val::{custom::CustomVal, ByteCode, InternalVal};
+    use crate::val::{custom::CustomVal, ByteCode, UnsafeVal};
 
     use super::*;
 
@@ -192,8 +192,8 @@ mod tests {
             8 + std::mem::size_of::<String>()
         );
         assert_eq!(
-            std::mem::size_of::<ValWithColor<InternalVal>>(),
-            8 + std::mem::size_of::<InternalVal>()
+            std::mem::size_of::<ValWithColor<UnsafeVal>>(),
+            8 + std::mem::size_of::<UnsafeVal>()
         );
         assert_eq!(
             std::mem::size_of::<ValWithColor<Arc<ByteCode>>>(),

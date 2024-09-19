@@ -2,9 +2,7 @@ use compact_str::CompactString;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{
-        internal::InternalValImpl, InternalVal, NativeFunction, NativeFunctionContext, ValBuilder,
-    },
+    val::{NativeFunction, NativeFunctionContext, UnsafeVal, ValBuilder},
     Vm,
 };
 
@@ -34,9 +32,9 @@ pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
-pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
-    use crate::val::internal::InternalValImpl::*;
-    match (a.0, b.0) {
+pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
+    use crate::val::UnsafeVal::*;
+    match (a, b) {
         (Void, Void) => true,
         (Bool(a), Bool(b)) => a == b,
         (Int(a), Int(b)) => a == b,
@@ -61,16 +59,16 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
     for arg in ctx.args() {
-        match arg.0 {
-            InternalValImpl::Int(x) => int_sum += x,
-            InternalValImpl::Float(x) => {
+        match arg {
+            UnsafeVal::Int(x) => int_sum += x,
+            UnsafeVal::Float(x) => {
                 float_sum += x;
                 has_float = true;
             }
             _ => {
                 return Err(VmError::TypeError {
                     context: "+",
-                    expected: InternalVal::INT_TYPE_NAME,
+                    expected: UnsafeVal::INT_TYPE_NAME,
                     actual: arg.type_name(),
                     value: arg.format_quoted(ctx.vm()).to_string(),
                 })
@@ -84,13 +82,13 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     }
 }
 
-fn less_two_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
-    match (a.0, b.0) {
-        (InternalValImpl::Int(a), InternalValImpl::Int(b)) => Ok(a < b),
-        (InternalValImpl::Float(a), InternalValImpl::Float(b)) => Ok(a < b),
-        (InternalValImpl::Float(a), InternalValImpl::Int(b)) => Ok(a < (b as f64)),
-        (InternalValImpl::Int(a), InternalValImpl::Float(b)) => Ok((a as f64) < b),
-        (_, InternalValImpl::Int(_)) | (_, InternalValImpl::Float(_)) => Err(VmError::TypeError {
+fn less_two_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> VmResult<bool> {
+    match (a, b) {
+        (UnsafeVal::Int(a), UnsafeVal::Int(b)) => Ok(a < b),
+        (UnsafeVal::Float(a), UnsafeVal::Float(b)) => Ok(a < b),
+        (UnsafeVal::Float(a), UnsafeVal::Int(b)) => Ok(a < (b as f64)),
+        (UnsafeVal::Int(a), UnsafeVal::Float(b)) => Ok((a as f64) < b),
+        (_, UnsafeVal::Int(_)) | (_, UnsafeVal::Float(_)) => Err(VmError::TypeError {
             context: "<",
             expected: "int or float",
             actual: a.type_name(),
@@ -105,11 +103,11 @@ fn less_two_impl(vm: &Vm, a: &InternalVal, b: &InternalVal) -> VmResult<bool> {
     }
 }
 
-pub fn less_impl(vm: &Vm, args: &[InternalVal]) -> VmResult<ValBuilder<'static>> {
+pub fn less_impl(vm: &Vm, args: &[UnsafeVal]) -> VmResult<ValBuilder<'static>> {
     match args {
         [] | [_] => Ok(ValBuilder::new_bool(true)),
-        [a, b] => Ok(ValBuilder::new_bool(less_two_impl(vm, a, b)?)),
-        [a, b, ..] => match less_two_impl(vm, a, b)? {
+        [a, b] => Ok(ValBuilder::new_bool(less_two_impl(vm, *a, *b)?)),
+        [a, b, ..] => match less_two_impl(vm, *a, *b)? {
             true => less_impl(vm, &args[1..]),
             false => Ok(ValBuilder::new_bool(false)),
         },
@@ -122,8 +120,8 @@ pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
 
 pub fn truthy_p<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
-        [v] => match v.0 {
-            InternalValImpl::Void | InternalValImpl::Bool(false) => Ok(ValBuilder::new_bool(false)),
+        [v] => match v {
+            UnsafeVal::Void | UnsafeVal::Bool(false) => Ok(ValBuilder::new_bool(false)),
             _ => Ok(ValBuilder::new_bool(true)),
         },
         args => Err(VmError::ArityError {
@@ -136,10 +134,10 @@ pub fn truthy_p<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
 
 pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
-        [InternalVal(InternalValImpl::Bool(b))] => Ok(ValBuilder::new_bool(!b)),
+        [UnsafeVal::Bool(b)] => Ok(ValBuilder::new_bool(!b)),
         [v] => Err(VmError::TypeError {
             context: "function not",
-            expected: InternalVal::BOOL_TYPE_NAME,
+            expected: UnsafeVal::BOOL_TYPE_NAME,
             actual: v.type_name(),
             value: v.format_quoted(ctx.vm()).to_string(),
         }),
@@ -161,22 +159,22 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                 actual: 0,
             })
         }
-        [InternalVal(InternalValImpl::List(list))] => (*list, ""),
+        [UnsafeVal::List(list)] => (*list, ""),
         [v] => {
             return Err(VmError::TypeError {
                 context: "string-join arg(idx=0)",
-                expected: InternalVal::LIST_TYPE_NAME,
+                expected: UnsafeVal::LIST_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             });
         }
-        [InternalVal(InternalValImpl::List(list)), InternalVal(InternalValImpl::String(string))] => {
+        [UnsafeVal::List(list), UnsafeVal::String(string)] => {
             (*list, ctx.vm().objects.get_str(*string))
         }
         [_, v] => {
             return Err(VmError::TypeError {
                 context: "string-join arg(idx=1)",
-                expected: InternalVal::STRING_TYPE_NAME,
+                expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             });
@@ -194,14 +192,14 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         if idx > 0 {
             result.push_str(separator);
         }
-        match string_id.0 {
-            InternalValImpl::String(string_id) => {
-                result.push_str(ctx.vm().objects.get_str(string_id));
+        match string_id {
+            UnsafeVal::String(string_id) => {
+                result.push_str(ctx.vm().objects.get_str(*string_id));
             }
             _ => {
                 return Err(VmError::TypeError {
                     context: "string-join arg(idx=0)",
-                    expected: InternalVal::STRING_TYPE_NAME,
+                    expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: string_id.type_name(),
                     value: string_id.format_quoted(ctx.vm()).to_string(),
                 })
@@ -227,7 +225,7 @@ pub fn new_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
         // Unsafe OK: This is for sure safe...
-        [InternalVal(InternalValImpl::MutableBox(id)), v] => unsafe {
+        [UnsafeVal::MutableBox(id), v] => unsafe {
             let id = *id;
             let v = *v;
             let vm = ctx.vm_mut();
@@ -235,7 +233,7 @@ pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         },
         [arg, _] => Err(VmError::TypeError {
             context: "set-box!",
-            expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+            expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             actual: arg.type_name(),
             value: arg.format_quoted(ctx.vm()).to_string(),
         }),
@@ -250,14 +248,14 @@ pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
         // Unsafe OK: This is for sure safe...
-        [InternalVal(InternalValImpl::MutableBox(id))] => unsafe {
+        [UnsafeVal::MutableBox(id)] => unsafe {
             Ok(ValBuilder::new_internal(
                 *ctx.vm().objects.get_mutable_box(*id),
             ))
         },
         [arg] => Err(VmError::TypeError {
             context: "unbox",
-            expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+            expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             actual: arg.type_name(),
             value: arg.format_quoted(ctx.vm()).to_string(),
         }),
@@ -407,8 +405,8 @@ mod tests {
             got,
             VmError::TypeError {
                 context: "+",
-                expected: InternalVal::INT_TYPE_NAME,
-                actual: InternalVal::STRING_TYPE_NAME,
+                expected: UnsafeVal::INT_TYPE_NAME,
+                actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"fish\"".to_string(),
             }
         );
@@ -475,7 +473,7 @@ mod tests {
             VmError::TypeError {
                 context: "<",
                 expected: "int or float",
-                actual: InternalVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"blue\"".to_string(),
             }
         );
@@ -485,7 +483,7 @@ mod tests {
             VmError::TypeError {
                 context: "<",
                 expected: "int or float",
-                actual: InternalVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"blue\"".to_string(),
             }
         );
@@ -495,7 +493,7 @@ mod tests {
             VmError::TypeError {
                 context: "<",
                 expected: "int or float",
-                actual: InternalVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"fish\"".to_string(),
             }
         );
@@ -578,8 +576,8 @@ mod tests {
             vm.eval_str("(not void)").unwrap_err(),
             VmError::TypeError {
                 context: "function not",
-                expected: InternalVal::BOOL_TYPE_NAME,
-                actual: InternalVal::VOID_TYPE_NAME,
+                expected: UnsafeVal::BOOL_TYPE_NAME,
+                actual: UnsafeVal::VOID_TYPE_NAME,
                 value: "<void>".into(),
             }
         );
@@ -620,8 +618,8 @@ mod tests {
             vm.eval_str("(string-join 2)").unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=0)",
-                expected: InternalVal::LIST_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::LIST_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "2".to_string(),
             },
         );
@@ -630,8 +628,8 @@ mod tests {
                 .unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=0)",
-                expected: InternalVal::STRING_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "42".to_string(),
             },
         );
@@ -639,8 +637,8 @@ mod tests {
             vm.eval_str("(string-join (list) 3)").unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=1)",
-                expected: InternalVal::STRING_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "3".to_string(),
             },
         );
@@ -720,8 +718,8 @@ mod tests {
             vm.eval_str("(unbox 0)").unwrap_err(),
             VmError::TypeError {
                 context: "unbox",
-                expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "0".to_string(),
             }
         );
@@ -761,8 +759,8 @@ mod tests {
             vm.eval_str("(set-box! 0 (new-box 0))").unwrap_err(),
             VmError::TypeError {
                 context: "set-box!",
-                expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
-                actual: InternalVal::INT_TYPE_NAME,
+                expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
                 value: "0".to_string(),
             }
         );

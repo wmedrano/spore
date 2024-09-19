@@ -1,16 +1,16 @@
 use crate::Vm;
 
-use super::{internal::InternalValImpl, InternalVal};
+use super::UnsafeVal;
 
 pub struct ValFormatter<'a> {
     vm: &'a Vm,
-    v: InternalVal,
+    v: UnsafeVal,
     quote_strings: bool,
 }
 
 impl<'a> ValFormatter<'a> {
     /// Create a new value formatter that implements display.
-    pub fn new(vm: &'a Vm, v: InternalVal) -> ValFormatter {
+    pub fn new(vm: &'a Vm, v: UnsafeVal) -> ValFormatter {
         ValFormatter {
             vm,
             v,
@@ -20,7 +20,7 @@ impl<'a> ValFormatter<'a> {
 
     /// Create a new value formatter that implements display. Strings are printed in quotes. For
     /// example, a string containing the string test-string will print to "test-string".
-    pub fn new_quoted(vm: &'a Vm, v: InternalVal) -> ValFormatter {
+    pub fn new_quoted(vm: &'a Vm, v: UnsafeVal) -> ValFormatter {
         ValFormatter {
             vm,
             v,
@@ -31,20 +31,20 @@ impl<'a> ValFormatter<'a> {
 
 impl<'a> std::fmt::Display for ValFormatter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.v.0 {
-            InternalValImpl::Void => write!(f, "<void>"),
-            InternalValImpl::Bool(x) => write!(f, "{x}"),
-            InternalValImpl::Int(x) => write!(f, "{x}"),
-            InternalValImpl::Float(x) => write!(f, "{x}"),
+        match &self.v {
+            UnsafeVal::Void => write!(f, "<void>"),
+            UnsafeVal::Bool(x) => write!(f, "{x}"),
+            UnsafeVal::Int(x) => write!(f, "{x}"),
+            UnsafeVal::Float(x) => write!(f, "{x}"),
             // TODO: Allow printing with quotes.
-            InternalValImpl::String(x) => {
+            UnsafeVal::String(x) => {
                 if self.quote_strings {
                     write!(f, "{:?}", self.vm.objects.get_str(*x))
                 } else {
                     write!(f, "{}", self.vm.objects.get_str(*x))
                 }
             }
-            InternalValImpl::MutableBox(x) => {
+            UnsafeVal::MutableBox(x) => {
                 let inner = ValFormatter {
                     vm: self.vm,
                     v: *self.vm.objects.get_mutable_box(*x),
@@ -52,7 +52,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 };
                 write!(f, "box<{}>", inner)
             }
-            InternalValImpl::List(x) => {
+            UnsafeVal::List(x) => {
                 write!(f, "(")?;
                 for (idx, val) in self.vm.objects.get_list(*x).iter().enumerate() {
                     if idx == 0 {
@@ -63,7 +63,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 }
                 write!(f, ")")
             }
-            InternalValImpl::ByteCodeFunction(bc) => {
+            UnsafeVal::ByteCodeFunction(bc) => {
                 let bc = self.vm.objects.get_bytecode(*bc);
                 write!(
                     f,
@@ -75,8 +75,8 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                     }
                 )
             }
-            InternalValImpl::NativeFunction(_) => write!(f, "<native-function>"),
-            InternalValImpl::Custom(c) => {
+            UnsafeVal::NativeFunction(_) => write!(f, "<native-function>"),
+            UnsafeVal::Custom(c) => {
                 let c = self.vm.objects.get_custom(*c);
                 write!(f, "{c}")
             }
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn format_void_is_empty() {
         assert_eq!(
-            InternalVal::from(()).formatted(&Vm::default()).to_string(),
+            UnsafeVal::from(()).formatted(&Vm::default()).to_string(),
             "<void>"
         );
     }
@@ -99,15 +99,11 @@ mod tests {
     #[test]
     fn format_bool_is_true_or_false() {
         assert_eq!(
-            InternalVal::from(true)
-                .formatted(&Vm::default())
-                .to_string(),
+            UnsafeVal::from(true).formatted(&Vm::default()).to_string(),
             "true"
         );
         assert_eq!(
-            InternalVal::from(false)
-                .formatted(&Vm::default())
-                .to_string(),
+            UnsafeVal::from(false).formatted(&Vm::default()).to_string(),
             "false"
         );
     }
@@ -115,11 +111,11 @@ mod tests {
     #[test]
     fn format_int_prints_number() {
         assert_eq!(
-            InternalVal::from(0).formatted(&Vm::default()).to_string(),
+            UnsafeVal::from(0).formatted(&Vm::default()).to_string(),
             "0"
         );
         assert_eq!(
-            InternalVal::from(-1).formatted(&Vm::default()).to_string(),
+            UnsafeVal::from(-1).formatted(&Vm::default()).to_string(),
             "-1"
         );
     }
@@ -127,13 +123,11 @@ mod tests {
     #[test]
     fn format_float_prints_number() {
         assert_eq!(
-            InternalVal::from(0.0).formatted(&Vm::default()).to_string(),
+            UnsafeVal::from(0.0).formatted(&Vm::default()).to_string(),
             "0"
         );
         assert_eq!(
-            InternalVal::from(-1.5)
-                .formatted(&Vm::default())
-                .to_string(),
+            UnsafeVal::from(-1.5).formatted(&Vm::default()).to_string(),
             "-1.5"
         );
     }
@@ -143,7 +137,7 @@ mod tests {
         let mut vm = Vm::default();
         let string_id = vm.objects.insert_string("my string".into());
         assert_eq!(
-            InternalVal::from(string_id).formatted(&vm).to_string(),
+            UnsafeVal::from(string_id).formatted(&vm).to_string(),
             "my string"
         );
     }

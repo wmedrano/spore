@@ -6,7 +6,7 @@ use crate::{error::VmResult, Vm};
 
 use super::{
     custom::{CustomType, CustomVal},
-    internal::InternalVal,
+    internal::UnsafeVal,
     ListVal, Val,
 };
 
@@ -19,8 +19,8 @@ pub struct NativeFunctionContext<'a> {
 
 #[derive(Debug)]
 pub struct ValBuilder<'a> {
-    val: InternalVal,
-    _lt: PhantomData<&'a InternalVal>,
+    val: UnsafeVal,
+    _lt: PhantomData<&'a UnsafeVal>,
 }
 
 impl ValBuilder<'static> {
@@ -28,7 +28,7 @@ impl ValBuilder<'static> {
     ///
     /// # Safety
     /// `InternalVal` must be a valid value that has not been garbage collected.
-    pub unsafe fn new_internal(v: InternalVal) -> ValBuilder<'static> {
+    pub unsafe fn new_internal(v: UnsafeVal) -> ValBuilder<'static> {
         ValBuilder {
             val: v,
             _lt: PhantomData,
@@ -67,7 +67,7 @@ impl<'a> ValBuilder<'a> {
     /// # Safety
     /// The garbage collector may clean up the value. This value must be discarded or inserted into
     /// the VM immediately.
-    pub(crate) unsafe fn build(self) -> InternalVal {
+    pub(crate) unsafe fn build(self) -> UnsafeVal {
         self.val
     }
 }
@@ -99,7 +99,7 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     /// Get the arguments to the function call.
-    pub fn args(&self) -> &[InternalVal] {
+    pub fn args(&self) -> &[UnsafeVal] {
         &self.vm.stack[self.stack_start..]
     }
 
@@ -122,7 +122,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// Garbage collector may clean up this value. For safety, the value must be returned
     /// immediately.
-    pub unsafe fn new_mutable_box(&mut self, v: InternalVal) -> ValBuilder<'a> {
+    pub unsafe fn new_mutable_box(&mut self, v: UnsafeVal) -> ValBuilder<'a> {
         let id = self.vm.objects.insert_mutable_box(v);
         ValBuilder {
             val: id.into(),

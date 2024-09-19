@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 
-use super::{InternalVal, NativeFunction};
+use super::{NativeFunction, UnsafeVal};
 
 /// Contains a set of instructions for the Spore VM to evaluate.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -14,7 +14,7 @@ pub struct ByteCode {
 }
 
 impl ByteCode {
-    pub fn values(&self) -> impl '_ + Iterator<Item = InternalVal> {
+    pub fn values(&self) -> impl '_ + Iterator<Item = UnsafeVal> {
         self.instructions
             .iter()
             .flat_map(|instruction| match instruction {
@@ -36,7 +36,7 @@ impl ByteCode {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Instruction {
     /// Push a constant onto the stack.
-    PushConst(InternalVal),
+    PushConst(UnsafeVal),
     /// Push the current function onto the stack.
     PushCurrentFunction,
     /// Get the nth argument from the start of the continuation's stack.

@@ -1,7 +1,7 @@
 use std::any::Any;
 
 #[derive(Debug)]
-pub(crate) struct CustomVal(Box<dyn CustomType>);
+pub struct CustomVal(Box<dyn CustomType>);
 
 impl CustomVal {
     pub fn new(val: impl CustomType) -> CustomVal {
