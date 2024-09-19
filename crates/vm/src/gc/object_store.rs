@@ -1,4 +1,8 @@
+use log::error;
+
 use crate::val::ValId;
+
+type KeepReachableCounter = u32;
 
 #[derive(Clone, Debug)]
 pub struct ValWithColor<T> {
@@ -8,7 +12,7 @@ pub struct ValWithColor<T> {
     /// garbage collect).
     color: Color,
     /// The number of manually labeled reachable references.
-    keep_reachable_count: u32,
+    keep_reachable_count: KeepReachableCounter,
 }
 
 /// A collection of `T` values that may be garbage collected.
@@ -40,14 +44,26 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     /// calling [unmark_always_reachable].
     pub fn mark_always_reachable(&mut self, id: ValId<T>) {
         if let Some(obj) = self.objects.get_mut(id.as_usize()) {
-            obj.keep_reachable_count += 1;
+            obj.keep_reachable_count = match obj.keep_reachable_count.checked_add(1) {
+                Some(v) => v,
+                None => {
+                    error!("mark_always_reachable counter for {id:?} reached max value, it will live forever");
+                    KeepReachableCounter::MAX
+                }
+            };
         }
     }
 
     /// Allow `id` to be labeled as `unreachable`.
     pub fn unmark_always_reachable(&mut self, id: ValId<T>) {
         if let Some(obj) = self.objects.get_mut(id.as_usize()) {
-            obj.keep_reachable_count -= 1;
+            obj.keep_reachable_count = match obj.keep_reachable_count.checked_sub(1) {
+                Some(v) => v,
+                None => {
+                    error!("unmark_always_reachable called on object {id:?} which does not have always_reachable mark. Bad garbage collection tracking may leave program in unsafe state.");
+                    0
+                }
+            };
         }
     }
 
