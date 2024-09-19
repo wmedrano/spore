@@ -12,6 +12,8 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("=", equal),
     ("+", add),
     ("<", less),
+    ("truthy", truthy),
+    ("not", not),
     ("string-join", string_join),
     ("list", list),
     ("working-directory", working_directory),
@@ -36,10 +38,10 @@ pub fn equal_impl(vm: &Vm, a: InternalVal, b: InternalVal) -> bool {
         (Bool(a), Bool(b)) => a == b,
         (Int(a), Int(b)) => a == b,
         (Float(a), Float(b)) => a == b,
-        (String(a), String(b)) => vm.val_store.get_str(a) == vm.val_store.get_str(b),
+        (String(a), String(b)) => vm.objects.get_str(a) == vm.objects.get_str(b),
         (List(a), List(b)) => {
-            let a = vm.val_store.get_list(a);
-            let b = vm.val_store.get_list(b);
+            let a = vm.objects.get_list(a);
+            let b = vm.objects.get_list(b);
             if a.len() != b.len() {
                 return false;
             }
@@ -115,6 +117,37 @@ pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     less_impl(ctx.vm(), ctx.args())
 }
 
+pub fn truthy<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    match ctx.args() {
+        [v] => match v.0 {
+            InternalValImpl::Void | InternalValImpl::Bool(false) => Ok(ValBuilder::new_bool(false)),
+            _ => Ok(ValBuilder::new_bool(true)),
+        },
+        args => Err(VmError::ArityError {
+            function: "truthy".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    match ctx.args() {
+        [InternalVal(InternalValImpl::Bool(b))] => Ok(ValBuilder::new_bool(!b)),
+        [v] => Err(VmError::TypeError {
+            context: "function not",
+            expected: InternalVal::BOOL_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        }),
+        args => Err(VmError::ArityError {
+            function: "not".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
+}
+
 pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     let (strings, separator) = match args {
@@ -135,7 +168,7 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             });
         }
         [InternalVal(InternalValImpl::List(list)), InternalVal(InternalValImpl::String(string))] => {
-            (*list, ctx.vm().val_store.get_str(*string))
+            (*list, ctx.vm().objects.get_str(*string))
         }
         [_, v] => {
             return Err(VmError::TypeError {
@@ -154,13 +187,13 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         }
     };
     let mut result = CompactString::default();
-    for (idx, string_id) in ctx.vm().val_store.get_list(strings).iter().enumerate() {
+    for (idx, string_id) in ctx.vm().objects.get_list(strings).iter().enumerate() {
         if idx > 0 {
             result.push_str(separator);
         }
         match string_id.0 {
             InternalValImpl::String(string_id) => {
-                result.push_str(ctx.vm().val_store.get_str(string_id));
+                result.push_str(ctx.vm().objects.get_str(string_id));
             }
             _ => {
                 return Err(VmError::TypeError {
@@ -403,6 +436,87 @@ mod tests {
                 expected: "int or float",
                 actual: InternalVal::STRING_TYPE_NAME,
                 value: "\"fish\"".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn false_or_void_with_truthy_is_false() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(truthy false)").unwrap().as_bool(),
+            Some(false)
+        );
+        assert_eq!(vm.eval_str("(truthy void)").unwrap().as_bool(), Some(false));
+    }
+
+    #[test]
+    fn all_values_are_truthy() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(truthy true)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy 1)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy 1.0)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy \"\")").unwrap().as_bool(), Some(true));
+        assert_eq!(
+            vm.eval_str("(truthy truthy)").unwrap().as_bool(),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn truthy_with_wrong_number_of_args_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(truthy)").unwrap_err(),
+            VmError::ArityError {
+                function: "truthy".into(),
+                expected: 1,
+                actual: 0,
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(truthy 0 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "truthy".into(),
+                expected: 1,
+                actual: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn not_inverts_bool() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(not true)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not false)").unwrap().as_bool(), Some(true));
+    }
+
+    #[test]
+    fn not_with_wrong_args_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(not)").unwrap_err(),
+            VmError::ArityError {
+                function: "not".into(),
+                expected: 1,
+                actual: 0,
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(not true false)").unwrap_err(),
+            VmError::ArityError {
+                function: "not".into(),
+                expected: 1,
+                actual: 2,
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(not void)").unwrap_err(),
+            VmError::TypeError {
+                context: "function not",
+                expected: InternalVal::BOOL_TYPE_NAME,
+                actual: InternalVal::VOID_TYPE_NAME,
+                value: "<void>".into(),
             }
         );
     }

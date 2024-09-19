@@ -63,12 +63,12 @@ impl<'a> Compiler<'a> {
         match ir {
             Ir::Constant(const_val) => {
                 let instruction = match const_val {
+                    Constant::Void => Instruction::PushConst(().into()),
                     Constant::Bool(x) => Instruction::PushConst((*x).into()),
                     Constant::Int(x) => Instruction::PushConst((*x).into()),
                     Constant::Float(x) => Instruction::PushConst((*x).into()),
                     Constant::String(x) => Instruction::PushConst(
-                        InternalValImpl::String(self.vm.val_store.insert_string((*x).into()))
-                            .into(),
+                        InternalValImpl::String(self.vm.objects.insert_string((*x).into())).into(),
                     ),
                 };
                 self.instructions.push(instruction);
@@ -96,7 +96,7 @@ impl<'a> Compiler<'a> {
                 }
             },
             Ir::FunctionCall { function, args } => {
-                if !function.is_expression() {
+                if function.return_type() == IrReturnType::None {
                     return Err(CompileError::ExpectedExpression {
                         context: "function call",
                     });
@@ -116,7 +116,7 @@ impl<'a> Compiler<'a> {
                     self.compile_one(function, CompilerContext::Subexpression)?;
                 }
                 for arg in args {
-                    if !arg.is_expression() {
+                    if arg.return_type() != IrReturnType::Value {
                         return Err(CompileError::ExpectedExpression {
                             context: "function call argument",
                         });
@@ -135,7 +135,7 @@ impl<'a> Compiler<'a> {
                 if ctx != CompilerContext::Module {
                     return Err(CompileError::DefineNotAllowedInSubexpression);
                 }
-                if !expr.is_expression() {
+                if expr.return_type() != IrReturnType::Value {
                     return Err(CompileError::ExpectedExpression { context: "define" });
                 }
                 self.compile_one(expr, CompilerContext::Subexpression)?;
@@ -147,7 +147,7 @@ impl<'a> Compiler<'a> {
                 true_expr,
                 false_expr,
             } => {
-                if !predicate.is_expression() {
+                if predicate.return_type() != IrReturnType::Value {
                     return Err(CompileError::ExpectedExpression {
                         context: "if predicate",
                     });
@@ -157,7 +157,7 @@ impl<'a> Compiler<'a> {
                 self.instructions.push(Instruction::PushConst(().into()));
                 match false_expr {
                     Some(expr) => {
-                        if !expr.is_expression() {
+                        if expr.return_type() == IrReturnType::None {
                             return Err(CompileError::ExpectedExpression {
                                 context: "if expression, false branch",
                             });
@@ -168,7 +168,7 @@ impl<'a> Compiler<'a> {
                 }
                 let false_jump_idx = self.instructions.len();
                 self.instructions.push(Instruction::PushConst(().into()));
-                if !true_expr.is_expression() {
+                if true_expr.return_type() == IrReturnType::None {
                     return Err(CompileError::ExpectedExpression {
                         context: "if expression, true branch",
                     });
@@ -177,7 +177,7 @@ impl<'a> Compiler<'a> {
                 self.instructions[true_jump_idx] =
                     Instruction::JumpIf(false_jump_idx - true_jump_idx);
                 self.instructions[false_jump_idx] =
-                    Instruction::Jump(self.instructions.len() - false_jump_idx);
+                    Instruction::Jump(self.instructions.len() - false_jump_idx - 1);
             }
             Ir::Lambda {
                 name,
@@ -203,7 +203,7 @@ impl<'a> Compiler<'a> {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
                 let lambda_val = InternalValImpl::ByteCodeFunction(
-                    lambda_compiler.vm.val_store.insert_bytecode(ByteCode {
+                    lambda_compiler.vm.objects.insert_bytecode(ByteCode {
                         name: name.unwrap_or("").into(),
                         arg_count: args.len(),
                         instructions: lambda_compiler.instructions.into(),
@@ -211,6 +211,15 @@ impl<'a> Compiler<'a> {
                 )
                 .into();
                 self.instructions.push(Instruction::PushConst(lambda_val));
+            }
+            Ir::Return { expr } => {
+                if expr.return_type() == IrReturnType::None {
+                    return Err(CompileError::ExpectedExpression {
+                        context: "return statement expected expression",
+                    });
+                }
+                self.compile_one(expr, CompilerContext::Subexpression)?;
+                self.instructions.push(Instruction::Return);
             }
         };
         Ok(())
@@ -230,6 +239,8 @@ fn find_duplicate(vec: &[String]) -> Option<String> {
 
 /// Contains a constant.
 enum Constant<'a> {
+    /// Just void, nothing.
+    Void,
     /// A boolean consant.
     Bool(bool),
     /// An integer constant.
@@ -275,11 +286,14 @@ enum Ir<'a> {
         args: Vec<String>,
         expressions: Vec<Self>,
     },
+    /// Return the result of the given expression.
+    Return { expr: Box<Self> },
 }
 
 impl<'a> Ir<'a> {
     fn new(node: &'a Node<'a>) -> Result<Ir> {
         let ir = match node {
+            Node::Void => Ir::Constant(Constant::Void),
             Node::Bool(b) => Ir::Constant(Constant::Bool(*b)),
             Node::Int(int) => Ir::Constant(Constant::Int(*int)),
             Node::Float(float) => Ir::Constant(Constant::Float(*float)),
@@ -360,6 +374,18 @@ impl<'a> Ir<'a> {
                         expressions: exprs.iter().map(Ir::new).collect::<Result<Vec<_>>>()?,
                     }
                 }
+                [Node::Identifier("return"), return_args @ ..] => match return_args {
+                    [expr] => Ir::Return {
+                        expr: Box::new(Ir::new(expr)?),
+                    },
+                    _ => {
+                        return Err(CompileError::ExpressionHasWrongArgs {
+                            expression: "return",
+                            expected: 1,
+                            actual: return_args.len(),
+                        })
+                    }
+                },
                 [f, args @ ..] => match f {
                     Node::Identifier("if") => match args {
                         [predicate, true_expr] => Ir::If {
@@ -393,16 +419,27 @@ impl<'a> Ir<'a> {
 
     /// Returns `true` if the IR contains an expression. Expressions return values while statements
     /// do not.
-    fn is_expression(&self) -> bool {
+    fn return_type(&self) -> IrReturnType {
         match self {
-            Ir::Constant(_) => true,
-            Ir::Deref(_) => true,
-            Ir::FunctionCall { .. } => true,
-            Ir::Define { .. } => false,
-            Ir::If { .. } => true,
-            Ir::Lambda { .. } => true,
+            Ir::Constant(_) => IrReturnType::Value,
+            Ir::Deref(_) => IrReturnType::Value,
+            Ir::FunctionCall { .. } => IrReturnType::Value,
+            Ir::Define { .. } => IrReturnType::None,
+            Ir::If { .. } => IrReturnType::Value,
+            Ir::Lambda { .. } => IrReturnType::Value,
+            Ir::Return { .. } => IrReturnType::EarlyReturn,
         }
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum IrReturnType {
+    /// The IR does not return anything. This means nothing is pushed to the stack.
+    None,
+    /// A value is pushed to the top of the stack.
+    Value,
+    /// The current function is returned, exiting the current function call frame.
+    EarlyReturn,
 }
 
 fn node_to_ident(node: &Node) -> Result<String> {
@@ -738,7 +775,7 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(
                         InternalValImpl::ByteCodeFunction(
-                            vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                            vm.objects.get_or_insert_bytecode_slow(ByteCode {
                                 name: "foo".into(),
                                 arg_count: 2,
                                 instructions: vec![
@@ -798,19 +835,91 @@ mod tests {
     fn if_expression_produces_branching_instructions() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(&mut vm, "(if true 1 2)").unwrap(),
+            Compiler::compile(&mut vm, "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))").unwrap(),
+            ByteCode {
+                name: "".into(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::Deref("<".into()),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
+                    Instruction::Eval(3),
+                    Instruction::JumpIf(7),
+                    Instruction::Deref("+".into()),
+                    Instruction::PushConst(6.into()),
+                    Instruction::PushConst(7.into()),
+                    Instruction::PushConst(8.into()),
+                    Instruction::PushConst(9.into()),
+                    Instruction::Eval(5),
+                    Instruction::Jump(5),
+                    Instruction::Deref("+".into()),
+                    Instruction::PushConst(3.into()),
+                    Instruction::PushConst(4.into()),
+                    Instruction::PushConst(5.into()),
+                    Instruction::Eval(4),
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn if_expression_with_empty_false_branch_defaults_to_void() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if (< 1 2) (+ 4 5 6))").unwrap(),
+            ByteCode {
+                name: "".into(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::Deref("<".into()),
+                    Instruction::PushConst(1.into()),
+                    Instruction::PushConst(2.into()),
+                    Instruction::Eval(3),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(().into()),
+                    Instruction::Jump(5),
+                    Instruction::Deref("+".into()),
+                    Instruction::PushConst(4.into()),
+                    Instruction::PushConst(5.into()),
+                    Instruction::PushConst(6.into()),
+                    Instruction::Eval(4)
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn if_expression_allows_early_return_on_branches() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if true (return 1) (return 2))").unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![
                     Instruction::PushConst(true.into()),
-                    Instruction::JumpIf(2),
+                    Instruction::JumpIf(3),
                     Instruction::PushConst(2.into()),
+                    Instruction::Return,
                     Instruction::Jump(2),
                     Instruction::PushConst(1.into()),
+                    Instruction::Return
                 ]
                 .into()
             }
+        );
+    }
+
+    #[test]
+    fn early_return_on_predicate_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(if (return 10) 1 2)").unwrap_err(),
+            CompileError::ExpectedExpression {
+                context: "if predicate"
+            },
         );
     }
 
@@ -833,26 +942,6 @@ mod tests {
             Compiler::compile(&mut vm, "(if true 1 (define x 2))").unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "if expression, false branch"
-            }
-        );
-    }
-
-    #[test]
-    fn if_expression_with_empty_false_branch_defaults_to_void() {
-        let mut vm = Vm::default();
-        assert_eq!(
-            Compiler::compile(&mut vm, "(if true 1)").unwrap(),
-            ByteCode {
-                name: "".into(),
-                arg_count: 0,
-                instructions: vec![
-                    Instruction::PushConst(true.into()),
-                    Instruction::JumpIf(2),
-                    Instruction::PushConst(().into()),
-                    Instruction::Jump(2),
-                    Instruction::PushConst(1.into()),
-                ]
-                .into()
             }
         );
     }
@@ -892,7 +981,7 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    InternalValImpl::ByteCodeFunction(vm.val_store.get_or_insert_bytecode_slow(
+                    InternalValImpl::ByteCodeFunction(vm.objects.get_or_insert_bytecode_slow(
                         ByteCode {
                             name: "".into(),
                             arg_count: 0,
@@ -918,7 +1007,7 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
                     InternalValImpl::ByteCodeFunction(
-                        vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                        vm.objects.get_or_insert_bytecode_slow(ByteCode {
                             name: "".into(),
                             arg_count: 3,
                             instructions: vec![
@@ -949,7 +1038,7 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(
                         InternalValImpl::ByteCodeFunction(
-                            vm.val_store.get_or_insert_bytecode_slow(ByteCode {
+                            vm.objects.get_or_insert_bytecode_slow(ByteCode {
                                 name: "foo".into(),
                                 arg_count: 1,
                                 instructions: vec![
@@ -1003,5 +1092,67 @@ mod tests {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda () (+ ()))").unwrap_err();
         assert_eq!(actual, CompileError::EmptyExpression);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Return
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn return_produces_return_instruction() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(return (if true 1 2))").unwrap(),
+            ByteCode {
+                name: "".into(),
+                arg_count: 0,
+                instructions: vec![
+                    Instruction::PushConst(true.into()),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(2.into()),
+                    Instruction::Jump(1),
+                    Instruction::PushConst(1.into()),
+                    Instruction::Return,
+                ]
+                .into()
+            }
+        );
+    }
+
+    #[test]
+    fn return_with_non_expression_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(return (define x 0))").unwrap_err(),
+            CompileError::ExpectedExpression {
+                context: "return statement expected expression",
+            },
+        );
+    }
+
+    #[test]
+    fn return_with_no_expr_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(return)").unwrap_err(),
+            CompileError::ExpressionHasWrongArgs {
+                expression: "return",
+                expected: 1,
+                actual: 0
+            }
+        );
+    }
+
+    #[test]
+    fn return_with_too_many_exprs_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            Compiler::compile(&mut vm, "(return 0 1 2)").unwrap_err(),
+            CompileError::ExpressionHasWrongArgs {
+                expression: "return",
+                expected: 1,
+                actual: 3
+            }
+        );
     }
 }

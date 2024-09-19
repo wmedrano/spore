@@ -9,7 +9,7 @@ pub type VmResult<T> = Result<T, VmError>;
 /// Describes an error encountered when running the Vm.
 #[derive(Debug, Error, PartialEq)]
 pub enum VmError {
-    #[error("{context} expected type {expected} but found type {actual}")]
+    #[error("{context} expected type {expected} but found type {actual}: {value}")]
     TypeError {
         context: &'static str,
         expected: &'static str,

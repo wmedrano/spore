@@ -32,21 +32,21 @@ impl<'a> ValFormatter<'a> {
 impl<'a> std::fmt::Display for ValFormatter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.v.0 {
-            InternalValImpl::Void => Ok(()),
+            InternalValImpl::Void => write!(f, "<void>"),
             InternalValImpl::Bool(x) => write!(f, "{x}"),
             InternalValImpl::Int(x) => write!(f, "{x}"),
             InternalValImpl::Float(x) => write!(f, "{x}"),
             // TODO: Allow printing with quotes.
             InternalValImpl::String(x) => {
                 if self.quote_strings {
-                    write!(f, "{:?}", self.vm.val_store.get_str(*x))
+                    write!(f, "{:?}", self.vm.objects.get_str(*x))
                 } else {
-                    write!(f, "{}", self.vm.val_store.get_str(*x))
+                    write!(f, "{}", self.vm.objects.get_str(*x))
                 }
             }
             InternalValImpl::List(x) => {
                 write!(f, "(")?;
-                for (idx, val) in self.vm.val_store.get_list(*x).iter().enumerate() {
+                for (idx, val) in self.vm.objects.get_list(*x).iter().enumerate() {
                     if idx == 0 {
                         write!(f, "{}", val.format_quoted(self.vm))?;
                     } else {
@@ -56,7 +56,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 write!(f, ")")
             }
             InternalValImpl::ByteCodeFunction(bc) => {
-                let bc = self.vm.val_store.get_bytecode(*bc);
+                let bc = self.vm.objects.get_bytecode(*bc);
                 write!(
                     f,
                     "<function {name}>",
@@ -69,7 +69,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
             }
             InternalValImpl::NativeFunction(_) => write!(f, "<native-function>"),
             InternalValImpl::Custom(c) => {
-                let c = self.vm.val_store.get_custom(*c);
+                let c = self.vm.objects.get_custom(*c);
                 write!(f, "{c}")
             }
         }
@@ -84,7 +84,7 @@ mod tests {
     fn format_void_is_empty() {
         assert_eq!(
             InternalVal::from(()).formatted(&Vm::default()).to_string(),
-            ""
+            "<void>"
         );
     }
 
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn format_string_produces_string() {
         let mut vm = Vm::default();
-        let string_id = vm.val_store.insert_string("my string".into());
+        let string_id = vm.objects.insert_string("my string".into());
         assert_eq!(
             InternalVal::from(string_id).formatted(&vm).to_string(),
             "my string"

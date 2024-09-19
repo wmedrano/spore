@@ -20,6 +20,8 @@ pub enum AstParseError {
 pub enum Node<'a> {
     /// A node containing an identifier.
     Identifier(&'a str),
+    /// A node containing the void literal.
+    Void,
     /// A node containing a boolean literal.
     Bool(bool),
     /// A node containing an int literal.
@@ -146,12 +148,12 @@ impl<'a> Node<'a> {
                     return Node::Int(int);
                 } else if let Ok(float) = contents.parse() {
                     return Node::Float(float);
-                } else if contents == "true" {
-                    return Node::Bool(true);
-                } else if contents == "false" {
-                    return Node::Bool(false);
-                } else {
-                    return Node::Identifier(contents);
+                };
+                match contents {
+                    "void" => Node::Void,
+                    "true" => Node::Bool(true),
+                    "false" => Node::Bool(false),
+                    ident => return Node::Identifier(ident),
                 }
             }
         }

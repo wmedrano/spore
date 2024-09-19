@@ -26,7 +26,7 @@ pub struct Val<'a> {
 impl<'a> Val<'a> {
     /// Create a new `Val` from an [InternalVal].
     pub(crate) fn new(vm: &'a mut Vm, v: InternalVal) -> Val<'a> {
-        vm.val_store.keep_reachable(v);
+        vm.objects.keep_reachable(v);
         Val {
             vm,
             v,
@@ -37,7 +37,7 @@ impl<'a> Val<'a> {
 
 impl<'a> Drop for Val<'a> {
     fn drop(&mut self) {
-        self.vm.val_store.allow_unreachable(self.v);
+        self.vm.objects.allow_unreachable(self.v);
     }
 }
 
@@ -74,7 +74,7 @@ impl<'a> Val<'a> {
     /// Returns the value as a [str] or [None] if [Self] is not a string.
     pub fn as_str(&self) -> Option<&str> {
         match self.v.0 {
-            InternalValImpl::String(x) => Some(self.vm.val_store.get_str(x)),
+            InternalValImpl::String(x) => Some(self.vm.objects.get_str(x)),
             _ => None,
         }
     }
@@ -88,7 +88,7 @@ impl<'a> Val<'a> {
     /// value.
     pub fn as_custom<T: CustomType>(&self) -> Option<&T> {
         match self.v.0 {
-            InternalValImpl::Custom(id) => self.vm.val_store.get_custom(id).get(),
+            InternalValImpl::Custom(id) => self.vm.objects.get_custom(id).get(),
             _ => None,
         }
     }

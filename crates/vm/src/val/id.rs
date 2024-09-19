@@ -13,7 +13,7 @@ impl<T> std::fmt::Debug for ValId<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Id({id_type}, {id}",
+            "{id_type}Id({id})",
             id_type = std::any::type_name::<T>(),
             id = self.id
         )

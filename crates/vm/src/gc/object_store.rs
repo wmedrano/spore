@@ -29,7 +29,7 @@ impl<T> Default for ObjectStore<T> {
     }
 }
 
-impl<T> ObjectStore<T> {
+impl<T: std::fmt::Debug> ObjectStore<T> {
     /// Mark `id` as always reachable. Undoing teach call to `mark_always_reachable` requires
     /// calling [unmark_always_reachable].
     pub fn mark_always_reachable(&mut self, id: ValId<T>) {
@@ -60,14 +60,20 @@ impl<T> ObjectStore<T> {
         }
     }
 
-    pub fn remove_all_with_color(&mut self, color: Color) {
+    /// Remove all objects with the given `color`. Note, any objects that activated
+    /// [Self::mark_always_reachable] will not be cleaned up unless undone with
+    /// [Self::unmark_always_reachable].
+    ///
+    /// Returns the number of objects that were removed.
+    pub fn remove_all_with_color(&mut self, color: Color) -> usize {
+        let start_free = self.free_object_ids.len();
         for (idx, obj) in self.objects.iter_mut().enumerate() {
             if obj.inner.is_some() && obj.color == color && obj.keep_reachable_count == 0 {
                 obj.keep_reachable_count = 0;
-                obj.inner.take();
                 self.free_object_ids.push(ValId::new(idx as u32));
             }
         }
+        self.free_object_ids.len() - start_free
     }
 
     /// Iterate over all objects that are marked as keep reachable.

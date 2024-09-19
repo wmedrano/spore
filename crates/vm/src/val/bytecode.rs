@@ -27,6 +27,7 @@ impl ByteCode {
                 Instruction::EvalNative { .. } => None,
                 Instruction::JumpIf(_) => None,
                 Instruction::Jump(_) => None,
+                Instruction::Return => None,
             })
     }
 }
@@ -57,6 +58,8 @@ pub enum Instruction {
     JumpIf(usize),
     /// Jump `n` instructions.
     Jump(usize),
+    /// Return from the current function.
+    Return,
 }
 
 #[cfg(test)]

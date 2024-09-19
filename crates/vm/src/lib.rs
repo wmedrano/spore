@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use compact_str::CompactString;
+use gc::{is_garbage_collected, GarbageCollector};
 use log::info;
 
 use compiler::Compiler;
@@ -10,7 +11,6 @@ use val::{
     internal::InternalValImpl,
     ByteCode, Instruction, InternalVal, NativeFunction, NativeFunctionContext, Val, ValId,
 };
-use val_store::{is_garbage_collected, ValStore};
 
 pub use ast::AstParseError;
 pub use error::{CompileError, VmError, VmResult};
@@ -22,7 +22,6 @@ mod error;
 mod gc;
 mod tokenizer;
 pub mod val;
-mod val_store;
 
 /// The Spore virtual machine.
 #[derive(Debug)]
@@ -36,7 +35,7 @@ pub struct Vm {
     /// The pending stack frames.
     previous_stack_frames: Vec<StackFrame>,
     /// Manages lifetime of all values, aside from simple atoms like bool/int/float.
-    pub(crate) val_store: ValStore,
+    pub(crate) objects: GarbageCollector,
     /// Contains bytecode compilation settings,
     settings: VmSettings,
 }
@@ -80,7 +79,7 @@ impl Vm {
             // Allocate for a function call depth of 64. This is more than enough for most programs.
             previous_stack_frames: Vec::with_capacity(64),
             stack_frame: StackFrame::default(),
-            val_store: ValStore::default(),
+            objects: GarbageCollector::default(),
             settings,
         };
         for (name, func) in builtins::BUILTINS {
@@ -96,7 +95,7 @@ impl Vm {
     /// Run the garbage collector.
     pub fn run_gc(&mut self) {
         let is_gc = |v: &InternalVal| is_garbage_collected(*v);
-        self.val_store.run_gc(|vals| {
+        self.objects.run_gc(|vals| {
             vals.extend(self.stack.iter().copied().filter(is_gc));
             vals.extend(self.values.values().copied().filter(is_gc));
             vals.push(self.stack_frame.bytecode_id.into());
@@ -115,7 +114,7 @@ impl Vm {
 
     /// Register a custom value that is accessible globally.
     pub fn register_custom_value(&mut self, name: &str, val: impl CustomType) {
-        let id = self.val_store.insert_custom(CustomVal::new(val));
+        let id = self.objects.insert_custom(CustomVal::new(val));
         self.values.insert(name.into(), id.into());
     }
 
@@ -123,7 +122,7 @@ impl Vm {
     pub fn eval_str(&mut self, source: &str) -> VmResult<Val> {
         self.run_gc();
         let bytecode = Compiler::compile(self, source)?;
-        let bytecode_id = self.val_store.insert_bytecode(bytecode);
+        let bytecode_id = self.objects.insert_bytecode(bytecode);
         let v = self.eval_bytecode(bytecode_id)?;
         Ok(Val::new(self, v))
     }
@@ -132,7 +131,7 @@ impl Vm {
     fn eval_bytecode(&mut self, bytecode_id: ValId<Arc<ByteCode>>) -> VmResult<InternalVal> {
         self.stack.clear();
         self.previous_stack_frames.clear();
-        let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
+        let bytecode = self.objects.get_bytecode(bytecode_id).clone();
         self.stack_frame = StackFrame {
             bytecode_id,
             bytecode,
@@ -200,6 +199,7 @@ impl Vm {
                 }
             },
             Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
+            Instruction::Return => return Ok(self.execute_return()),
         }
         Ok(None)
     }
@@ -248,7 +248,7 @@ impl Vm {
                 Ok(())
             }
             InternalValImpl::ByteCodeFunction(bytecode_id) => {
-                let bytecode = self.val_store.get_bytecode(bytecode_id).clone();
+                let bytecode = self.objects.get_bytecode(bytecode_id).clone();
                 let arg_count = n - 1;
                 if bytecode.arg_count != arg_count {
                     return Err(VmError::ArityError {
@@ -284,7 +284,7 @@ impl Vm {
                 Ok(())
             }
             _ => Err(VmError::TypeError {
-                context: "function call",
+                context: "function invocation",
                 expected: InternalVal::FUNCTION_TYPE_NAME,
                 actual: func_val.type_name(),
                 value: func_val.formatted(self).to_string(),
@@ -325,7 +325,10 @@ impl Vm {
 
 impl Drop for Vm {
     fn drop(&mut self) {
-        info!("Tearing down Spore VM.");
+        info!(
+            "Tearing down Spore VM. {gc_stats:#?}",
+            gc_stats = self.objects.stats()
+        );
     }
 }
 

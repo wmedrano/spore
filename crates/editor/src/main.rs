@@ -2,7 +2,7 @@ use std::{fs::File, time::Duration};
 
 use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
-use log::info;
+use log::{error, info};
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     widgets::Paragraph,
@@ -48,7 +48,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 (define buffer-contents (new-rope))
 
 (define (set-buffer! event)
-    (rope-clear! buffer-contents buffer-contents)
+    (rope-clear!  buffer-contents buffer-contents)
     (rope-append! buffer-contents "Hello Spore!\n")
     (rope-append! buffer-contents "Working Directory: ")
     (rope-append! buffer-contents (working-directory))
@@ -58,19 +58,23 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     (rope->string buffer-contents))
 
 (define (handle-event event)
-    (if (= event "<esc>")
-        false
-        (set-buffer! event)))
+    (if (not (truthy event)) (return (rope->string buffer-contents)))
+    (if (= event "<esc>") (return false))
+    (set-buffer! event)
+    (rope->string buffer-contents))
 "#;
     vm.eval_str(main_src)?;
     let mut has_init = false;
     loop {
-        let buffer_contents = if has_init {
-            vm.eval_str("(handle-event (read-event))")?
+        let src = if has_init {
+            "(handle-event (read-event))"
         } else {
             has_init = true;
-            vm.eval_str("(handle-event \"\")")?
+            "(handle-event \"\")"
         };
+        let buffer_contents = vm
+            .eval_str(src)
+            .inspect_err(|err| error!("VM Failed: {err}"))?;
         let should_continue = buffer_contents.as_bool().unwrap_or(true);
         if !should_continue {
             info!("Exit requested.");
@@ -87,8 +91,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 
 fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(Duration::from_millis(10)).unwrap() {
-        // Unsafe OK: Returning immediately.
-        return Ok(unsafe { ctx.new_string(CompactString::default()) });
+        return Ok(ValBuilder::new_bool(false));
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: CompactString = match event {

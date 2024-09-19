@@ -87,7 +87,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// Get the argument as a val.
     pub fn arg(&mut self, idx: usize) -> Val {
         let v = self.args()[idx];
-        Val::new(&mut self.vm, v)
+        Val::new(self.vm, v)
     }
 
     /// Get the arguments to the function call.
@@ -104,7 +104,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// Garbage collector may clean up this value. For safety, the value must be returned
     /// immediately.
     pub unsafe fn new_string(&mut self, s: CompactString) -> ValBuilder<'a> {
-        let string_id = self.vm.val_store.insert_string(s);
+        let string_id = self.vm.objects.insert_string(s);
         ValBuilder {
             val: string_id.into(),
             _lt: PhantomData,
@@ -115,7 +115,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// Garbage collector may clean up this value. For safety, the value must be returned
     /// immediately.
     pub unsafe fn new_list(&mut self, list: ListVal) -> ValBuilder<'a> {
-        let list_id = self.vm.val_store.insert_list(list);
+        let list_id = self.vm.objects.insert_list(list);
         ValBuilder {
             val: list_id.into(),
             _lt: PhantomData,
@@ -127,7 +127,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// immediately.
     pub unsafe fn new_custom(&mut self, obj: impl CustomType) -> ValBuilder<'a> {
         let custom_val = CustomVal::new(obj);
-        let custom_id = self.vm.val_store.insert_custom(custom_val);
+        let custom_id = self.vm.objects.insert_custom(custom_val);
         ValBuilder {
             val: custom_id.into(),
             _lt: PhantomData,
