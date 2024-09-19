@@ -44,6 +44,14 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                     write!(f, "{}", self.vm.objects.get_str(*x))
                 }
             }
+            InternalValImpl::MutableBox(x) => {
+                let inner = ValFormatter {
+                    vm: self.vm,
+                    v: *self.vm.objects.get_mutable_box(*x),
+                    quote_strings: self.quote_strings,
+                };
+                write!(f, "box<{}>", inner)
+            }
             InternalValImpl::List(x) => {
                 write!(f, "(")?;
                 for (idx, val) in self.vm.objects.get_list(*x).iter().enumerate() {

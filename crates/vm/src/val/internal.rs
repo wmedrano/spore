@@ -24,6 +24,8 @@ pub(crate) enum InternalValImpl {
     Float(f64),
     /// A string.
     String(ValId<CompactString>),
+    /// A box containing a mutable value.
+    MutableBox(ValId<InternalVal>),
     /// A list.
     List(ValId<ListVal>),
     /// A function implemented in Spore's bytecode.
@@ -45,6 +47,7 @@ impl InternalVal {
     pub const FLOAT_TYPE_NAME: &'static str = "float";
     pub const VOID_TYPE_NAME: &'static str = "void";
     pub const STRING_TYPE_NAME: &'static str = "string";
+    pub const MUTABLE_BOX_TYPE_NAME: &'static str = "mutable-box";
     pub const LIST_TYPE_NAME: &'static str = "list";
     pub const CUSTOM_TYPE_NAME: &'static str = "custom";
 
@@ -55,6 +58,7 @@ impl InternalVal {
             InternalValImpl::Int(_) => InternalVal::INT_TYPE_NAME,
             InternalValImpl::Float(_) => InternalVal::FLOAT_TYPE_NAME,
             InternalValImpl::String(_) => InternalVal::STRING_TYPE_NAME,
+            InternalValImpl::MutableBox(_) => InternalVal::MUTABLE_BOX_TYPE_NAME,
             InternalValImpl::List(_) => InternalVal::LIST_TYPE_NAME,
             InternalValImpl::ByteCodeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
             InternalValImpl::NativeFunction(_) => InternalVal::FUNCTION_TYPE_NAME,
@@ -86,6 +90,7 @@ to_internal_val_impl!(i64 => Int);
 to_internal_val_impl!(f64 => Float);
 to_internal_val_impl!(NativeFunction => NativeFunction);
 to_internal_val_impl!(ValId<CompactString> => String);
+to_internal_val_impl!(ValId<InternalVal> => MutableBox);
 to_internal_val_impl!(ValId<ListVal> => List);
 to_internal_val_impl!(ValId<Arc<ByteCode>> => ByteCodeFunction);
 to_internal_val_impl!(ValId<CustomVal> => Custom);

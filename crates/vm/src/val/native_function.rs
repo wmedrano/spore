@@ -84,6 +84,14 @@ impl<'a> NativeFunctionContext<'a> {
         self.vm
     }
 
+    /// Get the underlying VM.
+    ///
+    /// # Safety
+    /// Having access to the mutable VM gives a lot of power, use it responsibly.
+    pub fn vm_mut(&mut self) -> &mut Vm {
+        self.vm
+    }
+
     /// Get the argument as a val.
     pub fn arg(&mut self, idx: usize) -> Val {
         let v = self.args()[idx];
@@ -107,6 +115,17 @@ impl<'a> NativeFunctionContext<'a> {
         let string_id = self.vm.objects.insert_string(s);
         ValBuilder {
             val: string_id.into(),
+            _lt: PhantomData,
+        }
+    }
+
+    /// # Safety
+    /// Garbage collector may clean up this value. For safety, the value must be returned
+    /// immediately.
+    pub unsafe fn new_mutable_box(&mut self, v: InternalVal) -> ValBuilder<'a> {
+        let id = self.vm.objects.insert_mutable_box(v);
+        ValBuilder {
+            val: id.into(),
             _lt: PhantomData,
         }
     }

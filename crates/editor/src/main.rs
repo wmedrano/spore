@@ -2,7 +2,7 @@ use std::{fs::File, time::Duration};
 
 use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
-use log::{error, info};
+use log::error;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     widgets::Paragraph,
@@ -46,39 +46,31 @@ fn new_vm() -> Vm {
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     let main_src = r#"
 (define buffer-contents (new-rope))
+(define current-event (new-box ""))
 
-(define (set-buffer! event)
+(define (reset-buffer! event)
     (rope-clear!  buffer-contents buffer-contents)
     (rope-append! buffer-contents "Hello Spore!\n")
     (rope-append! buffer-contents "Working Directory: ")
     (rope-append! buffer-contents (working-directory))
     (rope-append! buffer-contents "\nEvent: ")
     (rope-append! buffer-contents event)
-    (rope-append! buffer-contents "\nPress <esc> to quit.")
-    (rope->string buffer-contents))
+    (rope-append! buffer-contents "\nPress <esc> to quit."))
 
 (define (handle-event event)
-    (if (not (truthy event)) (return (rope->string buffer-contents)))
     (if (= event "<esc>") (return false))
-    (set-buffer! event)
+    (if (truthy? event) (set-box! current-event event))
+    (reset-buffer! (unbox current-event))
     (rope->string buffer-contents))
 "#;
     vm.eval_str(main_src)?;
-    let mut has_init = false;
     loop {
-        let src = if has_init {
-            "(handle-event (read-event))"
-        } else {
-            has_init = true;
-            "(handle-event \"\")"
-        };
         let buffer_contents = vm
-            .eval_str(src)
+            .eval_str("(handle-event (read-event))")
             .inspect_err(|err| error!("VM Failed: {err}"))?;
         let should_continue = buffer_contents.as_bool().unwrap_or(true);
         if !should_continue {
-            info!("Exit requested.");
-            return Ok(());
+            break;
         }
         terminal.draw(move |frame| {
             frame.render_widget(
@@ -87,6 +79,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
             );
         })?;
     }
+    Ok(())
 }
 
 fn read_event(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {

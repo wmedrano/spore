@@ -13,6 +13,7 @@ mod object_store;
 #[derive(Debug, Default)]
 pub struct MemoryManager {
     strings: ObjectStore<CompactString>,
+    mutable_boxes: ObjectStore<InternalVal>,
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
     customs: ObjectStore<CustomVal>,
@@ -33,6 +34,10 @@ pub struct GcStats {
     strings_allocated: usize,
     /// The total number of strings freed.
     strings_freed: usize,
+    /// The total number of mutable boxes freed.
+    mutable_boxes_freed: usize,
+    /// The total number of mutable boxes allocated.
+    mutable_boxes_allocated: usize,
     /// The total number of lists allocated.
     lists_allocated: usize,
     /// The total number of lists freed.
@@ -102,6 +107,9 @@ impl MemoryManager {
         for (id, _) in self.strings.iter_keep_reachable() {
             temp_data.current_queue.push(id.into())
         }
+        for (id, _) in self.mutable_boxes.iter_keep_reachable() {
+            temp_data.current_queue.push(id.into());
+        }
         for (id, _) in self.lists.iter_keep_reachable() {
             temp_data.current_queue.push(id.into());
         }
@@ -122,6 +130,11 @@ impl MemoryManager {
         match val.0 {
             InternalValImpl::String(id) => {
                 self.strings.set_color(id, self.reachable_color);
+            }
+            InternalValImpl::MutableBox(id) => {
+                if let Some(unboxed) = self.mutable_boxes.set_color(id, self.reachable_color) {
+                    add_child(*unboxed);
+                }
             }
             InternalValImpl::List(id) => {
                 if let Some(list) = self.lists.set_color(id, self.reachable_color) {
@@ -147,6 +160,8 @@ impl MemoryManager {
     fn run_gc_sweep(&mut self) {
         let unreachable_color = self.reachable_color.other();
         self.stats.strings_freed += self.strings.remove_all_with_color(unreachable_color);
+        self.stats.mutable_boxes_freed +=
+            self.mutable_boxes.remove_all_with_color(unreachable_color);
         self.stats.lists_freed += self.lists.remove_all_with_color(unreachable_color);
         self.stats.bytecodes_freed += self.bytecodes.remove_all_with_color(unreachable_color);
         self.stats.customs_freed += self.customs.remove_all_with_color(unreachable_color);
@@ -161,6 +176,9 @@ impl MemoryManager {
             InternalValImpl::Float(_) => {}
             InternalValImpl::String(id) => {
                 self.strings.mark_always_reachable(id);
+            }
+            InternalValImpl::MutableBox(id) => {
+                self.mutable_boxes.mark_always_reachable(id);
             }
             InternalValImpl::List(id) => {
                 self.lists.mark_always_reachable(id);
@@ -181,6 +199,9 @@ impl MemoryManager {
             InternalValImpl::Bool(_) => {}
             InternalValImpl::Int(_) => {}
             InternalValImpl::Float(_) => {}
+            InternalValImpl::MutableBox(id) => {
+                self.mutable_boxes.unmark_always_reachable(id);
+            }
             InternalValImpl::String(id) => {
                 self.strings.unmark_always_reachable(id);
             }
@@ -206,6 +227,27 @@ impl MemoryManager {
     pub fn insert_string(&mut self, s: CompactString) -> ValId<CompactString> {
         self.stats.strings_allocated += 1;
         self.strings.insert(s, self.reachable_color)
+    }
+
+    /// Get a string by its id.
+    pub fn get_mutable_box(&self, id: ValId<InternalVal>) -> &InternalVal {
+        let res = self.mutable_boxes.get(id);
+        debug_assert!(res.is_some());
+        res.unwrap()
+    }
+
+    /// Set the mutable box value and return the previous value.
+    pub fn set_mutable_box(&mut self, id: ValId<InternalVal>, v: InternalVal) -> InternalVal {
+        let slot = self.mutable_boxes.get_mut(id).unwrap();
+        let old = *slot;
+        *slot = v;
+        old
+    }
+
+    /// Insert a string and get its id.
+    pub fn insert_mutable_box(&mut self, v: InternalVal) -> ValId<InternalVal> {
+        self.stats.mutable_boxes_allocated += 1;
+        self.mutable_boxes.insert(v, self.reachable_color)
     }
 
     pub const EMPTY_LIST: &ListVal = &ListVal::new();
@@ -280,6 +322,7 @@ pub fn is_garbage_collected(v: InternalVal) -> bool {
         InternalValImpl::Int(_) => false,
         InternalValImpl::Float(_) => false,
         InternalValImpl::String(_) => true,
+        InternalValImpl::MutableBox(_) => true,
         InternalValImpl::List(_) => true,
         InternalValImpl::ByteCodeFunction(_) => true,
         InternalValImpl::NativeFunction(_) => false,

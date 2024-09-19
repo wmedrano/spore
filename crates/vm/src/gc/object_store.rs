@@ -121,12 +121,21 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
             .map(|(idx, obj)| (ValId::new(idx as u32), obj))
     }
 
+    /// Get a reference to the underlying type or `None` if it does not exist.
     pub fn get(&self, id: ValId<T>) -> Option<&T> {
         self.objects
             .get(id.as_usize())
             .and_then(|obj| obj.inner.as_ref())
     }
 
+    /// Get a mutable reference to the underlying type or `None` if it does not exist.
+    pub fn get_mut(&mut self, id: ValId<T>) -> Option<&mut T> {
+        self.objects
+            .get_mut(id.as_usize())
+            .and_then(|obj| obj.inner.as_mut())
+    }
+
+    /// Insert object `T` with `color` and return its `id`.
     pub fn insert(&mut self, obj: T, color: Color) -> ValId<T> {
         let v = ValWithColor {
             inner: Some(obj),
@@ -168,28 +177,31 @@ impl Color {
 
 #[cfg(test)]
 mod tests {
-    use std::{any::Any, sync::Arc};
+    use std::sync::Arc;
 
     use compact_str::CompactString;
 
-    use crate::val::ByteCode;
+    use crate::val::{custom::CustomVal, ByteCode, InternalVal};
 
     use super::*;
 
     #[test]
     fn sizes_are_small() {
         assert_eq!(
-            std::mem::size_of::<ValWithColor<Box<dyn Any>>>(),
-            8 + std::mem::size_of::<Box<dyn Any>>()
-        );
-        assert_eq!(std::mem::size_of::<String>(), 24);
-        assert_eq!(
             std::mem::size_of::<ValWithColor<CompactString>>(),
             8 + std::mem::size_of::<String>()
         );
         assert_eq!(
+            std::mem::size_of::<ValWithColor<InternalVal>>(),
+            8 + std::mem::size_of::<InternalVal>()
+        );
+        assert_eq!(
             std::mem::size_of::<ValWithColor<Arc<ByteCode>>>(),
             8 + std::mem::size_of::<Arc<ByteCode>>(),
+        );
+        assert_eq!(
+            std::mem::size_of::<ValWithColor<CustomVal>>(),
+            8 + std::mem::size_of::<CustomVal>()
         );
     }
 }

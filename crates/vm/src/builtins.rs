@@ -12,9 +12,12 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("=", equal),
     ("+", add),
     ("<", less),
-    ("truthy", truthy),
+    ("truthy?", truthy_p),
     ("not", not),
     ("string-join", string_join),
+    ("new-box", new_box),
+    ("set-box!", set_box),
+    ("unbox", unbox),
     ("list", list),
     ("working-directory", working_directory),
 ];
@@ -117,14 +120,14 @@ pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     less_impl(ctx.vm(), ctx.args())
 }
 
-pub fn truthy<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+pub fn truthy_p<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
         [v] => match v.0 {
             InternalValImpl::Void | InternalValImpl::Bool(false) => Ok(ValBuilder::new_bool(false)),
             _ => Ok(ValBuilder::new_bool(true)),
         },
         args => Err(VmError::ArityError {
-            function: "truthy".into(),
+            function: "truthy?".into(),
             expected: 1,
             actual: args.len(),
         }),
@@ -209,6 +212,63 @@ pub fn string_join(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     Ok(unsafe { ctx.new_string(result) })
 }
 
+pub fn new_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    match ctx.args() {
+        // Unsafe OK: Returns immediately so no garbage collection may happen.
+        [v] => Ok(unsafe { ctx.new_mutable_box(*v) }),
+        args => Err(VmError::ArityError {
+            function: "new-box".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    match ctx.args() {
+        // Unsafe OK: This is for sure safe...
+        [InternalVal(InternalValImpl::MutableBox(id)), v] => unsafe {
+            let id = *id;
+            let v = *v;
+            let vm = ctx.vm_mut();
+            Ok(ValBuilder::new_internal(vm.objects.set_mutable_box(id, v)))
+        },
+        [arg, _] => Err(VmError::TypeError {
+            context: "set-box!",
+            expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+            actual: arg.type_name(),
+            value: arg.format_quoted(ctx.vm()).to_string(),
+        }),
+        args => Err(VmError::ArityError {
+            function: "set-box!".into(),
+            expected: 2,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    match ctx.args() {
+        // Unsafe OK: This is for sure safe...
+        [InternalVal(InternalValImpl::MutableBox(id))] => unsafe {
+            Ok(ValBuilder::new_internal(
+                *ctx.vm().objects.get_mutable_box(*id),
+            ))
+        },
+        [arg] => Err(VmError::TypeError {
+            context: "unbox",
+            expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+            actual: arg.type_name(),
+            value: arg.format_quoted(ctx.vm()).to_string(),
+        }),
+        args => Err(VmError::ArityError {
+            function: "unbox".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
+}
+
 pub fn list(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let list = ctx.args().to_vec();
     // Unsafe OK: Value is returned immediately.
@@ -235,6 +295,7 @@ pub fn working_directory(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder>
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -441,43 +502,46 @@ mod tests {
     }
 
     #[test]
-    fn false_or_void_with_truthy_is_false() {
+    fn truthy_p_is_false_on_false_and_void() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(truthy false)").unwrap().as_bool(),
+            vm.eval_str("(truthy? false)").unwrap().as_bool(),
             Some(false)
         );
-        assert_eq!(vm.eval_str("(truthy void)").unwrap().as_bool(), Some(false));
+        assert_eq!(
+            vm.eval_str("(truthy? void)").unwrap().as_bool(),
+            Some(false)
+        );
     }
 
     #[test]
-    fn all_values_are_truthy() {
+    fn truthy_p_is_true_on_all_non_false_void_values() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(truthy true)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy 1)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy 1.0)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(truthy \"\")").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy? true)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy? 1)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy? 1.0)").unwrap().as_bool(), Some(true));
+        assert_eq!(vm.eval_str("(truthy? \"\")").unwrap().as_bool(), Some(true));
         assert_eq!(
-            vm.eval_str("(truthy truthy)").unwrap().as_bool(),
+            vm.eval_str("(truthy? truthy?)").unwrap().as_bool(),
             Some(true)
         );
     }
 
     #[test]
-    fn truthy_with_wrong_number_of_args_produces_error() {
+    fn truthy_p_with_wrong_number_of_args_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(truthy)").unwrap_err(),
+            vm.eval_str("(truthy?)").unwrap_err(),
             VmError::ArityError {
-                function: "truthy".into(),
+                function: "truthy?".into(),
                 expected: 1,
                 actual: 0,
             }
         );
         assert_eq!(
-            vm.eval_str("(truthy 0 1)").unwrap_err(),
+            vm.eval_str("(truthy? 0 1)").unwrap_err(),
             VmError::ArityError {
-                function: "truthy".into(),
+                function: "truthy?".into(),
                 expected: 1,
                 actual: 2,
             }
@@ -596,6 +660,120 @@ mod tests {
             .eval_str("(string-join (list \"one\" \"two\") \" fish \")")
             .unwrap();
         assert_eq!(got.as_str(), Some("one fish two"));
+    }
+
+    #[test]
+    fn new_box_with_wrong_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(new-box)").unwrap_err(),
+            VmError::ArityError {
+                function: "new-box".into(),
+                expected: 1,
+                actual: 0
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(new-box 0 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "new-box".into(),
+                expected: 1,
+                actual: 2
+            }
+        );
+    }
+
+    #[test]
+    fn referencing_box_does_not_return_inner_value() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
+        assert_eq!(vm.eval_str("val").unwrap().as_str(), None);
+    }
+
+    #[test]
+    fn get_box_returns_value_inside_box() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
+        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("foo"));
+    }
+
+    #[test]
+    fn get_box_with_wrong_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(unbox)").unwrap_err(),
+            VmError::ArityError {
+                function: "unbox".into(),
+                expected: 1,
+                actual: 0
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(unbox (new-box 0) 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "unbox".into(),
+                expected: 1,
+                actual: 2
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(unbox 0)").unwrap_err(),
+            VmError::TypeError {
+                context: "unbox",
+                expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+                actual: InternalVal::INT_TYPE_NAME,
+                value: "0".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn set_box_changes_value_for_subsequent_get_box_calls() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
+        assert_eq!(vm.eval_str("val").unwrap().as_str(), None);
+        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("foo"));
+
+        vm.eval_str("(set-box! val \"bar\")").unwrap();
+        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("bar"));
+    }
+
+    #[test]
+    fn set_box_with_wrong_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(set-box!)").unwrap_err(),
+            VmError::ArityError {
+                function: "set-box!".into(),
+                expected: 2,
+                actual: 0
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(set-box! (new-box 0))").unwrap_err(),
+            VmError::ArityError {
+                function: "set-box!".into(),
+                expected: 2,
+                actual: 1
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(set-box! 0 (new-box 0))").unwrap_err(),
+            VmError::TypeError {
+                context: "set-box!",
+                expected: InternalVal::MUTABLE_BOX_TYPE_NAME,
+                actual: InternalVal::INT_TYPE_NAME,
+                value: "0".to_string(),
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(set-box! (new-box 0) 1 2)").unwrap_err(),
+            VmError::ArityError {
+                function: "set-box!".into(),
+                expected: 2,
+                actual: 3
+            }
+        );
     }
 
     #[test]
