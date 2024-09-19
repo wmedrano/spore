@@ -19,8 +19,7 @@ pub struct MemoryManager {
     customs: ObjectStore<CustomVal>,
     reachable_color: Color,
     stats: GcStats,
-    // Data used for GC mark phase.
-    temp_mark_data: TempMarkData,
+    marker: Marker,
 }
 
 /// Contains garbage collection stats for a [MemoryManager].
@@ -53,9 +52,9 @@ pub struct GcStats {
 }
 
 #[derive(Clone, Debug, Default)]
-struct TempMarkData {
-    current_queue: Vec<UnsafeVal>,
-    next_queue: Vec<UnsafeVal>,
+struct Marker {
+    roots: Vec<UnsafeVal>,
+    children: Vec<UnsafeVal>,
 }
 
 impl MemoryManager {
@@ -64,8 +63,7 @@ impl MemoryManager {
     /// The function is mutable as it updates some metadata components before returning the stats.
     pub fn stats(&mut self) -> &GcStats {
         let mark_queue_size = std::mem::size_of::<UnsafeVal>()
-            * (self.temp_mark_data.current_queue.capacity()
-                + self.temp_mark_data.next_queue.capacity());
+            * (self.marker.roots.capacity() + self.marker.children.capacity());
         self.stats.gc_metadata_size = mark_queue_size
             + self.strings.metadata_size()
             + self.lists.metadata_size()
@@ -75,45 +73,45 @@ impl MemoryManager {
     }
 
     /// Run the garbage collector. All known values must be in `values`.
-    pub fn run_gc(&mut self, populate_vals: impl Fn(&mut Vec<UnsafeVal>)) {
+    pub fn run_gc(&mut self, populate_vals: impl Iterator<Item = UnsafeVal>) {
         self.stats.gc_invocations += 1;
-        let mut temp_data = std::mem::take(&mut self.temp_mark_data);
-        self.run_gc_mark(&mut temp_data, populate_vals);
-        self.temp_mark_data = temp_data;
+        let mut marker = std::mem::take(&mut self.marker);
+        self.run_gc_mark(&mut marker, populate_vals);
+        self.marker = marker;
         self.run_gc_sweep();
         self.reachable_color = self.reachable_color.other();
     }
 
     /// Run the GC mark phase.
-    fn run_gc_mark(&mut self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<UnsafeVal>)) {
-        self.init_gc_mark(temp_data, values);
-        while !temp_data.current_queue.is_empty() {
-            for val in temp_data.current_queue.drain(..) {
-                self.gc_mark_one(val, &mut temp_data.next_queue);
+    fn run_gc_mark(&mut self, marker: &mut Marker, values: impl Iterator<Item = UnsafeVal>) {
+        self.init_gc_mark(marker, values);
+        while !marker.roots.is_empty() {
+            for val in marker.roots.drain(..) {
+                self.gc_mark_one(val, &mut marker.children);
             }
-            std::mem::swap(&mut temp_data.current_queue, &mut temp_data.next_queue);
+            std::mem::swap(&mut marker.roots, &mut marker.children);
         }
     }
 
     /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
     /// `temp_data.current_queue`.
-    fn init_gc_mark(&self, temp_data: &mut TempMarkData, values: impl Fn(&mut Vec<UnsafeVal>)) {
+    fn init_gc_mark(&self, temp_data: &mut Marker, values: impl Iterator<Item = UnsafeVal>) {
         temp_data.clear_retaining_capacity();
-        values(&mut temp_data.current_queue);
+        temp_data.roots.extend(values);
         for (id, _) in self.strings.iter_keep_reachable() {
-            temp_data.current_queue.push(id.into())
+            temp_data.roots.push(id.into())
         }
         for (id, _) in self.mutable_boxes.iter_keep_reachable() {
-            temp_data.current_queue.push(id.into());
+            temp_data.roots.push(id.into());
         }
         for (id, _) in self.lists.iter_keep_reachable() {
-            temp_data.current_queue.push(id.into());
+            temp_data.roots.push(id.into());
         }
         for (id, _) in self.bytecodes.iter_keep_reachable() {
-            temp_data.current_queue.push(id.into());
+            temp_data.roots.push(id.into());
         }
         for (id, _) in self.customs.iter_keep_reachable() {
-            temp_data.current_queue.push(id.into());
+            temp_data.roots.push(id.into());
         }
     }
 
@@ -326,10 +324,10 @@ pub fn is_garbage_collected(v: UnsafeVal) -> bool {
     }
 }
 
-impl TempMarkData {
+impl Marker {
     fn clear_retaining_capacity(&mut self) {
-        self.current_queue.clear();
-        self.next_queue.clear();
+        self.roots.clear();
+        self.children.clear();
     }
 }
 

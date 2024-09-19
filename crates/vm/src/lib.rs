@@ -91,32 +91,50 @@ impl Vm {
     /// Run the garbage collector.
     pub fn run_gc(&mut self) {
         let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
-        self.objects.run_gc(|vals| {
-            vals.extend(self.stack.iter().copied().filter(is_gc));
-            vals.extend(self.values.values().copied().filter(is_gc));
-            vals.push(self.stack_frame.bytecode_id.into());
-            vals.extend(self.stack_frame.bytecode.values().filter(is_gc));
-            for previous_frame in self.previous_stack_frames.iter() {
-                vals.push(previous_frame.bytecode_id.into());
-                vals.extend(previous_frame.bytecode.values().filter(is_gc));
-            }
-        })
+        let vals = self
+            .stack
+            .iter()
+            .copied()
+            .filter(is_gc)
+            .chain(self.values.values().copied().filter(is_gc))
+            .chain(
+                self.previous_stack_frames
+                    .iter()
+                    .flat_map(|previous_frame| {
+                        previous_frame
+                            .bytecode
+                            .values()
+                            .filter(is_gc)
+                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
+                    }),
+            )
+            .chain(self.stack_frame.bytecode.values().filter(is_gc))
+            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
+        self.objects.run_gc(vals)
     }
 
     /// Return the VM with the native function registered.
     pub fn with_native_function(mut self, name: &str, func: NativeFunction) -> Self {
-        self.register_value(name, func);
+        let func: UnsafeVal = func.into();
+        assert!(!is_garbage_collected(func));
+        // Unsafe OK: Native functions do not need to register with the vm.
+        unsafe { self.register_value(name, func) };
         self
     }
 
     /// Return the VM with a custom value that is accessible globally.
     pub fn with_custom_value(mut self, name: &str, val: impl CustomType) -> Self {
         let id = self.objects.insert_custom(CustomVal::new(val));
-        self.register_value(name, id);
+        // Unsafe OK: Custom type is registered in the VM in the line above.
+        unsafe { self.register_value(name, id) };
         self
     }
 
-    fn register_value(&mut self, name: &str, val: impl Into<UnsafeVal>) {
+    /// Register a value to the VM.
+    ///
+    /// # Safety
+    /// `val` must already be in the VM if it is a garbage collected type.
+    unsafe fn register_value(&mut self, name: &str, val: impl Into<UnsafeVal>) {
         let val = val.into();
         info!(
             "Registering {name:?} to value of type {tp}.",
@@ -254,28 +272,16 @@ impl Vm {
                     });
                 }
                 if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
-                    let mut call_stack = Vec::with_capacity(1 + self.previous_stack_frames.len());
-                    call_stack.push(self.stack_frame.bytecode.name.clone());
-                    call_stack.extend(
-                        self.previous_stack_frames
-                            .iter()
-                            .rev()
-                            .map(|sf| sf.bytecode.name.clone()),
-                    );
-                    return Err(VmError::MaximumRecursionDepth {
-                        call_stack,
-                        max_depth: self.previous_stack_frames.len(),
-                    });
+                    return Err(self.execute_call_stack_limit_reached());
                 }
-                let previous_stack_frame = std::mem::replace(
-                    &mut self.stack_frame,
-                    StackFrame {
-                        bytecode_id,
-                        bytecode,
-                        bytecode_idx: 0,
-                        stack_start,
-                    },
-                );
+                let new_stack_frame = StackFrame {
+                    bytecode_id,
+                    bytecode,
+                    bytecode_idx: 0,
+                    stack_start,
+                };
+                let previous_stack_frame =
+                    std::mem::replace(&mut self.stack_frame, new_stack_frame);
                 self.previous_stack_frames.push(previous_stack_frame);
                 Ok(())
             }
@@ -285,6 +291,21 @@ impl Vm {
                 actual: func_val.type_name(),
                 value: func_val.formatted(self).to_string(),
             }),
+        }
+    }
+
+    fn execute_call_stack_limit_reached(&mut self) -> VmError {
+        let mut call_stack = Vec::with_capacity(1 + self.previous_stack_frames.len());
+        call_stack.push(self.stack_frame.bytecode.name.clone());
+        call_stack.extend(
+            self.previous_stack_frames
+                .iter()
+                .rev()
+                .map(|sf| sf.bytecode.name.clone()),
+        );
+        VmError::MaximumRecursionDepth {
+            call_stack,
+            max_depth: self.previous_stack_frames.len(),
         }
     }
 
