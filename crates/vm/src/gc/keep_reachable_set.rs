@@ -5,7 +5,7 @@ use std::{
 };
 
 use compact_str::CompactString;
-use log::warn;
+use log::*;
 
 use crate::val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId};
 
@@ -71,6 +71,7 @@ impl KeepReachableSet {
     }
 }
 
+/// A private trait with some helper methods around reachable counters.
 trait ReachableStoreSealed {
     type K: Copy + std::fmt::Debug + Hash + Eq;
     fn as_hashmap(&self) -> &HashMap<Self::K, ReferenceCounter>;
@@ -105,7 +106,7 @@ trait ReachableStoreSealed {
     }
 }
 
-impl<T> ReachableStoreSealed for HashMap<ValId<T>, ReferenceCounter> {
+impl<T: std::fmt::Debug> ReachableStoreSealed for HashMap<ValId<T>, ReferenceCounter> {
     type K = ValId<T>;
     fn as_hashmap(&self) -> &HashMap<Self::K, ReferenceCounter> {
         self

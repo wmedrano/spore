@@ -12,8 +12,9 @@ mod keep_reachable_set;
 mod object_store;
 
 /// ValStore manages the lifetime of Val objects.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct MemoryManager {
+    vm_id: u16,
     strings: ObjectStore<CompactString>,
     mutable_boxes: ObjectStore<UnsafeVal>,
     lists: ObjectStore<ListVal>,
@@ -54,6 +55,20 @@ pub struct GcStats {
 }
 
 impl MemoryManager {
+    /// Create a new memory manager for the [Vm] with the given id.
+    pub fn new(vm_id: u16) -> Self {
+        MemoryManager {
+            vm_id,
+            strings: ObjectStore::default(),
+            mutable_boxes: ObjectStore::default(),
+            lists: ObjectStore::default(),
+            bytecodes: ObjectStore::default(),
+            customs: ObjectStore::default(),
+            keep_reachable: KeepReachableSet::default(),
+            reachable_color: Color::default(),
+            stats: GcStats::default(),
+        }
+    }
     /// Returns the garage collection stats.
     ///
     /// The function is mutable as it updates some metadata components before returning the stats.
@@ -154,7 +169,7 @@ impl MemoryManager {
 
     /// Get a string by its id.
     pub fn get_str(&self, id: ValId<CompactString>) -> &str {
-        let res = self.strings.get(id);
+        let res = self.strings.get(self.vm_id, id);
         debug_assert!(res.is_some());
         res.map(CompactString::as_str).unwrap_or("")
     }
@@ -162,19 +177,19 @@ impl MemoryManager {
     /// Insert a string and get its id.
     pub fn insert_string(&mut self, s: CompactString) -> ValId<CompactString> {
         self.stats.strings_allocated += 1;
-        self.strings.insert(s, self.reachable_color)
+        self.strings.insert(self.vm_id, s, self.reachable_color)
     }
 
     /// Get a string by its id.
     pub fn get_mutable_box(&self, id: ValId<UnsafeVal>) -> &UnsafeVal {
-        let res = self.mutable_boxes.get(id);
+        let res = self.mutable_boxes.get(self.vm_id, id);
         debug_assert!(res.is_some());
         res.unwrap()
     }
 
     /// Set the mutable box value and return the previous value.
     pub fn set_mutable_box(&mut self, id: ValId<UnsafeVal>, v: UnsafeVal) -> UnsafeVal {
-        let slot = self.mutable_boxes.get_mut(id).unwrap();
+        let slot = self.mutable_boxes.get_mut(self.vm_id, id).unwrap();
         let old = *slot;
         *slot = v;
         old
@@ -183,14 +198,15 @@ impl MemoryManager {
     /// Insert a string and get its id.
     pub fn insert_mutable_box(&mut self, v: UnsafeVal) -> ValId<UnsafeVal> {
         self.stats.mutable_boxes_allocated += 1;
-        self.mutable_boxes.insert(v, self.reachable_color)
+        self.mutable_boxes
+            .insert(self.vm_id, v, self.reachable_color)
     }
 
     pub const EMPTY_LIST: &ListVal = &ListVal::new();
 
     /// Get a list by its id.
     pub fn get_list(&self, id: ValId<ListVal>) -> &ListVal {
-        let res = self.lists.get(id);
+        let res = self.lists.get(self.vm_id, id);
         debug_assert!(res.is_some(), "{id:?} not found.");
         res.unwrap_or(Self::EMPTY_LIST)
     }
@@ -200,12 +216,13 @@ impl MemoryManager {
         self.stats.lists_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
-        self.lists.insert(list, self.reachable_color.other())
+        self.lists
+            .insert(self.vm_id, list, self.reachable_color.other())
     }
 
     /// Get a bytecode by its id.
     pub fn get_bytecode(&self, id: ValId<Arc<ByteCode>>) -> &Arc<ByteCode> {
-        let res = self.bytecodes.get(id);
+        let res = self.bytecodes.get(self.vm_id, id);
         debug_assert!(res.is_some(), "{id:?} not found");
         res.unwrap()
     }
@@ -216,7 +233,7 @@ impl MemoryManager {
     /// Warning: This may be very slow.
     #[cfg(test)]
     pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
-        for (id, val) in self.bytecodes.iter() {
+        for (id, val) in self.bytecodes.iter(self.vm_id) {
             if val.as_ref() == &bytecode {
                 return id;
             }
@@ -231,12 +248,12 @@ impl MemoryManager {
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.bytecodes
-            .insert(bytecode.into(), self.reachable_color.other())
+            .insert(self.vm_id, bytecode.into(), self.reachable_color.other())
     }
 
     /// Get a custom value by its id.
     pub fn get_custom(&self, id: ValId<CustomVal>) -> &CustomVal {
-        let c = self.customs.get(id);
+        let c = self.customs.get(self.vm_id, id);
         debug_assert!(c.is_some(), "{id:?} not found");
         c.unwrap()
     }
@@ -246,7 +263,8 @@ impl MemoryManager {
         self.stats.customs_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
-        self.customs.insert(custom, self.reachable_color.other())
+        self.customs
+            .insert(self.vm_id, custom, self.reachable_color.other())
     }
 }
 
@@ -273,6 +291,12 @@ mod tests {
     #[test]
     fn hacks_for_code_coverage() {
         // This is optimized away due to being a Copy type.
-        let _ = ValId::<()>::new(0u32).clone();
+        let _ = ValId {
+            vm_id: 0,
+            obj_id: 0,
+            idx: 0,
+            _marker: std::marker::PhantomData::<()>,
+        }
+        .clone();
     }
 }

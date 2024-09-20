@@ -2,7 +2,7 @@ use std::{fs::File, time::Duration};
 
 use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
-use log::{error, warn};
+use log::*;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     widgets::Paragraph,

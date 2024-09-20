@@ -1,8 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicU16, Arc},
+};
 
 use compact_str::CompactString;
 use gc::{is_garbage_collected, MemoryManager};
-use log::info;
+use log::*;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
@@ -63,10 +66,13 @@ impl Default for Vm {
     }
 }
 
+static VM_ID: AtomicU16 = AtomicU16::new(0);
+
 impl Vm {
     /// Create a new virtual machine.
     pub fn new(settings: VmSettings) -> Vm {
         let start_t = std::time::Instant::now();
+        let vm_id = VM_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut vm = Vm {
             // TODO: Determine optimal size for stack. Small values may perform, better, but
             // exceeding the capacity may cause performance degregations.
@@ -75,7 +81,7 @@ impl Vm {
             // Allocate for a function call depth of 64. This is more than enough for most programs.
             previous_stack_frames: Vec::with_capacity(64),
             stack_frame: StackFrame::default(),
-            objects: MemoryManager::default(),
+            objects: MemoryManager::new(vm_id),
             settings,
         };
         for (name, func) in builtins::BUILTINS {
@@ -137,7 +143,7 @@ impl Vm {
     unsafe fn register_value(&mut self, name: &str, val: impl Into<UnsafeVal>) {
         let val = val.into();
         info!(
-            "Registering {name:?} to value of type {tp}.",
+            "Registering {name:?} to a(n) {tp} value.",
             tp = val.type_name()
         );
         self.values.insert(name.into(), val);
