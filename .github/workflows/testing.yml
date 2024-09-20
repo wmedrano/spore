@@ -34,8 +34,24 @@ jobs:
         run: cargo doc && cargo test --doc
       - name: Run Examples
         run: cargo run --example fib
-      - name: Upload Code Coverage
+      - name: Package Artifacts
+        run: |
+          mkdir artifacts
+          mv target/doc/spore_editor artifacts
+          mv artifacts/spore_editor artifacts/doc
+          mv target/llvm-cov/html artifacts
+          mv artifacts/html artifacts/llvm-cov
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Code Coverage
-          path: target/llvm-cov/html/
+          path: artifacts/
+  deploy-site:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
