@@ -1,8 +1,4 @@
-use log::error;
-
 use crate::val::ValId;
-
-type KeepReachableCounter = u32;
 
 #[derive(Clone, Debug)]
 pub struct ValWithColor<T> {
@@ -11,8 +7,6 @@ pub struct ValWithColor<T> {
     /// The color of the object. Used for marking data as reachable (to keep) or unreachable (to
     /// garbage collect).
     color: Color,
-    /// The number of manually labeled reachable references.
-    keep_reachable_count: KeepReachableCounter,
 }
 
 /// A collection of `T` values that may be garbage collected.
@@ -40,33 +34,6 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
             + std::mem::size_of::<ValId<T>>() * self.free_object_ids.capacity()
     }
 
-    /// Mark `id` as always reachable. Undoing teach call to `mark_always_reachable` requires
-    /// calling [unmark_always_reachable].
-    pub fn mark_always_reachable(&mut self, id: ValId<T>) {
-        if let Some(obj) = self.objects.get_mut(id.as_usize()) {
-            obj.keep_reachable_count = match obj.keep_reachable_count.checked_add(1) {
-                Some(v) => v,
-                None => {
-                    error!("mark_always_reachable counter for {id:?} reached max value, it will live forever");
-                    KeepReachableCounter::MAX
-                }
-            };
-        }
-    }
-
-    /// Allow `id` to be labeled as `unreachable`.
-    pub fn unmark_always_reachable(&mut self, id: ValId<T>) {
-        if let Some(obj) = self.objects.get_mut(id.as_usize()) {
-            obj.keep_reachable_count = match obj.keep_reachable_count.checked_sub(1) {
-                Some(v) => v,
-                None => {
-                    error!("unmark_always_reachable called on object {id:?} which does not have always_reachable mark. Bad garbage collection tracking may leave program in unsafe state.");
-                    0
-                }
-            };
-        }
-    }
-
     /// Returns the object if its color was changed.
     pub fn set_color(&mut self, id: ValId<T>, new_color: Color) -> Option<&T> {
         match self.objects.get_mut(id.as_usize()) {
@@ -90,35 +57,20 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     pub fn remove_all_with_color(&mut self, color: Color) -> usize {
         let start_free = self.free_object_ids.len();
         for (idx, obj) in self.objects.iter_mut().enumerate() {
-            if obj.inner.is_some() && obj.color == color && obj.keep_reachable_count == 0 {
-                obj.keep_reachable_count = 0;
+            if obj.inner.is_some() && obj.color == color {
                 self.free_object_ids.push(ValId::new(idx as u32));
             }
         }
         self.free_object_ids.len() - start_free
     }
 
-    /// Iterate over all objects that are marked as keep reachable.
-    pub fn iter_keep_reachable(&self) -> impl '_ + Iterator<Item = (ValId<T>, &T)> {
-        self.iter_impl().flat_map(|(id, obj)| {
-            match (obj.keep_reachable_count, obj.inner.as_ref()) {
-                (0, _) | (_, None) => None,
-                (_, Some(obj)) => Some((id, obj)),
-            }
-        })
-    }
-
     #[cfg(test)]
     pub fn iter(&self) -> impl '_ + Iterator<Item = (ValId<T>, &T)> {
-        self.iter_impl()
-            .flat_map(|(id, v)| v.inner.as_ref().map(|obj| (id, obj)))
-    }
-
-    fn iter_impl(&self) -> impl '_ + Iterator<Item = (ValId<T>, &'_ ValWithColor<T>)> {
         self.objects
             .iter()
             .enumerate()
             .map(|(idx, obj)| (ValId::new(idx as u32), obj))
+            .flat_map(|(id, v)| v.inner.as_ref().map(|obj| (id, obj)))
     }
 
     /// Get a reference to the underlying type or `None` if it does not exist.
@@ -140,7 +92,6 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
         let v = ValWithColor {
             inner: Some(obj),
             color,
-            keep_reachable_count: 0,
         };
         match self.free_object_ids.pop() {
             Some(id) => {

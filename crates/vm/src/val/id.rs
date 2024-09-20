@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{hash::Hash, marker::PhantomData};
 
 type IdRepr = u32;
 
@@ -30,6 +30,11 @@ impl<T> Clone for ValId<T> {
 impl<T> PartialEq for ValId<T> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
+    }
+}
+impl<T> Hash for ValId<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }
 

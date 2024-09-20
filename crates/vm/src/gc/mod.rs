@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use compact_str::CompactString;
+use keep_reachable_set::KeepReachableSet;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
     val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId},
 };
 
+mod keep_reachable_set;
 mod object_store;
 
 /// ValStore manages the lifetime of Val objects.
@@ -17,9 +19,9 @@ pub struct MemoryManager {
     lists: ObjectStore<ListVal>,
     bytecodes: ObjectStore<Arc<ByteCode>>,
     customs: ObjectStore<CustomVal>,
+    keep_reachable: KeepReachableSet,
     reachable_color: Color,
     stats: GcStats,
-    marker: Marker,
 }
 
 /// Contains garbage collection stats for a [MemoryManager].
@@ -51,68 +53,46 @@ pub struct GcStats {
     customs_freed: usize,
 }
 
-#[derive(Clone, Debug, Default)]
-struct Marker {
-    roots: Vec<UnsafeVal>,
-    children: Vec<UnsafeVal>,
-}
-
 impl MemoryManager {
     /// Returns the garage collection stats.
     ///
     /// The function is mutable as it updates some metadata components before returning the stats.
     pub fn stats(&mut self) -> &GcStats {
-        let mark_queue_size = std::mem::size_of::<UnsafeVal>()
-            * (self.marker.roots.capacity() + self.marker.children.capacity());
-        self.stats.gc_metadata_size = mark_queue_size
-            + self.strings.metadata_size()
+        self.stats.gc_metadata_size = self.strings.metadata_size()
             + self.lists.metadata_size()
             + self.bytecodes.metadata_size()
-            + self.customs.metadata_size();
+            + self.customs.metadata_size()
+            + self.keep_reachable.bytes_size();
         &self.stats
     }
 
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, populate_vals: impl Iterator<Item = UnsafeVal>) {
         self.stats.gc_invocations += 1;
-        let mut marker = std::mem::take(&mut self.marker);
-        self.run_gc_mark(&mut marker, populate_vals);
-        self.marker = marker;
+        self.run_gc_mark(populate_vals);
         self.run_gc_sweep();
         self.reachable_color = self.reachable_color.other();
     }
 
     /// Run the GC mark phase.
-    fn run_gc_mark(&mut self, marker: &mut Marker, values: impl Iterator<Item = UnsafeVal>) {
-        self.init_gc_mark(marker, values);
-        while !marker.roots.is_empty() {
-            for val in marker.roots.drain(..) {
-                self.gc_mark_one(val, &mut marker.children);
+    fn run_gc_mark(&mut self, values: impl Iterator<Item = UnsafeVal>) {
+        let mut root_set = self.init_root_set(values);
+        let mut child_set = Vec::new();
+        while !root_set.is_empty() {
+            for val in root_set.drain(..) {
+                self.gc_mark_one(val, &mut child_set);
             }
-            std::mem::swap(&mut marker.roots, &mut marker.children);
+            std::mem::swap(&mut root_set, &mut child_set);
         }
     }
 
     /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
     /// `temp_data.current_queue`.
-    fn init_gc_mark(&self, temp_data: &mut Marker, values: impl Iterator<Item = UnsafeVal>) {
-        temp_data.clear_retaining_capacity();
-        temp_data.roots.extend(values);
-        for (id, _) in self.strings.iter_keep_reachable() {
-            temp_data.roots.push(id.into())
-        }
-        for (id, _) in self.mutable_boxes.iter_keep_reachable() {
-            temp_data.roots.push(id.into());
-        }
-        for (id, _) in self.lists.iter_keep_reachable() {
-            temp_data.roots.push(id.into());
-        }
-        for (id, _) in self.bytecodes.iter_keep_reachable() {
-            temp_data.roots.push(id.into());
-        }
-        for (id, _) in self.customs.iter_keep_reachable() {
-            temp_data.roots.push(id.into());
-        }
+    fn init_root_set(&self, values: impl Iterator<Item = UnsafeVal>) -> Vec<UnsafeVal> {
+        let mut root_set = Vec::new();
+        root_set.extend(values);
+        root_set.extend(self.keep_reachable.iter());
+        root_set
     }
 
     fn gc_mark_one(&mut self, val: UnsafeVal, child_queue: &mut Vec<UnsafeVal>) {
@@ -147,7 +127,7 @@ impl MemoryManager {
             UnsafeVal::Custom(id) => {
                 self.customs.set_color(id, self.reachable_color);
             }
-            _ => {}
+            v => debug_assert!(!is_garbage_collected(v)),
         }
     }
 
@@ -163,51 +143,13 @@ impl MemoryManager {
 
     /// Marks `value` as reachable so that it doesn't get garbage collected.
     pub fn keep_reachable(&mut self, value: UnsafeVal) {
-        match value {
-            UnsafeVal::Void => {}
-            UnsafeVal::Bool(_) => {}
-            UnsafeVal::Int(_) => {}
-            UnsafeVal::Float(_) => {}
-            UnsafeVal::String(id) => {
-                self.strings.mark_always_reachable(id);
-            }
-            UnsafeVal::MutableBox(id) => {
-                self.mutable_boxes.mark_always_reachable(id);
-            }
-            UnsafeVal::List(id) => {
-                self.lists.mark_always_reachable(id);
-            }
-            UnsafeVal::ByteCodeFunction(id) => {
-                self.bytecodes.mark_always_reachable(id);
-            }
-            UnsafeVal::NativeFunction(_) => {}
-            UnsafeVal::Custom(id) => self.customs.mark_always_reachable(id),
-        }
+        self.keep_reachable.insert(value);
     }
 
     /// Removes the `rechable` marking set by `keep_reachable` so that the value may get garbage
     /// collected.
     pub fn allow_unreachable(&mut self, value: UnsafeVal) {
-        match value {
-            UnsafeVal::Void => {}
-            UnsafeVal::Bool(_) => {}
-            UnsafeVal::Int(_) => {}
-            UnsafeVal::Float(_) => {}
-            UnsafeVal::MutableBox(id) => {
-                self.mutable_boxes.unmark_always_reachable(id);
-            }
-            UnsafeVal::String(id) => {
-                self.strings.unmark_always_reachable(id);
-            }
-            UnsafeVal::List(id) => {
-                self.lists.unmark_always_reachable(id);
-            }
-            UnsafeVal::ByteCodeFunction(id) => {
-                self.bytecodes.unmark_always_reachable(id);
-            }
-            UnsafeVal::NativeFunction(_) => {}
-            UnsafeVal::Custom(id) => self.customs.unmark_always_reachable(id),
-        }
+        self.keep_reachable.remove(value);
     }
 
     /// Get a string by its id.
@@ -321,13 +263,6 @@ pub fn is_garbage_collected(v: UnsafeVal) -> bool {
         UnsafeVal::ByteCodeFunction(_) => true,
         UnsafeVal::NativeFunction(_) => false,
         UnsafeVal::Custom(_) => true,
-    }
-}
-
-impl Marker {
-    fn clear_retaining_capacity(&mut self) {
-        self.roots.clear();
-        self.children.clear();
     }
 }
 
