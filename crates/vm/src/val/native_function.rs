@@ -68,7 +68,7 @@ impl<'a> NativeFunctionContext<'a> {
     }
 
     /// Get the number of arguments passed in to the function call.
-    pub fn arg_len(&self) -> usize {
+    pub fn args_len(&self) -> usize {
         self.vm.stack.len() - self.stack_start
     }
 }

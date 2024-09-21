@@ -74,7 +74,7 @@ impl UnsafeVal {
     pub const CUSTOM_TYPE_NAME: &'static str = "custom";
 
     /// Get the display name for the type of `self`.
-    pub fn type_name(&self) -> &'static str {
+    pub fn type_name(self) -> &'static str {
         match self {
             UnsafeVal::Void => UnsafeVal::VOID_TYPE_NAME,
             UnsafeVal::Bool(_) => UnsafeVal::BOOL_TYPE_NAME,
@@ -87,6 +87,11 @@ impl UnsafeVal {
             UnsafeVal::NativeFunction(_) => UnsafeVal::FUNCTION_TYPE_NAME,
             UnsafeVal::Custom(_) => UnsafeVal::CUSTOM_TYPE_NAME,
         }
+    }
+
+    /// Returns `false` if `self` is `void` or `false`. All other values return `true`.
+    pub fn is_truthy(self) -> bool {
+        !matches!(self, UnsafeVal::Void | UnsafeVal::Bool(false))
     }
 
     /// Get a display formatter for the current value.

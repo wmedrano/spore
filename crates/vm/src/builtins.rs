@@ -120,13 +120,7 @@ pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
 
 pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
-        [UnsafeVal::Bool(b)] => Ok(ctx.new_bool(!b)),
-        [v] => Err(VmError::TypeError {
-            context: "function not",
-            expected: UnsafeVal::BOOL_TYPE_NAME,
-            actual: v.type_name(),
-            value: v.format_quoted(ctx.vm()).to_string(),
-        }),
+        [v] => Ok(ctx.new_bool(!v.is_truthy())),
         args => Err(VmError::ArityError {
             function: "not".into(),
             expected: 1,
@@ -262,7 +256,7 @@ pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let arg_len = ctx.arg_len();
+    let arg_len = ctx.args_len();
     if arg_len != 0 {
         return Err(VmError::ArityError {
             function: "working-directory".into(),
@@ -494,7 +488,7 @@ mod tests {
     }
 
     #[test]
-    fn not_with_wrong_args_produces_error() {
+    fn not_with_wrong_not_just_one_arg_produces_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(not)").unwrap_err(),
@@ -512,15 +506,23 @@ mod tests {
                 actual: 2,
             }
         );
-        assert_eq!(
-            vm.eval_str("(not void)").unwrap_err(),
-            VmError::TypeError {
-                context: "function not",
-                expected: UnsafeVal::BOOL_TYPE_NAME,
-                actual: UnsafeVal::VOID_TYPE_NAME,
-                value: "<void>".into(),
-            }
-        );
+    }
+
+    #[test]
+    fn not_with_void_values_returns_true() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(not void)").unwrap().as_bool(), Some(true));
+    }
+
+    #[test]
+    fn not_with_truthy_values_returns_true() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(not true)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not 1)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not 1.0)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not \"\")").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not not)").unwrap().as_bool(), Some(false));
+        assert_eq!(vm.eval_str("(not (list))").unwrap().as_bool(), Some(false));
     }
 
     #[test]

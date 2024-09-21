@@ -217,10 +217,11 @@ impl Vm {
             Instruction::EvalNative { func, arg_count } => {
                 self.execute_eval_native(*func, *arg_count)?
             }
-            Instruction::JumpIf(n) => match self.stack.pop().unwrap() {
-                UnsafeVal::Bool(false) | UnsafeVal::Void => {}
-                _ => self.stack_frame.bytecode_idx += *n,
-            },
+            Instruction::JumpIf(n) => {
+                if self.stack.pop().unwrap().is_truthy() {
+                    self.stack_frame.bytecode_idx += *n;
+                }
+            }
             Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
             Instruction::Return => return Ok(self.execute_return()),
         }

@@ -1,21 +1,22 @@
 use std::{fs::File, time::Duration};
 
+use buffer::SporeBuffer;
 use compact_str::{format_compact, CompactString};
 use crossterm::event::KeyEvent;
 use log::*;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
-    widgets::Paragraph,
+    style::{Color, Style},
+    widgets::{Block, BorderType, Borders, Paragraph},
     DefaultTerminal,
 };
-use rope::SporeRope;
 use spore_vm::{
     error::{VmError, VmResult},
     val::{NativeFunctionContext, ValBuilder},
     Vm, VmSettings,
 };
 
-mod rope;
+mod buffer;
 
 fn main() -> anyhow::Result<()> {
     init_logger();
@@ -39,46 +40,52 @@ fn new_vm() -> Vm {
     let vm = Vm::new(VmSettings {
         enable_aggressive_inline: false,
     })
-    .with_native_function("read-event", read_event);
-    SporeRope::register(vm)
+    .with_native_function("read-event!", read_event);
+    SporeBuffer::register(vm)
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     let main_src = r#"
-(define buffer-contents (new-rope))
-(define current-event (new-box ""))
+(define running? (new-box true))
+(define buffer (new-buffer "*scratch*" "Press <esc> to quit.\n"))
 
-(define (reset-buffer! event)
-    (rope-clear!  buffer-contents buffer-contents)
-    (rope-append! buffer-contents "Hello Spore!\n")
-    (rope-append! buffer-contents "Working Directory: ")
-    (rope-append! buffer-contents (working-directory))
-    (rope-append! buffer-contents "\nEvent: ")
-    (rope-append! buffer-contents event)
-    (rope-append! buffer-contents "\nPress <esc> to quit."))
+(define (handle-event-impl! event)
+  (if (not event) (return void))
+  (if (= event "<esc>") (set-box! running? false))
+  (if (= event "<esc>") (return void))
+  (buffer-append! buffer "Pressed ")
+  (buffer-append! buffer event)
+  (buffer-append! buffer ".\n"))
 
-(define (handle-event event)
-    (if (= event "<esc>") (return false))
-    (if event (set-box! current-event event))
-    (reset-buffer! (unbox current-event))
-    (rope->string buffer-contents))
+
+(define (handle-event!)
+  (handle-event-impl! (read-event!)))
 "#;
-    vm.eval_str(main_src)?;
-    loop {
-        let buffer_contents = vm
-            .eval_str("(handle-event (read-event))")
-            .inspect_err(|err| error!("VM Failed: {err}"))?;
-        let should_continue = buffer_contents.as_bool().unwrap_or(true);
-        if !should_continue {
-            break;
+    vm.eval_str(main_src).unwrap();
+    while vm.eval_str("(unbox running?)").unwrap().as_bool().unwrap() {
+        {
+            let buffer = vm.eval_str("buffer").unwrap();
+            let buffer = buffer
+                .as_custom::<SporeBuffer>()
+                .unwrap()
+                .0
+                .try_read()
+                .unwrap();
+            terminal.draw(|frame| {
+                let window_area = frame.area();
+                let b = Block::default()
+                    .title(buffer.name.as_str())
+                    .border_style(Style::default().fg(Color::Magenta))
+                    .border_type(BorderType::Rounded)
+                    .borders(Borders::ALL);
+                let contents_area = b.inner(window_area);
+                frame.render_widget(b, window_area);
+                frame.render_widget(Paragraph::new(buffer.contents.to_string()), contents_area);
+            })?;
         }
-        terminal.draw(move |frame| {
-            frame.render_widget(
-                Paragraph::new(buffer_contents.as_str().unwrap()),
-                frame.area(),
-            );
-        })?;
+        vm.eval_str("(handle-event!)").unwrap();
     }
+    info!("Exiting Spore.");
     Ok(())
 }
 

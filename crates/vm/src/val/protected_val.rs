@@ -33,9 +33,19 @@ impl<'a> Drop for ProtectedVal<'a> {
 }
 
 impl<'a> ProtectedVal<'a> {
+    /// Get the display name for the type of `self`.
+    pub fn type_name(&self) -> &'static str {
+        self.v.type_name()
+    }
+
     /// Returns true if val is void.
     pub fn is_void(&self) -> bool {
         matches!(self.v, UnsafeVal::Void)
+    }
+
+    /// Returns `false` if the value is `void` or `false`, and `true` otherwise.
+    pub fn is_truthy(&self) -> bool {
+        self.v.is_truthy()
     }
 
     /// Returns the value a boolean or [None] if [Self] is not a boolean.
