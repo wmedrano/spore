@@ -48,7 +48,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 let inner = ValFormatter {
                     vm: self.vm,
                     v: *self.vm.objects.get_mutable_box(*x),
-                    quote_strings: self.quote_strings,
+                    quote_strings: true,
                 };
                 write!(f, "box<{}>", inner)
             }
@@ -140,6 +140,15 @@ mod tests {
             UnsafeVal::from(string_id).formatted(&vm).to_string(),
             "my string"
         );
+    }
+
+    #[test]
+    fn format_mutable_box_produces_underlying_value() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (new-box \"string\"))").unwrap();
+        let res = vm.eval_str("x").unwrap();
+        assert!(res.get_mutable_box_ref().is_ok());
+        assert_eq!(res.formatted(res.vm()).to_string(), "box<\"string\">");
     }
 
     #[test]

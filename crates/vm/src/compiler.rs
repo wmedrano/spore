@@ -576,7 +576,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("\"string\"")
                 .unwrap()
-                .as_str()
+                .try_str()
                 .unwrap()
                 .to_string(),
             "string"

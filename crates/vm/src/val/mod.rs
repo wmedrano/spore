@@ -54,58 +54,68 @@ impl Val<'static> {
 }
 
 impl<'a> Val<'a> {
+    /// Returns `true` if `self` is a void value.
     pub fn is_void(self) -> bool {
         matches!(self.inner, UnsafeVal::Void)
     }
 
+    /// Returns `true` if `self` is *not* `false` or `void`. Only `false` and `void` will return
+    /// `false.`
     pub fn is_truthy(self) -> bool {
         self.inner.is_truthy()
     }
 
-    pub fn as_bool(self) -> Option<bool> {
+    pub fn try_bool(self) -> Result<bool, Self> {
         match self.inner {
-            UnsafeVal::Bool(x) => x.into(),
-            _ => None,
+            UnsafeVal::Bool(x) => Ok(x),
+            _ => Err(self),
         }
     }
 
-    pub fn as_int(self) -> Option<i64> {
+    pub fn try_int(self) -> Result<i64, Self> {
         match self.inner {
-            UnsafeVal::Int(x) => x.into(),
-            _ => None,
+            UnsafeVal::Int(x) => Ok(x),
+            _ => Err(self),
         }
     }
 
-    pub fn as_float(self) -> Option<f64> {
+    pub fn try_float(self) -> Result<f64, Self> {
         match self.inner {
-            UnsafeVal::Float(x) => x.into(),
-            _ => None,
+            UnsafeVal::Float(x) => Ok(x),
+            _ => Err(self),
         }
     }
 
-    pub fn try_str(self, vm: &Vm) -> Result<&str, Val<'a>> {
-        self.as_str(vm).ok_or_else(|| self)
-    }
-
-    pub fn as_str(self, vm: &Vm) -> Option<&str> {
+    /// Get the underlying [&str] or [Err<Val>] if `self` is not a string.
+    pub fn try_str(self, vm: &Vm) -> Result<&str, Self> {
         match self.inner {
-            UnsafeVal::String(id) => Some(vm.objects.get_str(id)),
-            _ => None,
+            UnsafeVal::String(id) => Ok(vm.objects.get_str(id)),
+            _ => Err(self),
         }
     }
 
+    /// Get the underlying list or [Err<Val>] if `self` is not a list.
     pub fn try_list(self, vm: &Vm) -> Result<&[Val], Val<'a>> {
-        self.as_list(vm).ok_or_else(|| self)
-    }
-
-    pub fn as_list(self, vm: &Vm) -> Option<&[Val]> {
         match self.inner {
             UnsafeVal::List(id) => {
                 let list = vm.objects.get_list(id);
                 // The VM is borrowed so it is ensured to not garbage collect.
-                Some(unsafe { Val::from_unsafe_val_slice(list.as_slice()) })
+                Ok(unsafe { Val::from_unsafe_val_slice(list.as_slice()) })
             }
-            _ => None,
+            _ => Err(self),
+        }
+    }
+
+    /// Get the [Val] that the mutable box is pointing to or [Err<Val>] if `self` is not a mutable
+    /// box.
+    pub fn get_mutable_box_ref(self, vm: &Vm) -> Result<Val, Val<'a>> {
+        match self.inner {
+            UnsafeVal::MutableBox(id) => {
+                let mutable_box = vm.objects.get_mutable_box(id);
+                // The VM is borrowed so it is ensured to not garbage collect.
+                Ok(unsafe { Val::from_unsafe_val(*mutable_box) })
+            }
+            _ => Err(self),
         }
     }
 
@@ -155,6 +165,11 @@ impl<'a> Val<'a> {
 }
 
 impl<'a> Val<'a> {
+    /// Create a new [Val] from an [UnsafeVal].
+    ///
+    /// # Safety
+    /// [UnsafeVal] must be a valid value. It is possible to [UnsafeVal] to become invalidated
+    /// through VM garbage collection.
     pub unsafe fn from_unsafe_val(v: UnsafeVal) -> Val<'a> {
         Val {
             inner: v,
@@ -162,6 +177,30 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Return the underlying [UnsafeVal] representation.
+    ///
+    /// # Safety
+    /// This is unsafe as it removes the lifetime offered by [Val].
+    pub unsafe fn as_unsafe_val(self) -> UnsafeVal {
+        self.inner
+    }
+
+    /// Extend the lifetime of [Val] to `'static`.
+    ///
+    /// # Safety
+    /// This is unsafe as the caller must be certain that [Val] will not be garbage collected.
+    pub unsafe fn as_static(self) -> Val<'static> {
+        Val {
+            inner: self.inner,
+            _lifetime: PhantomData,
+        }
+    }
+
+    /// Convert a slice of [UnsafeVal] to a slice of [Val].
+    ///
+    /// # Safety
+    /// All [UnsafeVal] within `slice` must be valid. It is possible for [UnsafeVal] to become
+    /// invalidated through VM garbage collection.
     pub unsafe fn from_unsafe_val_slice(v: &'a [UnsafeVal]) -> &'a [Val<'a>] {
         // This is always true as Val is repr(transparent) with an [UnsafeVal] under the hood.
         debug_assert_eq!(
@@ -171,17 +210,10 @@ impl<'a> Val<'a> {
         std::mem::transmute(v)
     }
 
-    pub unsafe fn as_unsafe_val(self) -> UnsafeVal {
-        self.inner
-    }
-
-    pub unsafe fn as_static(self) -> Val<'static> {
-        Val {
-            inner: self.inner,
-            _lifetime: PhantomData,
-        }
-    }
-
+    /// Convert a slice of [Val] to a slice of [UnsafeVal].
+    ///
+    /// # Safety
+    /// This is unsafe as the caller must be certain that [Val] will not be garbage collected.
     pub unsafe fn as_unsafe_val_slice<'b>(slice: &'b [Val<'a>]) -> &'b [UnsafeVal] {
         // This is always true as Val is repr(transparent) with an [UnsafeVal] under the hood.
         debug_assert_eq!(
@@ -189,5 +221,27 @@ impl<'a> Val<'a> {
             std::mem::size_of::<Val<'a>>()
         );
         std::mem::transmute(slice)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn static_values_can_be_created_outside_of_vm() {
+        assert_eq!(
+            Val::new_void().formatted(&Vm::default()).to_string(),
+            "<void>"
+        );
+        assert_eq!(
+            Val::new_bool(true).formatted(&Vm::default()).to_string(),
+            "true"
+        );
+        assert_eq!(Val::new_int(1).formatted(&Vm::default()).to_string(), "1");
+        assert_eq!(
+            Val::new_float(2.5).formatted(&Vm::default()).to_string(),
+            "2.5"
+        );
     }
 }

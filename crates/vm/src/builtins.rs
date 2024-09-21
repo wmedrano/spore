@@ -146,7 +146,7 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             actual: ctx.args_len(),
         });
     }
-    let mut args = ctx.args().into_iter();
+    let mut args = ctx.args().iter();
     let maybe_list = args
         .next()
         .ok_or_else(|| VmError::ArityError {
@@ -163,7 +163,7 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         })?;
     let separator = match args.next() {
         None => "",
-        Some(v) => v.as_str(ctx.vm()).ok_or_else(|| VmError::TypeError {
+        Some(v) => v.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
             context: "string-join arg(idx=1)",
             expected: UnsafeVal::STRING_TYPE_NAME,
             actual: v.type_name(),
@@ -310,73 +310,62 @@ mod tests {
     #[test]
     fn equal_with_equal_items_returns_true() {
         let mut vm = Vm::default();
-        assert_eq!(
-            vm.eval_str("(= false false)").unwrap().as_bool(),
-            Some(true)
-        );
-        assert_eq!(vm.eval_str("(= 1 1)").unwrap().as_bool(), Some(true));
-        assert_eq!(vm.eval_str("(= 2.0 2.0)").unwrap().as_bool(), Some(true));
-        assert_eq!(
-            vm.eval_str("(= \"string\" \"string\")").unwrap().as_bool(),
-            Some(true)
-        );
-        assert_eq!(
-            vm.eval_str("(= (list \"list\") (list \"list\"))")
-                .unwrap()
-                .as_bool(),
-            Some(true)
-        );
+        assert!(vm.eval_str("(= false false)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 1 1)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 2.0 2.0)").unwrap().try_bool().unwrap());
+        assert!(vm
+            .eval_str("(= \"string\" \"string\")")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
+        assert!(vm
+            .eval_str("(= (list \"list\") (list \"list\"))")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
         vm.eval_str("(define (foo) 42)").unwrap();
-        assert_eq!(vm.eval_str("(= foo foo)").unwrap().as_bool(), Some(true));
-        assert_eq!(
-            vm.eval_str("(= (foo) (foo))").unwrap().as_bool(),
-            Some(true)
-        );
-        assert_eq!(vm.eval_str("(= + +)").unwrap().as_bool(), Some(true));
+        assert!(vm.eval_str("(= foo foo)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= (foo) (foo))").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= + +)").unwrap().try_bool().unwrap());
 
         vm.values.insert("void1".into(), ().into());
         vm.values.insert("void2".into(), ().into());
-        assert_eq!(
-            vm.eval_str("(= void1 void2)").unwrap().as_bool(),
-            Some(true)
-        );
+        assert!(vm.eval_str("(= void1 void2)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn equal_with_different_items_returns_true() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(= 1 1.0)").unwrap().as_bool(), Some(false),);
-        assert_eq!(
-            vm.eval_str("(= true false)").unwrap().as_bool(),
-            Some(false)
-        );
-        assert_eq!(vm.eval_str("(= 1 2)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(= 1.0 2.0)").unwrap().as_bool(), Some(false));
-        assert_eq!(
-            vm.eval_str("(= \"string\" \"other\")").unwrap().as_bool(),
-            Some(false)
-        );
-        assert_eq!(
-            vm.eval_str("(= (list) (list 0))").unwrap().as_bool(),
-            Some(false)
-        );
-        assert_eq!(
-            vm.eval_str("(= (list \"list\" 1) (list \"list\" 2))")
-                .unwrap()
-                .as_bool(),
-            Some(false)
-        );
+        assert!(!vm.eval_str("(= 1 1.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= true false)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= 1 2)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= 1.0 2.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm
+            .eval_str("(= \"string\" \"other\")")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
+        assert!(!vm
+            .eval_str("(= (list) (list 0))")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
+        assert!(!vm
+            .eval_str("(= (list \"list\" 1) (list \"list\" 2))")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
         vm.eval_str("(define (foo) 42) (define (bar) 42)").unwrap();
-        assert_eq!(vm.eval_str("(= foo bar)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(= + <)").unwrap().as_bool(), Some(false));
+        assert!(!vm.eval_str("(= foo bar)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= + <)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn add_with_no_args_is_int_0() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+)").unwrap();
-        assert_eq!(got.as_int(), Some(0));
-        assert_eq!(got.as_float(), None);
+        assert_eq!(got.try_int().unwrap(), 0);
+        assert!(got.try_float().is_err());
     }
 
     #[test]
@@ -398,52 +387,52 @@ mod tests {
     fn add_ints_produces_int() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1 2 3)").unwrap();
-        assert_eq!(got.as_int(), Some(6));
-        assert_eq!(got.as_float(), None);
+        assert_eq!(got.try_int().unwrap(), 6);
+        assert!(got.try_float().is_err());
     }
 
     #[test]
     fn add_floats_produces_floats() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1.0 2.0 3.0)").unwrap();
-        assert_eq!(got.as_float(), Some(6.0));
-        assert_eq!(got.as_int(), None);
+        assert_eq!(got.try_float().unwrap(), 6.0);
+        assert!(got.try_int().is_err());
     }
 
     #[test]
     fn add_ints_and_floats_produces_floats() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1 2.0 3)").unwrap();
-        assert_eq!(got.as_float(), Some(6.0));
-        assert_eq!(got.as_int(), None);
+        assert_eq!(got.try_float().unwrap(), 6.0);
+        assert!(got.try_int().is_err());
     }
 
     #[test]
     fn less_with_no_args_is_true() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(<)").unwrap();
-        assert_eq!(got.as_bool(), Some(true));
+        assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_single_arg_is_true() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(< 1)").unwrap();
-        assert_eq!(got.as_bool(), Some(true));
+        assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_increasing_ordered_args_is_true() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(< -1 0 1 1.2 1.8 2)").unwrap();
-        assert_eq!(got.as_bool(), Some(true));
+        assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_unordered_args_is_false() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(< -1 0 -0.1 1.2 2)").unwrap();
-        assert_eq!(got.as_bool(), Some(false));
+        assert!(!got.try_bool().unwrap());
     }
 
     #[test]
@@ -484,8 +473,8 @@ mod tests {
     #[test]
     fn not_inverts_bool() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(not true)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not false)").unwrap().as_bool(), Some(true));
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(not false)").unwrap().try_bool().unwrap());
     }
 
     #[test]
@@ -512,25 +501,25 @@ mod tests {
     #[test]
     fn not_with_void_values_returns_true() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(not void)").unwrap().as_bool(), Some(true));
+        assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn not_with_truthy_values_returns_true() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(not true)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not 1)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not 1.0)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not \"\")").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not not)").unwrap().as_bool(), Some(false));
-        assert_eq!(vm.eval_str("(not (list))").unwrap().as_bool(), Some(false));
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not 1)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not 1.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn string_join_on_empty_list_is_empty() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(string-join (list))").unwrap();
-        assert_eq!(got.as_str(), Some(""));
+        assert_eq!(got.try_str().unwrap(), "");
     }
 
     #[test]
@@ -591,7 +580,7 @@ mod tests {
     fn string_join_with_no_separator_concatenates() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(string-join (list \"one\" \"two\"))").unwrap();
-        assert_eq!(got.as_str(), Some("onetwo"));
+        assert_eq!(got.try_str().unwrap(), "onetwo");
     }
 
     #[test]
@@ -600,7 +589,7 @@ mod tests {
         let got = vm
             .eval_str("(string-join (list \"one\" \"two\") \" fish \")")
             .unwrap();
-        assert_eq!(got.as_str(), Some("one fish two"));
+        assert_eq!(got.try_str().unwrap(), "one fish two");
     }
 
     #[test]
@@ -628,14 +617,17 @@ mod tests {
     fn referencing_box_does_not_return_inner_value() {
         let mut vm = Vm::default();
         vm.eval_str("(define val (new-box \"foo\"))").unwrap();
-        assert_eq!(vm.eval_str("val").unwrap().as_str(), None);
+        assert!(vm.eval_str("val").unwrap().try_str().is_err());
     }
 
     #[test]
     fn get_box_returns_value_inside_box() {
         let mut vm = Vm::default();
         vm.eval_str("(define val (new-box \"foo\"))").unwrap();
-        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("foo"));
+        assert_eq!(
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
+            "foo"
+        );
     }
 
     #[test]
@@ -672,11 +664,17 @@ mod tests {
     fn set_box_changes_value_for_subsequent_get_box_calls() {
         let mut vm = Vm::default();
         vm.eval_str("(define val (new-box \"foo\"))").unwrap();
-        assert_eq!(vm.eval_str("val").unwrap().as_str(), None);
-        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("foo"));
+        assert!(vm.eval_str("val").unwrap().try_str().is_err());
+        assert_eq!(
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
+            "foo"
+        );
 
         vm.eval_str("(set-box! val \"bar\")").unwrap();
-        assert_eq!(vm.eval_str("(unbox val)").unwrap().as_str(), Some("bar"));
+        assert_eq!(
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
+            "bar"
+        );
     }
 
     #[test]
@@ -740,6 +738,6 @@ mod tests {
             .to_string();
         assert_ne!(working_directory, "");
         let got = vm.eval_str("(working-directory)").unwrap();
-        assert_eq!(got.as_str(), Some(working_directory.as_str()));
+        assert_eq!(got.try_str().unwrap(), working_directory.as_str());
     }
 }

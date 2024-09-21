@@ -8,7 +8,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         });
         vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
             .unwrap();
-        b.iter(move || vm.eval_str(src).unwrap().as_int().unwrap())
+        b.iter(move || vm.eval_str(src).unwrap().try_int().unwrap())
     });
 }
 

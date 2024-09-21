@@ -151,6 +151,9 @@ impl<'a, T: 'static> DerefMut for CustomValMut<'a, T> {
 ///     fn as_any(&self) -> &dyn std::any::Any {
 ///         self
 ///     }
+///     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+///         self
+///     }
 /// }
 /// impl std::fmt::Display for MyType {
 ///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -170,7 +173,7 @@ pub trait CustomType: 'static + Send + Sync + std::fmt::Display + std::fmt::Debu
 mod tests {
     use super::*;
     use crate::{
-        val::{NativeFunctionContext, ValBuilder},
+        val::{NativeFunctionContext, UnsafeVal, ValBuilder},
         Vm, VmResult,
     };
 
@@ -322,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn custom_type_get_with_wrong_type_fails() {
+    fn custom_type_get_and_get_mut_with_wrong_custom_type_fails() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         let val = vm.eval_str("custom-value").unwrap();
         assert_eq!(
@@ -342,9 +345,29 @@ mod tests {
     }
 
     #[test]
+    fn custom_type_get_and_get_mut_with_wrong_val_type_fails() {
+        let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
+        let val = vm.eval_str("42.0").unwrap();
+        assert_eq!(
+            val.as_custom::<OtherType>().unwrap_err(),
+            CustomValError::WrongType {
+                expected: OtherType { string: "" }.name(),
+                actual: UnsafeVal::FLOAT_TYPE_NAME,
+            }
+        );
+        assert_eq!(
+            val.as_custom_mut::<OtherType>().unwrap_err(),
+            CustomValError::WrongType {
+                expected: OtherType { string: "" }.name(),
+                actual: UnsafeVal::FLOAT_TYPE_NAME,
+            }
+        );
+    }
+
+    #[test]
     fn custom_type_can_be_made_from_native_function() {
         fn custom_function(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-            let number = ctx.arg(0).as_int().unwrap();
+            let number = ctx.arg(0).try_int().unwrap();
             let v = MyType { number };
             Ok(ctx.new_custom(v))
         }

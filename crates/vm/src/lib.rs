@@ -364,24 +364,18 @@ mod tests {
 
     use super::*;
 
-    #[ctor::ctor]
-    fn init() {
-        env_logger::init();
-        info!("Logging for tests initialized.");
-    }
-
     #[test]
     fn constant_expression_evaluates_to_constant() {
         let mut vm = Vm::default();
         let actual = vm.eval_str("42").unwrap();
-        assert_eq!(actual.as_int(), Some(42));
+        assert_eq!(actual.try_int().unwrap(), 42);
     }
 
     #[test]
     fn expression_can_evaluate() {
         let mut vm = Vm::default();
         let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
-        assert_eq!(actual.as_float(), Some(10.0));
+        assert_eq!(actual.try_float().unwrap(), 10.0);
     }
 
     #[test]
@@ -422,23 +416,35 @@ mod tests {
     fn defined_variable_can_be_referenced() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(define x 12) (+ x x)").unwrap().as_int(),
-            Some(24)
+            vm.eval_str("(define x 12) (+ x x)")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            24
         );
-        assert_eq!(vm.eval_str("(+ x 10)").unwrap().as_int(), Some(22));
+        assert_eq!(vm.eval_str("(+ x 10)").unwrap().try_int().unwrap(), 22);
     }
 
     #[test]
     fn if_statement_can_return_any_of() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("(if true (+ 1 2))").unwrap().as_int(), Some(3));
         assert_eq!(
-            vm.eval_str("(if true (+ 1 2) (+ 3 4))").unwrap().as_int(),
-            Some(3)
+            vm.eval_str("(if true (+ 1 2))").unwrap().try_int().unwrap(),
+            3
         );
         assert_eq!(
-            vm.eval_str("(if false (+ 1 2) (+ 3 4))").unwrap().as_int(),
-            Some(7)
+            vm.eval_str("(if true (+ 1 2) (+ 3 4))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            vm.eval_str("(if false (+ 1 2) (+ 3 4))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            7
         );
         let got = vm.eval_str("(if false (+ 1 2))").unwrap();
         assert!(got.is_void(), "{got}");
@@ -448,19 +454,28 @@ mod tests {
     fn if_statement_with_truthy_predicate_true_branch() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))").unwrap().as_int(),
-            Some(3)
+            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            3
         );
-        assert_eq!(vm.eval_str("(if 1 (+ 1 2))").unwrap().as_int(), Some(3));
+        assert_eq!(vm.eval_str("(if 1 (+ 1 2))").unwrap().try_int().unwrap(), 3);
     }
 
     #[test]
     fn lambda_can_be_evaluated() {
         let mut vm = Vm::default();
-        assert_eq!(vm.eval_str("((lambda () 7))").unwrap().as_int(), Some(7));
         assert_eq!(
-            vm.eval_str("((lambda () (+ 1 2 3)))").unwrap().as_int(),
-            Some(6)
+            vm.eval_str("((lambda () 7))").unwrap().try_int().unwrap(),
+            7
+        );
+        assert_eq!(
+            vm.eval_str("((lambda () (+ 1 2 3)))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            6
         );
     }
 
@@ -468,14 +483,18 @@ mod tests {
     fn lambda_with_args_can_be_evaluated() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("((lambda (a b) 4) 1 2)").unwrap().as_int(),
-            Some(4)
+            vm.eval_str("((lambda (a b) 4) 1 2)")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            4,
         );
         assert_eq!(
             vm.eval_str("((lambda (a b) (+ a b)) 1 2)")
                 .unwrap()
-                .as_int(),
-            Some(3)
+                .try_int()
+                .unwrap(),
+            3
         );
     }
 
@@ -498,11 +517,11 @@ mod tests {
                 actual: 0
             },
         );
-        let got = vm
+        let mut got = vm
             .eval_str("(define (takes-two-args arg1 arg2) (+ arg1 arg2))")
             .unwrap();
         assert!(got.is_void(), "{got}");
-        drop(got);
+        let (vm, _) = got.split();
         assert_eq!(
             vm.eval_str("(takes-two-args 1)").unwrap_err(),
             VmError::ArityError {
@@ -516,20 +535,20 @@ mod tests {
     #[test]
     fn can_call_function_recursively() {
         let mut vm = Vm::default();
-        let got = vm
+        assert!(vm
             .eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
-            .unwrap();
-        assert!(got.is_void(), "{got}");
-        drop(got);
-        assert_eq!(vm.eval_str("(fib 10)").unwrap().as_int(), Some(55));
+            .unwrap()
+            .is_void());
+        assert_eq!(vm.eval_str("(fib 10)").unwrap().try_int().unwrap(), 55);
     }
 
     #[test]
     fn infinite_recursion_halts() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(define (recurse) (recurse))").unwrap();
-        assert!(got.is_void(), "{got}");
-        drop(got);
+        assert!(vm
+            .eval_str("(define (recurse) (recurse))")
+            .unwrap()
+            .is_void());
         assert_eq!(
             vm.eval_str("(recurse)").unwrap_err(),
             VmError::MaximumRecursionDepth {

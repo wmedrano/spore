@@ -143,4 +143,28 @@ mod tests {
             2 * std::mem::size_of::<usize>()
         );
     }
+
+    #[test]
+    fn hacks_for_code_coverage() {
+        let vals = [
+            UnsafeVal::Void,
+            UnsafeVal::Bool(false),
+            UnsafeVal::Int(0),
+            UnsafeVal::Float(0.0),
+            UnsafeVal::String(Default::default()),
+            UnsafeVal::MutableBox(Default::default()),
+            UnsafeVal::List(Default::default()),
+            UnsafeVal::ByteCodeFunction(Default::default()),
+            UnsafeVal::NativeFunction(crate::builtins::add),
+            UnsafeVal::Custom(ValId {
+                vm_id: 0,
+                obj_id: 0,
+                idx: 0,
+                _marker: std::marker::PhantomData,
+            }),
+        ];
+        for v in vals {
+            assert_ne!(v.type_name(), "");
+        }
+    }
 }

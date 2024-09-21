@@ -62,7 +62,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
   (handle-event-impl! (read-event!)))
 "#;
     vm.eval_str(main_src).unwrap();
-    while vm.eval_str("(unbox running?)").unwrap().as_bool().unwrap() {
+    while vm.eval_str("(unbox running?)").unwrap().is_truthy() {
         {
             let buffer = vm.eval_str("buffer").unwrap();
             let buffer = buffer.as_custom::<SporeBuffer>().unwrap();

@@ -32,6 +32,11 @@ impl<'a> ProtectedVal<'a> {
             _internal: (),
         }
     }
+
+    /// Split the protected val into its VM and `Val`.
+    pub fn split(&mut self) -> (&mut Vm, &Val) {
+        (self.vm, &self.v)
+    }
 }
 
 impl<'a> Drop for ProtectedVal<'a> {
@@ -49,6 +54,11 @@ impl<'a> Deref for ProtectedVal<'a> {
 }
 
 impl<'a> ProtectedVal<'a> {
+    /// Get a reference to the underlying [Vm].
+    pub fn vm(&self) -> &Vm {
+        self.vm
+    }
+
     pub fn map<T>(&mut self, f: impl Fn(&mut Vm, &ProtectedVal<'a>) -> T) -> T {
         let protected_val_ptr: *const ProtectedVal = self;
         // Unsafe OK: Protected val will still be safe from garbage collection as drop has not been
@@ -56,24 +66,20 @@ impl<'a> ProtectedVal<'a> {
         f(self.vm, unsafe { &*protected_val_ptr })
     }
 
-    /// Get a reference to the underlying VM.
-    pub fn vm_mut(&mut self) -> &mut Vm {
-        self.vm
+    /// Try to get the string as a value or return its underlying value.
+    pub fn try_str(&'a self) -> Result<&'a str, Val> {
+        self.v.try_str(self.vm)
     }
 
-    pub fn as_str(&'a self) -> Option<&'a str> {
-        self.v.as_str(&self.vm)
-    }
-
-    /// Returns `true` if a custom value is held.
-    pub fn is_custom(&self) -> bool {
-        self.v.is_custom()
-    }
-
-    /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
     pub fn as_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
         self.v.as_custom(self.vm)
+    }
+
+    /// Get the [Val] that the mutable box is pointing to or [Err<Val>] if `self` is not a mutable
+    /// box.
+    pub fn get_mutable_box_ref(&self) -> Result<Val, Val<'a>> {
+        self.v.get_mutable_box_ref(self.vm)
     }
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
