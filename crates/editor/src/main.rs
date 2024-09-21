@@ -1,4 +1,4 @@
-use std::{fs::File, time::Duration};
+use std::{fs::File, ops::Deref, time::Duration};
 
 use buffer::SporeBuffer;
 use compact_str::{format_compact, CompactString};
@@ -65,16 +65,11 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     while vm.eval_str("(unbox running?)").unwrap().as_bool().unwrap() {
         {
             let buffer = vm.eval_str("buffer").unwrap();
-            let buffer = buffer
-                .as_custom::<SporeBuffer>()
-                .unwrap()
-                .0
-                .try_read()
-                .unwrap();
+            let buffer = buffer.as_custom::<SporeBuffer>().unwrap();
             terminal.draw(|frame| {
                 let window_area = frame.area();
                 let b = Block::default()
-                    .title(buffer.name.as_str())
+                    .title(buffer.deref().name.as_str())
                     .border_style(Style::default().fg(Color::Magenta))
                     .border_type(BorderType::Rounded)
                     .borders(Borders::ALL);

@@ -3,6 +3,7 @@ use compact_str::CompactString;
 use thiserror::Error;
 
 pub use crate::ast::AstParseError;
+use crate::val::custom::CustomValError;
 
 /// A `Result` with `VmError` as the error branch.
 pub type VmResult<T> = Result<T, VmError>;
@@ -36,6 +37,8 @@ pub enum VmError {
         max_depth: usize,
         call_stack: Vec<CompactString>,
     },
+    #[error("{0}")]
+    CustomValError(#[from] CustomValError),
     #[error("{0}")]
     CustomError(String),
 }

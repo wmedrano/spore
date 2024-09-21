@@ -190,19 +190,23 @@ mod tests {
     fn sizes_are_small() {
         assert_eq!(
             std::mem::size_of::<ValWithColor<CompactString>>(),
+            // Base size + extra metadata overhead.
             8 + std::mem::size_of::<String>()
         );
         assert_eq!(
             std::mem::size_of::<ValWithColor<UnsafeVal>>(),
+            // Base size + extra metadata overhead.
             8 + std::mem::size_of::<UnsafeVal>()
         );
         assert_eq!(
             std::mem::size_of::<ValWithColor<Arc<ByteCode>>>(),
+            // Base size + extra metadata overhead.
             8 + std::mem::size_of::<Arc<ByteCode>>(),
         );
         assert_eq!(
             std::mem::size_of::<ValWithColor<CustomVal>>(),
-            8 + std::mem::size_of::<CustomVal>()
+            // Base size + extra metada + extra overhead from inefficient mutex packing.
+            8 + 8 + std::mem::size_of::<CustomVal>()
         );
     }
 }

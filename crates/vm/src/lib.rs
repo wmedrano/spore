@@ -362,6 +362,12 @@ mod tests {
 
     use super::*;
 
+    #[ctor::ctor]
+    fn init() {
+        env_logger::init();
+        info!("Logging for tests initialized.");
+    }
+
     #[test]
     fn constant_expression_evaluates_to_constant() {
         let mut vm = Vm::default();

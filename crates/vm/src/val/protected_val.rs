@@ -1,6 +1,12 @@
+#[allow(unused_imports)]
+use log::*;
+
 use crate::Vm;
 
-use super::{CustomType, UnsafeVal};
+use super::{
+    custom::{CustomValError, CustomValMut, CustomValRef},
+    CustomType, UnsafeVal,
+};
 
 /// Holds a Value from the [Vm]. Unlike [UnsafeVal], the underlying value is guaranteed to not be
 /// garbage collected.
@@ -33,6 +39,17 @@ impl<'a> Drop for ProtectedVal<'a> {
 }
 
 impl<'a> ProtectedVal<'a> {
+    pub fn map<T>(&mut self, f: impl Fn(&mut Vm, &ProtectedVal<'a>) -> T) -> T {
+        let protected_val_ptr: *const ProtectedVal = self;
+        // Unsafe OK: Protected val will still be safe from garbage collection as drop has not been
+        // called.
+        f(self.vm, unsafe { &*protected_val_ptr })
+    }
+    /// Get a reference to the underlying VM.
+    pub fn vm_mut(&mut self) -> &mut Vm {
+        self.vm
+    }
+
     /// Get the display name for the type of `self`.
     pub fn type_name(&self) -> &'static str {
         self.v.type_name()
@@ -87,10 +104,25 @@ impl<'a> ProtectedVal<'a> {
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
-    pub fn as_custom<T: CustomType>(&self) -> Option<&T> {
+    pub fn as_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
         match self.v {
             UnsafeVal::Custom(id) => self.vm.objects.get_custom(id).get(),
-            _ => None,
+            _ => Err(CustomValError::WrongType {
+                expected: std::any::type_name::<T>(),
+                actual: self.type_name(),
+            }),
+        }
+    }
+
+    /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
+    /// value.
+    pub fn as_custom_mut<T: CustomType>(&self) -> Result<CustomValMut<T>, CustomValError> {
+        match self.v {
+            UnsafeVal::Custom(id) => self.vm.objects.get_custom(id).get_mut(),
+            _ => Err(CustomValError::WrongType {
+                expected: std::any::type_name::<T>(),
+                actual: self.type_name(),
+            }),
         }
     }
 }

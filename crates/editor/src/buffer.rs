@@ -1,4 +1,4 @@
-use std::{any::Any, sync::RwLock};
+use std::any::Any;
 
 use compact_str::{CompactString, ToCompactString};
 use crop::Rope;
@@ -15,12 +15,8 @@ impl SporeBuffer {
     }
 }
 
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct SporeBuffer(pub RwLock<SporeBufferImpl>);
-
 #[derive(Debug, Default)]
-pub struct SporeBufferImpl {
+pub struct SporeBuffer {
     pub name: CompactString,
     pub contents: Rope,
 }
@@ -34,11 +30,11 @@ fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             actual: args_len,
         });
     }
-    let mut inner = SporeBufferImpl::default();
+    let mut buffer = SporeBuffer::default();
     if args_len >= 1 {
         let v = ctx.arg(0);
         match v.as_str() {
-            Some(s) => inner.name = s.into(),
+            Some(s) => buffer.name = s.into(),
             None => {
                 return Err(VmError::TypeError {
                     context: "new-buffer",
@@ -52,7 +48,7 @@ fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if args_len >= 2 {
         let v = ctx.arg(1);
         match v.as_str() {
-            Some(s) => inner.contents.insert(0, s),
+            Some(s) => buffer.contents.insert(0, s),
             None => {
                 return Err(VmError::TypeError {
                     context: "new-buffer",
@@ -63,7 +59,7 @@ fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             }
         }
     }
-    Ok(ctx.new_custom(SporeBuffer(inner.into())))
+    Ok(ctx.new_custom(buffer))
 }
 
 fn buffer_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
@@ -86,18 +82,7 @@ fn buffer_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         .to_compact_string();
     {
         let buffer_val = ctx.arg(0);
-        let buffer = match buffer_val.as_custom::<SporeBuffer>() {
-            Some(b) => b,
-            None => {
-                return Err(VmError::TypeError {
-                    context: "buffer-append!",
-                    expected: "custom value of type spore-buffer",
-                    actual: "something else",
-                    value: buffer_val.to_string(),
-                })
-            }
-        };
-        let mut buffer = buffer.0.try_write().unwrap();
+        let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>()?;
         let len = buffer.contents.byte_len();
         buffer.contents.insert(len, &s);
     }
@@ -108,10 +93,14 @@ impl CustomType for SporeBuffer {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl std::fmt::Display for SporeBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.try_read().unwrap().contents.fmt(f)
+        self.contents.fmt(f)
     }
 }
