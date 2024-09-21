@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicU16, Arc},
+    sync::{atomic::AtomicU16, Arc, LazyLock},
 };
 
 use compact_str::CompactString;
@@ -49,7 +49,7 @@ pub struct VmSettings {
 }
 
 /// Used to decide the next instruction to take.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct StackFrame {
     bytecode_id: ValId<Arc<ByteCode>>,
     /// The instructions that will be taken.
@@ -58,6 +58,25 @@ struct StackFrame {
     bytecode_idx: usize,
     /// The index of the stack for the first value of this stack frame's local stack.
     stack_start: usize,
+}
+
+/// A reference to some trivial bytecode. Used to avoid allocations when creating a [StackFrame].
+const DEFAULT_BYTECODE: LazyLock<Arc<ByteCode>> = LazyLock::new(|| Arc::default());
+
+impl Default for StackFrame {
+    fn default() -> StackFrame {
+        StackFrame {
+            bytecode_id: ValId {
+                vm_id: 0,
+                obj_id: 0,
+                idx: 0,
+                _marker: std::marker::PhantomData,
+            },
+            bytecode: DEFAULT_BYTECODE.clone(),
+            bytecode_idx: 0,
+            stack_start: 0,
+        }
+    }
 }
 
 impl Default for Vm {
@@ -150,20 +169,60 @@ impl Vm {
         self.values.insert(name.into(), val);
     }
 
+    /// Get the value with the given name.
+    pub fn val_by_name(&mut self, name: &str) -> Option<ProtectedVal> {
+        self.values
+            .get(name)
+            .copied()
+            // Unsafe OK: The value has not been garbage collected as its part of the values map.
+            .map(|v| ProtectedVal::new(self, unsafe { Val::from_unsafe_val(v) }))
+    }
+
     /// Evaluate a string in the virtual machine.
     pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
-        self.run_gc();
         let bytecode = Compiler::compile(self, source)?;
         let bytecode_id = self.objects.insert_bytecode(bytecode);
-        let v = self.eval_bytecode(bytecode_id)?;
-        // Unsafe OK: This is a new valid val and we are adding GC protection to it.
-        let v = unsafe { Val::from_unsafe_val(v) };
-        Ok(ProtectedVal::new(self, v))
+        self.eval_bytecode(bytecode_id, std::iter::empty())
+    }
+
+    /// Call a function with the given name.
+    pub fn eval_function_by_name(
+        &mut self,
+        name: &str,
+        args: impl ExactSizeIterator + Iterator<Item = Val<'static>>,
+    ) -> VmResult<ProtectedVal> {
+        let function_val = *self
+            .values
+            .get(name)
+            .ok_or_else(|| VmError::SymbolNotDefined(name.to_string()))?;
+        let bytecode_id = match function_val {
+            UnsafeVal::ByteCodeFunction(bc) => bc,
+            UnsafeVal::NativeFunction(f) => self
+                .objects
+                .insert_bytecode(ByteCode::new_native_function_call(name, f, args.len())),
+            v => {
+                return Err(VmError::TypeError {
+                    context: "eval_function_by_name",
+                    expected: UnsafeVal::FUNCTION_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.formatted(self).to_string(),
+                })
+            }
+        };
+        // Unsafe Ack: These values should be inserted into VM stack ASAP.
+        let args = args.map(|arg| unsafe { arg.as_unsafe_val() });
+        self.eval_bytecode(bytecode_id, args)
     }
 
     /// Evaluate some bytecode in the virtual machine.
-    fn eval_bytecode(&mut self, bytecode_id: ValId<Arc<ByteCode>>) -> VmResult<UnsafeVal> {
+    fn eval_bytecode(
+        &mut self,
+        bytecode_id: ValId<Arc<ByteCode>>,
+        args: impl Iterator<Item = UnsafeVal>,
+    ) -> VmResult<ProtectedVal> {
         self.stack.clear();
+        self.stack.extend(args);
+        self.run_gc();
         self.previous_stack_frames.clear();
         let bytecode = self.objects.get_bytecode(bytecode_id).clone();
         self.stack_frame = StackFrame {
@@ -174,7 +233,9 @@ impl Vm {
         };
         loop {
             if let Some(v) = self.run_next()? {
-                return Ok(v);
+                // Unsafe OK: This is a new valid val and we are adding GC protection to it.
+                let v = unsafe { Val::from_unsafe_val(v) };
+                return Ok(ProtectedVal::new(self, v));
             }
         }
     }

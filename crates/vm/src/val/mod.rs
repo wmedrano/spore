@@ -32,21 +32,25 @@ pub struct Val<'a> {
 }
 
 impl Val<'static> {
+    /// Create a new `void` value.
     pub fn new_void() -> Val<'static> {
         // Unsafe OK: Void does not have a lifetime.
         unsafe { Self::from_unsafe_val(().into()) }
     }
 
+    /// Create a new `bool` value.
     pub fn new_bool(x: bool) -> Val<'static> {
         // Unsafe OK: Void does not have a lifetime.
         unsafe { Self::from_unsafe_val(x.into()) }
     }
 
+    /// Create a new `int` value.
     pub fn new_int(x: i64) -> Val<'static> {
         // Unsafe OK: Void does not have a lifetime.
         unsafe { Self::from_unsafe_val(x.into()) }
     }
 
+    /// Create a new `float` value.
     pub fn new_float(x: f64) -> Val<'static> {
         // Unsafe OK: Void does not have a lifetime.
         unsafe { Self::from_unsafe_val(x.into()) }

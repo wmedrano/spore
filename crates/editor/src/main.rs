@@ -64,7 +64,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     vm.eval_str(main_src).unwrap();
     while vm.eval_str("(unbox running?)").unwrap().is_truthy() {
         {
-            let buffer = vm.eval_str("buffer").unwrap();
+            let buffer = vm.val_by_name("buffer").unwrap();
             let buffer = buffer.as_custom::<SporeBuffer>().unwrap();
             terminal.draw(|frame| {
                 let window_area = frame.area();
@@ -78,7 +78,8 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
                 frame.render_widget(Paragraph::new(buffer.contents.to_string()), contents_area);
             })?;
         }
-        vm.eval_str("(handle-event!)").unwrap();
+        vm.eval_function_by_name("handle-event!", std::iter::empty())
+            .unwrap();
     }
     info!("Exiting Spore.");
     Ok(())

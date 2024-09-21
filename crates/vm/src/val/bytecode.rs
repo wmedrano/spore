@@ -14,6 +14,19 @@ pub struct ByteCode {
 }
 
 impl ByteCode {
+    /// Create bytecode that calls `function` with the top `arg_count` args in the stack.
+    pub fn new_native_function_call(
+        name: &str,
+        func: NativeFunction,
+        arg_count: usize,
+    ) -> ByteCode {
+        ByteCode {
+            name: name.into(),
+            arg_count: 0,
+            instructions: Box::new([Instruction::EvalNative { func, arg_count }]),
+        }
+    }
+
     /// Iterate over all values referenced by the bytecode.
     pub fn values(&self) -> impl '_ + Iterator<Item = UnsafeVal> {
         self.instructions
