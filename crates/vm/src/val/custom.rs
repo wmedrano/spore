@@ -343,7 +343,7 @@ mod tests {
 
     #[test]
     fn custom_type_can_be_made_from_native_function() {
-        fn custom_function(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+        fn custom_function(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             let number = ctx.arg(0).as_int().unwrap();
             let v = MyType { number };
             Ok(ctx.new_custom(v))

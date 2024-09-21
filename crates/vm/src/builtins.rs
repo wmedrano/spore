@@ -2,7 +2,7 @@ use compact_str::CompactString;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunction, NativeFunctionContext, UnsafeVal, ValBuilder},
+    val::{NativeFunction, NativeFunctionContext, UnsafeVal, Val, ValBuilder},
     Vm,
 };
 
@@ -22,7 +22,12 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
 pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args = ctx.args();
     match args {
-        [a, b] => Ok(ctx.new_bool(equal_impl(ctx.vm(), *a, *b))),
+        [a, b] => {
+            // Unsafe OK: [equal_imp] holds the a reference to the VM so it can't run garbage
+            // collection.
+            let (a, b) = unsafe { (a.as_unsafe_val(), b.as_unsafe_val()) };
+            Ok(Val::new_bool(equal_impl(ctx.vm(), a, b)).into())
+        }
         _ => Err(VmError::ArityError {
             function: "=".into(),
             expected: 2,
@@ -58,7 +63,9 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
     for arg in ctx.args() {
-        match arg {
+        // Unsafe OK: Using field values right away without any garbage collection.
+        // TODO: Consider getting the number through [Val] directly.
+        match unsafe { arg.as_unsafe_val() } {
             UnsafeVal::Int(x) => int_sum += x,
             UnsafeVal::Float(x) => {
                 float_sum += x;
@@ -75,13 +82,15 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
         }
     }
     if has_float {
-        Ok(ctx.new_float(float_sum + int_sum as f64))
+        Ok(Val::new_float(float_sum + int_sum as f64).into())
     } else {
-        Ok(ctx.new_int(int_sum))
+        Ok(Val::new_int(int_sum).into())
     }
 }
 
-fn less_two_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> VmResult<bool> {
+fn less_two_impl(vm: &Vm, a: Val, b: Val) -> VmResult<bool> {
+    // Unsafe OK: Only gets basic types like int and float.
+    let (a, b) = unsafe { (a.as_unsafe_val(), b.as_unsafe_val()) };
     match (a, b) {
         (UnsafeVal::Int(a), UnsafeVal::Int(b)) => Ok(a < b),
         (UnsafeVal::Float(a), UnsafeVal::Float(b)) => Ok(a < b),
@@ -102,7 +111,7 @@ fn less_two_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> VmResult<bool> {
     }
 }
 
-pub fn less_impl(vm: &Vm, args: &[UnsafeVal]) -> VmResult<bool> {
+pub fn less_impl(vm: &Vm, args: &[Val]) -> VmResult<bool> {
     match args {
         [] | [_] => Ok(true),
         [a, b] => Ok(less_two_impl(vm, *a, *b)?),
@@ -115,12 +124,12 @@ pub fn less_impl(vm: &Vm, args: &[UnsafeVal]) -> VmResult<bool> {
 
 pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     let res = less_impl(ctx.vm(), ctx.args())?;
-    Ok(ctx.new_bool(res))
+    Ok(Val::new_bool(res).into())
 }
 
 pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     match ctx.args() {
-        [v] => Ok(ctx.new_bool(!v.is_truthy())),
+        [v] => Ok(Val::new_bool(!v.is_truthy()).into()),
         args => Err(VmError::ArityError {
             function: "not".into(),
             expected: 1,
@@ -130,61 +139,51 @@ pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
 }
 
 pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let args = ctx.args();
-    let (strings, separator) = match args {
-        [] => {
-            return Err(VmError::ArityError {
-                function: "string-join".into(),
-                expected: 1,
-                actual: 0,
-            })
-        }
-        [UnsafeVal::List(list)] => (*list, ""),
-        [v] => {
-            return Err(VmError::TypeError {
-                context: "string-join arg(idx=0)",
-                expected: UnsafeVal::LIST_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            });
-        }
-        [UnsafeVal::List(list), UnsafeVal::String(string)] => {
-            (*list, ctx.vm().objects.get_str(*string))
-        }
-        [_, v] => {
-            return Err(VmError::TypeError {
-                context: "string-join arg(idx=1)",
-                expected: UnsafeVal::STRING_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            });
-        }
-        _ => {
-            return Err(VmError::ArityError {
-                function: "string-join".into(),
-                expected: 2,
-                actual: args.len(),
-            })
-        }
+    if ctx.args_len() > 2 {
+        return Err(VmError::ArityError {
+            function: "string-join".into(),
+            expected: 2,
+            actual: ctx.args_len(),
+        });
+    }
+    let mut args = ctx.args().into_iter();
+    let maybe_list = args
+        .next()
+        .ok_or_else(|| VmError::ArityError {
+            function: "string-join".into(),
+            expected: 1,
+            actual: 0,
+        })?
+        .try_list(ctx.vm())
+        .map_err(|v| VmError::TypeError {
+            context: "string-join arg(idx=0)",
+            expected: UnsafeVal::LIST_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        })?;
+    let separator = match args.next() {
+        None => "",
+        Some(v) => v.as_str(ctx.vm()).ok_or_else(|| VmError::TypeError {
+            context: "string-join arg(idx=1)",
+            expected: UnsafeVal::STRING_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        })?,
     };
     let mut result = CompactString::default();
-    for (idx, string_id) in ctx.vm().objects.get_list(strings).iter().enumerate() {
+    for (idx, maybe_string_val) in maybe_list.iter().enumerate() {
         if idx > 0 {
             result.push_str(separator);
         }
-        match string_id {
-            UnsafeVal::String(string_id) => {
-                result.push_str(ctx.vm().objects.get_str(*string_id));
-            }
-            _ => {
-                return Err(VmError::TypeError {
-                    context: "string-join arg(idx=0)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: string_id.type_name(),
-                    value: string_id.format_quoted(ctx.vm()).to_string(),
-                })
-            }
-        };
+        let s = maybe_string_val
+            .try_str(ctx.vm())
+            .map_err(|v| VmError::TypeError {
+                context: "string-join arg(idx=0) list subelement",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+        result.push_str(s);
     }
     Ok(ctx.new_string(result))
 }
@@ -192,8 +191,8 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 pub fn new_box(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
         [v] => {
-            let v = *v;
             // Unsafe OK: `ctx.args()` guarantees objects that will not be garbage collected.
+            let v = unsafe { v.as_static() };
             Ok(unsafe { ctx.new_mutable_box(v) })
         }
         args => Err(VmError::ArityError {
@@ -205,7 +204,8 @@ pub fn new_box(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    match ctx.args() {
+    // TODO: Use safe API.
+    match unsafe { ctx.raw_args() } {
         // Unsafe OK: This is for sure safe...
         [UnsafeVal::MutableBox(id), inner_val] => {
             let (id, inner_val) = (*id, *inner_val);
@@ -228,7 +228,8 @@ pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    match ctx.args() {
+    // TODO: Use safe API.
+    match unsafe { ctx.raw_args() } {
         [UnsafeVal::MutableBox(id)] => {
             let boxed_val = *ctx.vm().objects.get_mutable_box(*id);
             // Unsafe OK: `boxed_val` has just been retrieved so the VM does not have a chance to
@@ -250,8 +251,8 @@ pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let list = ctx.args().to_vec();
     // Unsafe OK: `ctx.args()` guarantees values will not be garbage collected.
+    let list = unsafe { ctx.raw_args().to_vec() };
     Ok(unsafe { ctx.new_list(list) })
 }
 
@@ -544,7 +545,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(string-join 1 2 3)").unwrap_err(),
+            vm.eval_str("(string-join (list) \"\" 3)").unwrap_err(),
             VmError::ArityError {
                 function: "string-join".into(),
                 expected: 2,
@@ -569,7 +570,7 @@ mod tests {
             vm.eval_str("(string-join (list \"ok string\" 42))")
                 .unwrap_err(),
             VmError::TypeError {
-                context: "string-join arg(idx=0)",
+                context: "string-join arg(idx=0) list subelement",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "42".to_string(),

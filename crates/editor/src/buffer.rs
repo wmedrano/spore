@@ -4,7 +4,7 @@ use compact_str::{CompactString, ToCompactString};
 use crop::Rope;
 use spore_vm::{
     error::{VmError, VmResult},
-    val::{CustomType, NativeFunctionContext, UnsafeVal, ValBuilder},
+    val::{CustomType, NativeFunctionContext, UnsafeVal, Val, ValBuilder},
     Vm,
 };
 
@@ -21,7 +21,7 @@ pub struct SporeBuffer {
     pub contents: Rope,
 }
 
-fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+fn new_buffer(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let args_len = ctx.args_len();
     if args_len > 2 {
         return Err(VmError::ArityError {
@@ -33,28 +33,28 @@ fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let mut buffer = SporeBuffer::default();
     if args_len >= 1 {
         let v = ctx.arg(0);
-        match v.as_str() {
-            Some(s) => buffer.name = s.into(),
-            None => {
+        match v.try_str(ctx.vm()) {
+            Ok(s) => buffer.name = s.into(),
+            Err(v) => {
                 return Err(VmError::TypeError {
                     context: "new-buffer",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
-                    value: v.to_string(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
                 })
             }
         }
     }
     if args_len >= 2 {
         let v = ctx.arg(1);
-        match v.as_str() {
-            Some(s) => buffer.contents.insert(0, s),
-            None => {
+        match v.try_str(ctx.vm()) {
+            Ok(s) => buffer.contents.insert(0, s),
+            Err(v) => {
                 return Err(VmError::TypeError {
                     context: "new-buffer",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
-                    value: v.to_string(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
                 })
             }
         }
@@ -62,7 +62,7 @@ fn new_buffer(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     Ok(ctx.new_custom(buffer))
 }
 
-fn buffer_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+fn buffer_append(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if ctx.args_len() != 2 {
         return Err(VmError::ArityError {
             function: "buffer_append".into(),
@@ -72,21 +72,21 @@ fn buffer_append(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
     let s = ctx
         .arg(1)
-        .as_str()
-        .ok_or_else(|| VmError::TypeError {
+        .try_str(ctx.vm())
+        .map_err(|v| VmError::TypeError {
             context: "buffer-append!",
             expected: UnsafeVal::STRING_TYPE_NAME,
-            actual: "something else",
-            value: "".to_string(),
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
         })?
         .to_compact_string();
     {
         let buffer_val = ctx.arg(0);
-        let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>()?;
+        let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
         let len = buffer.contents.byte_len();
         buffer.contents.insert(len, &s);
     }
-    Ok(ctx.new_void())
+    Ok(Val::new_void().into())
 }
 
 impl CustomType for SporeBuffer {

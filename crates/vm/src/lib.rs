@@ -11,7 +11,8 @@ use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
 use val::{
     custom::{CustomType, CustomVal},
-    ByteCode, Instruction, NativeFunction, NativeFunctionContext, ProtectedVal, UnsafeVal, ValId,
+    ByteCode, Instruction, NativeFunction, NativeFunctionContext, ProtectedVal, UnsafeVal, Val,
+    ValId,
 };
 
 mod ast;
@@ -155,8 +156,9 @@ impl Vm {
         let bytecode = Compiler::compile(self, source)?;
         let bytecode_id = self.objects.insert_bytecode(bytecode);
         let v = self.eval_bytecode(bytecode_id)?;
-        // Unsafe OK: `v` was just built so there is no chance for it to garage collect.
-        Ok(unsafe { ProtectedVal::new(self, v) })
+        // Unsafe OK: This is a new valid val and we are adding GC protection to it.
+        let v = unsafe { Val::from_unsafe_val(v) };
+        Ok(ProtectedVal::new(self, v))
     }
 
     /// Evaluate some bytecode in the virtual machine.

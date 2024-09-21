@@ -1,4 +1,4 @@
-use std::{fs::File, ops::Deref, time::Duration};
+use std::{fs::File, time::Duration};
 
 use buffer::SporeBuffer;
 use compact_str::{format_compact, CompactString};
@@ -12,7 +12,7 @@ use ratatui::{
 };
 use spore_vm::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, ValBuilder},
+    val::{NativeFunctionContext, Val, ValBuilder},
     Vm, VmSettings,
 };
 
@@ -69,7 +69,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
             terminal.draw(|frame| {
                 let window_area = frame.area();
                 let b = Block::default()
-                    .title(buffer.deref().name.as_str())
+                    .title(buffer.name.as_str())
                     .border_style(Style::default().fg(Color::Magenta))
                     .border_type(BorderType::Rounded)
                     .borders(Borders::ALL);
@@ -86,7 +86,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 
 fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(Duration::from_millis(10)).unwrap() {
-        return Ok(ctx.new_bool(false));
+        return Ok(Val::new_bool(false).into());
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: CompactString = match event {

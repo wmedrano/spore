@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 #[allow(unused_imports)]
 use log::*;
 
@@ -5,7 +7,7 @@ use crate::Vm;
 
 use super::{
     custom::{CustomValError, CustomValMut, CustomValRef},
-    CustomType, UnsafeVal,
+    CustomType, Val,
 };
 
 /// Holds a Value from the [Vm]. Unlike [UnsafeVal], the underlying value is guaranteed to not be
@@ -13,7 +15,7 @@ use super::{
 #[derive(Debug)]
 pub struct ProtectedVal<'a> {
     pub(crate) vm: &'a mut Vm,
-    pub(crate) v: UnsafeVal,
+    pub(crate) v: Val<'a>,
     _internal: (),
 }
 
@@ -22,8 +24,8 @@ impl<'a> ProtectedVal<'a> {
     ///
     /// # Safety
     /// `v` must be a valid from originating (and not garbage collected) from `vm`.
-    pub unsafe fn new(vm: &'a mut Vm, v: UnsafeVal) -> ProtectedVal<'a> {
-        vm.objects.keep_reachable(v);
+    pub fn new(vm: &'a mut Vm, v: Val<'a>) -> ProtectedVal<'a> {
+        vm.objects.keep_reachable(v.inner);
         ProtectedVal {
             vm,
             v,
@@ -34,7 +36,15 @@ impl<'a> ProtectedVal<'a> {
 
 impl<'a> Drop for ProtectedVal<'a> {
     fn drop(&mut self) {
-        self.vm.objects.allow_unreachable(self.v);
+        self.vm.objects.allow_unreachable(self.v.inner);
+    }
+}
+
+impl<'a> Deref for ProtectedVal<'a> {
+    type Target = Val<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.v
     }
 }
 
@@ -45,85 +55,31 @@ impl<'a> ProtectedVal<'a> {
         // called.
         f(self.vm, unsafe { &*protected_val_ptr })
     }
+
     /// Get a reference to the underlying VM.
     pub fn vm_mut(&mut self) -> &mut Vm {
         self.vm
     }
 
-    /// Get the display name for the type of `self`.
-    pub fn type_name(&self) -> &'static str {
-        self.v.type_name()
-    }
-
-    /// Returns true if val is void.
-    pub fn is_void(&self) -> bool {
-        matches!(self.v, UnsafeVal::Void)
-    }
-
-    /// Returns `false` if the value is `void` or `false`, and `true` otherwise.
-    pub fn is_truthy(&self) -> bool {
-        self.v.is_truthy()
-    }
-
-    /// Returns the value a boolean or [None] if [Self] is not a boolean.
-    pub fn as_bool(&self) -> Option<bool> {
-        match self.v {
-            UnsafeVal::Bool(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    /// Returns the value as an int or [None] if [Self] is not an int.
-    pub fn as_int(&self) -> Option<i64> {
-        match self.v {
-            UnsafeVal::Int(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    /// Returns the value as a float or [None] if [Self] is not a float.
-    pub fn as_float(&self) -> Option<f64> {
-        match self.v {
-            UnsafeVal::Float(x) => Some(x),
-            _ => None,
-        }
-    }
-
-    /// Returns the value as a [str] or [None] if [Self] is not a string.
-    pub fn as_str(&self) -> Option<&str> {
-        match self.v {
-            UnsafeVal::String(x) => Some(self.vm.objects.get_str(x)),
-            _ => None,
-        }
+    pub fn as_str(&'a self) -> Option<&'a str> {
+        self.v.as_str(&self.vm)
     }
 
     /// Returns `true` if a custom value is held.
     pub fn is_custom(&self) -> bool {
-        matches!(self.v, UnsafeVal::Custom(_))
+        self.v.is_custom()
     }
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
     pub fn as_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
-        match self.v {
-            UnsafeVal::Custom(id) => self.vm.objects.get_custom(id).get(),
-            _ => Err(CustomValError::WrongType {
-                expected: std::any::type_name::<T>(),
-                actual: self.type_name(),
-            }),
-        }
+        self.v.as_custom(self.vm)
     }
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
     pub fn as_custom_mut<T: CustomType>(&self) -> Result<CustomValMut<T>, CustomValError> {
-        match self.v {
-            UnsafeVal::Custom(id) => self.vm.objects.get_custom(id).get_mut(),
-            _ => Err(CustomValError::WrongType {
-                expected: std::any::type_name::<T>(),
-                actual: self.type_name(),
-            }),
-        }
+        self.v.as_custom_mut(self.vm)
     }
 }
 
