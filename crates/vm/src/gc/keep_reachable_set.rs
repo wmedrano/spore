@@ -100,7 +100,7 @@ trait ReachableStoreSealed {
                 };
             }
             Entry::Vacant(_) => {
-                warn!("Tried to remove non-existant value {k:?} from keep reachable set. The object reference likely outlived its lifetime.");
+                warn!("Tried to remove non-existant value {k:?} from keep reachable set. The object reference likely outlived its lifetime. Although not a not considered unsafe, this is likely a memory leak.");
             }
         };
     }

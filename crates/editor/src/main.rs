@@ -16,8 +16,8 @@ use ratatui::{
 };
 use spore_vm::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, Val, ValBuilder},
-    Vm, VmSettings,
+    val::{NativeFunctionContext, ValBuilder},
+    DefaultDebugger, Settings, Vm,
 };
 
 mod buffer;
@@ -41,7 +41,7 @@ fn init_logger() {
 }
 
 fn new_vm() -> Vm {
-    let vm = Vm::new(VmSettings {
+    let vm = Vm::new(Settings {
         enable_aggressive_inline: false,
     })
     .with_native_function("read-event!", read_event);
@@ -70,15 +70,16 @@ fn new_vm() -> Vm {
   (handle-event-impl! (read-event!)))
 "#;
     let start_t = Instant::now();
-    vm.eval_str(main_src).unwrap();
+    vm.eval_str(main_src, &mut DefaultDebugger).unwrap();
     info!("Loading main in {:?}.", start_t.elapsed());
     vm
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+    let mut debugger = DefaultDebugger;
     let mut tmp_string = String::new();
     while vm
-        .eval_function_by_name("running?", std::iter::empty())
+        .eval_function_by_name("running?", std::iter::empty(), &mut debugger)
         .unwrap()
         .is_truthy()
     {
@@ -101,7 +102,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
                 frame.render_widget(Paragraph::new(tmp_string.as_str()), contents_area);
             })?;
         }
-        vm.eval_function_by_name("handle-event!", std::iter::empty())
+        vm.eval_function_by_name("handle-event!", std::iter::empty(), &mut debugger)
             .unwrap();
     }
     info!("Exiting Spore.");
@@ -110,7 +111,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
 
 fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(Duration::from_millis(10)).unwrap() {
-        return Ok(Val::new_bool(false).into());
+        return Ok(ValBuilder::new(false.into()));
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let event_str: CompactString = match event {

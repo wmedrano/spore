@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 
-use crate::{error::VmResult, Vm};
+use crate::{error::VmResult, DefaultDebugger, Vm};
 
 use super::{
     custom::{CustomType, CustomVal},
@@ -142,7 +142,9 @@ impl<'a> NativeFunctionContext<'a> {
     /// }
     /// ```
     pub fn new_string(self, s: CompactString) -> ValBuilder<'a> {
-        let string_id = self.vm.objects.insert_string(s);
+        // TODO: Connect the real debugger.
+        let debugger = &mut DefaultDebugger;
+        let string_id = self.vm.objects.insert_string(s, debugger);
         ValBuilder {
             // Unsafe OK: String was just created so it does not have a chance to garbage collect.
             val: unsafe { Val::from_unsafe_val(string_id.into()) },
@@ -156,7 +158,12 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// `v` must be a valid value within the vm.
     pub unsafe fn new_mutable_box(self, v: Val<'a>) -> ValBuilder<'a> {
-        let id = self.vm.objects.insert_mutable_box(v.as_unsafe_val());
+        // TODO: Connect the real debugger.
+        let debugger = &mut DefaultDebugger;
+        let id = self
+            .vm
+            .objects
+            .insert_mutable_box(v.as_unsafe_val(), debugger);
         ValBuilder {
             // Unsafe OK: Box is just created so it does not have a chance to garbage collect.
             val: Val::from_unsafe_val(id.into()),
@@ -170,7 +177,9 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// `list` must contain valid values within the vm.
     pub unsafe fn new_list(self, list: ListVal) -> ValBuilder<'a> {
-        let list_id = self.vm.objects.insert_list(list);
+        // TODO: Connect the real debugger.
+        let debugger = &mut DefaultDebugger;
+        let list_id = self.vm.objects.insert_list(list, debugger);
         ValBuilder {
             val: Val::from_unsafe_val(list_id.into()),
         }
@@ -178,8 +187,10 @@ impl<'a> NativeFunctionContext<'a> {
 
     /// Create a new custom value from `obj`.
     pub fn new_custom(self, obj: impl CustomType) -> ValBuilder<'a> {
+        // TODO: Connect the real debugger.
+        let debugger = &mut DefaultDebugger;
         let custom_val = CustomVal::new(obj);
-        let custom_id = self.vm.objects.insert_custom(custom_val);
+        let custom_id = self.vm.objects.insert_custom(custom_val, debugger);
         ValBuilder {
             // Unsafe OK: Custom is just created so it does not have a chance to garbage collect.
             val: unsafe { Val::from_unsafe_val(custom_id.into()) },

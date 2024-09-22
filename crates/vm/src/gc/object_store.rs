@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use log::*;
 
-use crate::val::ValId;
+use crate::{debugger::Debugger, val::ValId};
 
 #[derive(Clone, Debug)]
 pub struct ValWithColor<T> {
@@ -60,10 +60,19 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     /// [Self::unmark_always_reachable].
     ///
     /// Returns the number of objects that were removed.
-    pub fn remove_all_with_color(&mut self, color: Color) -> usize {
+    pub fn remove_all_with_color(&mut self, color: Color, debugger: &mut impl Debugger) -> usize {
         let start_free = self.free_object_idx.len();
         for (idx, obj) in self.objects.iter_mut().enumerate() {
             if obj.inner.is_some() && obj.color == color {
+                debugger.gc_remove(
+                    ValId::<T> {
+                        vm_id: 0,
+                        obj_id: obj.id,
+                        idx: idx as u32,
+                        _marker: PhantomData,
+                    },
+                    obj.inner.as_ref().unwrap(),
+                );
                 self.free_object_idx.push(idx as _);
             }
         }
@@ -92,6 +101,11 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     /// Get a reference to the underlying type or `None` if it does not exist.
     pub fn get(&self, vm_id: u16, id: ValId<T>) -> Option<&T> {
         if vm_id != id.vm_id {
+            error!(
+                "Attempted to get value for VM ID {id_vm_id} but store is for VM ID {this_vm_id}",
+                id_vm_id = id.vm_id,
+                this_vm_id = vm_id,
+            );
             return None;
         }
         self.objects
@@ -101,10 +115,12 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
                     true
                 } else {
                     error!(
-                        "Wrong object id found, expected {expected:?} but found {actual:?}.",
+                        "Expected object id {expected} but found {actual}. This is likely a serious issue.",
                         expected = id.obj_id,
-                        actual = obj.id
-                    );
+                        actual=obj.id);
+                    error!(
+                        "If no egregious use of unsafe was used, please file a reproducible issue at {issues_link}.",
+                        issues_link = "https://github.com/wmedrano/spore/issues");
                     false
                 }
             })
@@ -123,21 +139,29 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     }
 
     /// Insert object `T` with `color` and return its `id`.
-    pub fn insert(&mut self, vm_id: u16, obj: T, color: Color) -> ValId<T> {
+    pub fn insert(
+        &mut self,
+        vm_id: u16,
+        obj: T,
+        color: Color,
+        debugger: &mut impl Debugger,
+    ) -> ValId<T> {
         match self.free_object_idx.pop() {
             Some(idx) => {
                 let obj_id = self.objects[idx as usize].id.wrapping_add(1);
+                let id = ValId {
+                    vm_id,
+                    obj_id,
+                    idx,
+                    _marker: PhantomData,
+                };
+                debugger.gc_insert(id, &obj, true);
                 self.objects[idx as usize] = ValWithColor {
                     inner: Some(obj),
                     id: obj_id,
                     color,
                 };
-                ValId {
-                    vm_id,
-                    obj_id,
-                    idx,
-                    _marker: PhantomData,
-                }
+                id
             }
             None => {
                 let id = ValId {
@@ -146,6 +170,7 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
                     idx: self.objects.len() as _,
                     _marker: PhantomData,
                 };
+                debugger.gc_insert(id, &obj, false);
                 self.objects.push(ValWithColor {
                     inner: Some(obj),
                     id: id.obj_id,

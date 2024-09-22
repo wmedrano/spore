@@ -1,13 +1,16 @@
-use spore_vm::VmSettings;
+use spore_vm::{DefaultDebugger, Settings};
 
 fn main() {
-    let mut vm = spore_vm::Vm::new(VmSettings {
+    let mut vm = spore_vm::Vm::new(Settings {
         enable_aggressive_inline: true,
     });
-    vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
-        .unwrap();
+    vm.eval_str(
+        "(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))",
+        &mut DefaultDebugger,
+    )
+    .unwrap();
     let start_time = std::time::Instant::now();
-    let ret = vm.eval_str("(fib 35)").unwrap();
+    let ret = vm.eval_str("(fib 35)", &mut DefaultDebugger).unwrap();
     println!("Evaluted in {:?}", start_time.elapsed());
     println!("{}", ret);
 }

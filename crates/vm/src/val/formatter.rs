@@ -4,7 +4,7 @@ use super::UnsafeVal;
 
 pub struct ValFormatter<'a> {
     vm: &'a Vm,
-    v: UnsafeVal,
+    val: UnsafeVal,
     quote_strings: bool,
 }
 
@@ -13,7 +13,7 @@ impl<'a> ValFormatter<'a> {
     pub fn new(vm: &'a Vm, v: UnsafeVal) -> ValFormatter {
         ValFormatter {
             vm,
-            v,
+            val: v,
             quote_strings: false,
         }
     }
@@ -23,7 +23,7 @@ impl<'a> ValFormatter<'a> {
     pub fn new_quoted(vm: &'a Vm, v: UnsafeVal) -> ValFormatter {
         ValFormatter {
             vm,
-            v,
+            val: v,
             quote_strings: true,
         }
     }
@@ -31,7 +31,7 @@ impl<'a> ValFormatter<'a> {
 
 impl<'a> std::fmt::Display for ValFormatter<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.v {
+        match &self.val {
             UnsafeVal::Void => write!(f, "<void>"),
             UnsafeVal::Bool(x) => write!(f, "{x}"),
             UnsafeVal::Int(x) => write!(f, "{x}"),
@@ -47,7 +47,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
             UnsafeVal::MutableBox(x) => {
                 let inner = ValFormatter {
                     vm: self.vm,
-                    v: *self.vm.objects.get_mutable_box(*x),
+                    val: *self.vm.objects.get_mutable_box(*x),
                     quote_strings: true,
                 };
                 write!(f, "box<{}>", inner)
@@ -86,6 +86,8 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::DefaultDebugger;
+
     use super::*;
 
     #[test]
@@ -135,7 +137,9 @@ mod tests {
     #[test]
     fn format_string_produces_string() {
         let mut vm = Vm::default();
-        let string_id = vm.objects.insert_string("my string".into());
+        let string_id = vm
+            .objects
+            .insert_string("my string".into(), &mut DefaultDebugger);
         assert_eq!(
             UnsafeVal::from(string_id).formatted(&vm).to_string(),
             "my string"
@@ -145,8 +149,9 @@ mod tests {
     #[test]
     fn format_mutable_box_produces_underlying_value() {
         let mut vm = Vm::default();
-        vm.eval_str("(define x (new-box \"string\"))").unwrap();
-        let res = vm.eval_str("x").unwrap();
+        vm.eval_str("(define x (new-box \"string\"))", &mut DefaultDebugger)
+            .unwrap();
+        let res = vm.eval_str("x", &mut DefaultDebugger).unwrap();
         assert!(res.get_mutable_box_ref().is_ok());
         assert_eq!(res.formatted(res.vm()).to_string(), "box<\"string\">");
     }
@@ -154,14 +159,16 @@ mod tests {
     #[test]
     fn format_function_prints_name() {
         let mut vm = Vm::default();
-        let v = vm.eval_str("(define (foo) 10) foo").unwrap();
+        let v = vm
+            .eval_str("(define (foo) 10) foo", &mut DefaultDebugger)
+            .unwrap();
         assert_eq!(v.to_string(), "<function foo>");
     }
 
     #[test]
     fn format_native_function_prints_native_function() {
         let mut vm = Vm::default();
-        let v = vm.eval_str("+").unwrap();
+        let v = vm.eval_str("+", &mut DefaultDebugger).unwrap();
         assert_eq!(v.to_string(), "<native-function>");
     }
 }
