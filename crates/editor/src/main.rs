@@ -65,7 +65,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     while vm.eval_str("(unbox running?)").unwrap().is_truthy() {
         {
             let buffer = vm.val_by_name("buffer").unwrap();
-            let buffer = buffer.as_custom::<SporeBuffer>().unwrap();
+            let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
             terminal.draw(|frame| {
                 let window_area = frame.area();
                 let b = Block::default()

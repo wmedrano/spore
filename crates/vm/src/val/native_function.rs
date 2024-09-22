@@ -60,7 +60,7 @@ impl<'a> NativeFunctionContext<'a> {
         self.vm
     }
 
-    /// Get the argument as a [ProtectedVal] that is guaranteed to not be garbage collected.
+    /// Get the argument as a [crate::ProtectedVal] that is guaranteed to not be garbage collected.
     pub fn arg(&self, idx: usize) -> Val<'a> {
         let v = self.vm.stack[self.stack_start + idx];
         // Unsafe OK: Args are from the VM's stack so they are not garbage collected.

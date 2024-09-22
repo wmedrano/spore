@@ -12,7 +12,7 @@ Lisp functionality like `Buffer` and `Event` objects.
 
 ## Crates
 
-- [Code Coverage](https://wmedrano.github.io/spore/llvm-cov)
+- [Code Coverage](https://wmedrano.github.io/spore/llvm-cov/html)
 
 ### Spore Editor
 

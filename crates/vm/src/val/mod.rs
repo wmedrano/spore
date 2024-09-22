@@ -69,6 +69,7 @@ impl<'a> Val<'a> {
         self.inner.is_truthy()
     }
 
+    /// Get the underlying `bool` value or `Err(self)` if `self` is not a bool.
     pub fn try_bool(self) -> Result<bool, Self> {
         match self.inner {
             UnsafeVal::Bool(x) => Ok(x),
@@ -76,6 +77,7 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Get the underlying `int` value or `Err(self)` if `self` is not an int.
     pub fn try_int(self) -> Result<i64, Self> {
         match self.inner {
             UnsafeVal::Int(x) => Ok(x),
@@ -83,6 +85,7 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Get the underlying `float` value or `Err(self)` if `self` is not a float.
     pub fn try_float(self) -> Result<f64, Self> {
         match self.inner {
             UnsafeVal::Float(x) => Ok(x),
@@ -90,7 +93,7 @@ impl<'a> Val<'a> {
         }
     }
 
-    /// Get the underlying [&str] or [Err<Val>] if `self` is not a string.
+    /// Get the underlying [&str] or `Err<Val>` if `self` is not a string.
     pub fn try_str(self, vm: &Vm) -> Result<&str, Self> {
         match self.inner {
             UnsafeVal::String(id) => Ok(vm.objects.get_str(id)),
@@ -98,7 +101,7 @@ impl<'a> Val<'a> {
         }
     }
 
-    /// Get the underlying list or [Err<Val>] if `self` is not a list.
+    /// Get the underlying list or `Err<Val>` if `self` is not a list.
     pub fn try_list(self, vm: &Vm) -> Result<&[Val], Val<'a>> {
         match self.inner {
             UnsafeVal::List(id) => {
@@ -110,7 +113,7 @@ impl<'a> Val<'a> {
         }
     }
 
-    /// Get the [Val] that the mutable box is pointing to or [Err<Val>] if `self` is not a mutable
+    /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
     /// box.
     pub fn get_mutable_box_ref(self, vm: &Vm) -> Result<Val, Val<'a>> {
         match self.inner {
@@ -123,14 +126,19 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Get the display name of the type held by `self`.
     pub fn type_name(self) -> &'static str {
         self.inner.type_name()
     }
 
+    /// Get a formatter for the underlying type.
     pub fn formatted(self, vm: &Vm) -> impl '_ + std::fmt::Display {
         self.inner.formatted(vm)
     }
 
+    /// Get a formatter for the underlying type.
+    ///
+    /// Compared to [Self::formatted], `strings` are displayed with quotes around them.
     pub fn format_quoted(self, vm: &Vm) -> impl '_ + std::fmt::Display {
         self.inner.format_quoted(vm)
     }

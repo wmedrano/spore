@@ -61,7 +61,7 @@ struct StackFrame {
 }
 
 /// A reference to some trivial bytecode. Used to avoid allocations when creating a [StackFrame].
-const DEFAULT_BYTECODE: LazyLock<Arc<ByteCode>> = LazyLock::new(|| Arc::default());
+static DEFAULT_BYTECODE: LazyLock<Arc<ByteCode>> = LazyLock::new(Arc::default);
 
 impl Default for StackFrame {
     fn default() -> StackFrame {
@@ -114,31 +114,6 @@ impl Vm {
         vm
     }
 
-    /// Run the garbage collector.
-    pub fn run_gc(&mut self) {
-        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
-        let vals = self
-            .stack
-            .iter()
-            .copied()
-            .filter(is_gc)
-            .chain(self.values.values().copied().filter(is_gc))
-            .chain(
-                self.previous_stack_frames
-                    .iter()
-                    .flat_map(|previous_frame| {
-                        previous_frame
-                            .bytecode
-                            .values()
-                            .filter(is_gc)
-                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
-                    }),
-            )
-            .chain(self.stack_frame.bytecode.values().filter(is_gc))
-            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
-        self.objects.run_gc(vals)
-    }
-
     /// Return the VM with the native function registered.
     pub fn with_native_function(mut self, name: &str, func: NativeFunction) -> Self {
         let func: UnsafeVal = func.into();
@@ -168,14 +143,41 @@ impl Vm {
         );
         self.values.insert(name.into(), val);
     }
+}
+
+impl Vm {
+    /// Run the garbage collector.
+    pub fn run_gc(&mut self) {
+        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
+        let vals = self
+            .stack
+            .iter()
+            .copied()
+            .filter(is_gc)
+            .chain(self.values.values().copied().filter(is_gc))
+            .chain(
+                self.previous_stack_frames
+                    .iter()
+                    .flat_map(|previous_frame| {
+                        previous_frame
+                            .bytecode
+                            .values()
+                            .filter(is_gc)
+                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
+                    }),
+            )
+            .chain(self.stack_frame.bytecode.values().filter(is_gc))
+            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
+        self.objects.run_gc(vals)
+    }
 
     /// Get the value with the given name.
-    pub fn val_by_name(&mut self, name: &str) -> Option<ProtectedVal> {
+    pub fn val_by_name(&self, name: &str) -> Option<Val> {
         self.values
             .get(name)
             .copied()
             // Unsafe OK: The value has not been garbage collected as its part of the values map.
-            .map(|v| ProtectedVal::new(self, unsafe { Val::from_unsafe_val(v) }))
+            .map(|v| unsafe { Val::from_unsafe_val(v) })
     }
 
     /// Evaluate a string in the virtual machine.
@@ -189,7 +191,7 @@ impl Vm {
     pub fn eval_function_by_name(
         &mut self,
         name: &str,
-        args: impl ExactSizeIterator + Iterator<Item = Val<'static>>,
+        args: impl ExactSizeIterator<Item = Val<'static>>,
     ) -> VmResult<ProtectedVal> {
         let function_val = *self
             .values
@@ -202,7 +204,7 @@ impl Vm {
                 .insert_bytecode(ByteCode::new_native_function_call(name, f, args.len())),
             v => {
                 return Err(VmError::TypeError {
-                    context: "eval_function_by_name",
+                    context: "eval-function-by-name",
                     expected: UnsafeVal::FUNCTION_TYPE_NAME,
                     actual: v.type_name(),
                     value: v.formatted(self).to_string(),

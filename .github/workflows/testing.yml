@@ -52,14 +52,12 @@ jobs:
       - name: Package Artifacts
         run: |
           mkdir artifacts
-          mv target/doc/spore_editor artifacts
-          mv artifacts/spore_editor artifacts/doc
-          mv target/llvm-cov/html artifacts
-          mv artifacts/html artifacts/llvm-cov
+          mv target/doc artifacts
+          mv target/llvm-cov artifacts
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: artifacts/
+          path: ./artifacts
   deploy-site:
     environment:
       name: github-pages
