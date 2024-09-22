@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use log::*;
 
-use crate::{debugger::Debugger, val::ValId};
+use crate::val::ValId;
 
 #[derive(Clone, Debug)]
 pub struct ValWithColor<T> {
@@ -60,19 +60,10 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     /// [Self::unmark_always_reachable].
     ///
     /// Returns the number of objects that were removed.
-    pub fn remove_all_with_color(&mut self, color: Color, debugger: &mut impl Debugger) -> usize {
+    pub fn remove_all_with_color(&mut self, color: Color) -> usize {
         let start_free = self.free_object_idx.len();
         for (idx, obj) in self.objects.iter_mut().enumerate() {
             if obj.inner.is_some() && obj.color == color {
-                debugger.gc_remove(
-                    ValId::<T> {
-                        vm_id: 0,
-                        obj_id: obj.id,
-                        idx: idx as u32,
-                        _marker: PhantomData,
-                    },
-                    obj.inner.as_ref().unwrap(),
-                );
                 self.free_object_idx.push(idx as _);
             }
         }
@@ -139,13 +130,7 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     }
 
     /// Insert object `T` with `color` and return its `id`.
-    pub fn insert(
-        &mut self,
-        vm_id: u16,
-        obj: T,
-        color: Color,
-        debugger: &mut impl Debugger,
-    ) -> ValId<T> {
+    pub fn insert(&mut self, vm_id: u16, obj: T, color: Color) -> ValId<T> {
         match self.free_object_idx.pop() {
             Some(idx) => {
                 let obj_id = self.objects[idx as usize].id.wrapping_add(1);
@@ -155,7 +140,6 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
                     idx,
                     _marker: PhantomData,
                 };
-                debugger.gc_insert(id, &obj, true);
                 self.objects[idx as usize] = ValWithColor {
                     inner: Some(obj),
                     id: obj_id,
@@ -170,7 +154,6 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
                     idx: self.objects.len() as _,
                     _marker: PhantomData,
                 };
-                debugger.gc_insert(id, &obj, false);
                 self.objects.push(ValWithColor {
                     inner: Some(obj),
                     id: id.obj_id,

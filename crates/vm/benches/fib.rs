@@ -1,8 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
+use spore_vm::DefaultDebugger;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let src = "(fib 30)";
-    c.bench_function(src, |b| {
+    let n = 30;
+    c.bench_function(&format!("fib-{n}"), |b| {
         let mut vm = spore_vm::Vm::new(spore_vm::Settings {
             enable_aggressive_inline: true,
         });
@@ -12,7 +13,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         )
         .unwrap();
         b.iter(move || {
-            vm.eval_str(src, &mut DefaultDebugger)
+            vm.eval_function_by_name("fib", std::iter::once(n.into()), &mut DefaultDebugger)
                 .unwrap()
                 .try_int()
                 .unwrap()

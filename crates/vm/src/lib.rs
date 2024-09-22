@@ -141,9 +141,7 @@ impl Vm {
 
     /// Return the VM with a custom value that is accessible globally.
     pub fn with_custom_value(mut self, name: &str, val: impl CustomType) -> Self {
-        // TODO: Consider plugging in a real debugger.
-        let debugger = &mut DefaultDebugger;
-        let id = self.objects.insert_custom(CustomVal::new(val), debugger);
+        let id = self.objects.insert_custom(CustomVal::new(val));
         // Unsafe OK: Custom type is registered in the VM in the line above.
         unsafe { self.register_value(name, id) };
         self
@@ -185,10 +183,10 @@ impl Vm {
         debugger: &mut impl Debugger,
     ) -> VmResult<ProtectedVal> {
         let arena = std::mem::take(&mut self.tmp_arena);
-        let bytecode = Compiler::compile(self, source, &arena, debugger)?;
+        let bytecode = Compiler::compile(self, source, &arena)?;
         self.tmp_arena = arena;
         self.tmp_arena.reset();
-        let bytecode_id = self.objects.insert_bytecode(bytecode, debugger);
+        let bytecode_id = self.objects.insert_bytecode(bytecode);
         self.eval_bytecode(bytecode_id, std::iter::empty(), debugger)
     }
 
@@ -216,10 +214,9 @@ impl Vm {
             .ok_or_else(|| VmError::SymbolNotDefined(name.to_string()))?;
         let bytecode_id = match function_val {
             UnsafeVal::ByteCodeFunction(bc) => bc,
-            UnsafeVal::NativeFunction(f) => self.objects.insert_bytecode(
-                ByteCode::new_native_function_call(name, f, args.len()),
-                debugger,
-            ),
+            UnsafeVal::NativeFunction(f) => self
+                .objects
+                .insert_bytecode(ByteCode::new_native_function_call(name, f, args.len())),
             v => {
                 return Err(VmError::TypeError {
                     context: "eval-function-by-name",
@@ -251,8 +248,7 @@ impl Vm {
             bytecode_idx: 0,
             stack_start: 0,
         };
-        self.run_gc(debugger);
-        debugger.start_eval();
+        self.run_gc();
         loop {
             if let Some(v) = self.run_next(debugger)? {
                 // Unsafe OK: This is a new valid val and we are adding GC protection to it.
@@ -435,7 +431,7 @@ impl Vm {
     ///
     /// This does not need to be manually invoked as it is called automatically at the start of
     /// evaluation through functions like [Self::eval_str] and [Self::eval_function_by_name].
-    pub fn run_gc(&mut self, debugger: &mut impl Debugger) {
+    pub fn run_gc(&mut self) {
         let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
         let vals = self
             .stack
@@ -457,10 +453,9 @@ impl Vm {
             .chain(self.stack_frame.bytecode.values().filter(is_gc))
             .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
         let arena = std::mem::take(&mut self.tmp_arena);
-        self.objects.run_gc(&arena, vals, debugger);
+        self.objects.run_gc(&arena, vals);
         self.tmp_arena = arena;
         self.tmp_arena.reset();
-        debugger.end_gc();
     }
 }
 

@@ -137,9 +137,7 @@ mod tests {
     #[test]
     fn format_string_produces_string() {
         let mut vm = Vm::default();
-        let string_id = vm
-            .objects
-            .insert_string("my string".into(), &mut DefaultDebugger);
+        let string_id = vm.objects.insert_string("my string".into());
         assert_eq!(
             UnsafeVal::from(string_id).formatted(&vm).to_string(),
             "my string"

@@ -61,9 +61,9 @@ fn new_vm() -> Vm {
 
 (define (handle-event-impl! event)
   (if (not event) (return void))
-  (if (= event "<esc>") (quit!))
-  (if (= event "<esc>") (return false))
-  (buffer-append! buffer (event-to-insert event)))
+  (if (= event "<esc>") (return (quit!)))
+  (if (= event "<backspace>") (return (buffer-delete! buffer)))
+  (buffer-insert! buffer (event-to-insert event)))
 
 
 (define (handle-event!)
@@ -109,8 +109,14 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The minimum frames per second. This occurs when no user events are detected.
+const MINIMUM_FRAMES_PER_SECOND: u64 = 30;
+/// The amount of time to wait for an event before moving on with rendering.
+const READ_EVENT_TIMEOUT_DURATION: Duration =
+    Duration::from_nanos(1_000_000_000 / MINIMUM_FRAMES_PER_SECOND);
+
 fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    if !event::poll(Duration::from_millis(10)).unwrap() {
+    if !event::poll(READ_EVENT_TIMEOUT_DURATION).unwrap() {
         return Ok(ValBuilder::new(false.into()));
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;

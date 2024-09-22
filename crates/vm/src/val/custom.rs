@@ -47,9 +47,6 @@ impl CustomVal {
     ///
     /// # Panic
     /// Panics if the value if the value is under a [Self::get_mut].
-    ///
-    /// # TODO
-    /// Return an error instead of an option.
     pub fn get<T>(&self) -> Result<CustomValRef<'_, T>, CustomValError>
     where
         T: CustomType,
@@ -371,7 +368,7 @@ mod tests {
     #[test]
     fn custom_type_can_be_made_from_native_function() {
         fn custom_function(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-            let number = ctx.arg(0).try_int().unwrap();
+            let number = ctx.arg(0).unwrap().try_int().unwrap();
             let v = MyType { number };
             Ok(ctx.new_custom(v))
         }

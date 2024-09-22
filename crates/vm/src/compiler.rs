@@ -7,7 +7,6 @@ type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 use crate::{
     ast::Node,
-    debugger::Debugger,
     error::CompileError,
     val::{ByteCode, Instruction, UnsafeVal},
     Settings, Vm,
@@ -31,12 +30,7 @@ enum CompilerContext {
 }
 
 impl<'a> Compiler<'a> {
-    pub fn compile(
-        vm: &'a mut Vm,
-        input_source: &str,
-        arena: &Bump,
-        debugger: &mut impl Debugger,
-    ) -> Result<ByteCode> {
+    pub fn compile(vm: &'a mut Vm, input_source: &str, arena: &Bump) -> Result<ByteCode> {
         let settings = vm.settings;
         let mut compiler = Compiler {
             vm,
@@ -46,7 +40,7 @@ impl<'a> Compiler<'a> {
             arguments: BumpVec::new_in(arena),
             instructions: BumpVec::new_in(arena),
         };
-        compiler.compile_impl(input_source, CompilerContext::Module, debugger)?;
+        compiler.compile_impl(input_source, CompilerContext::Module)?;
         Ok(ByteCode {
             name: "".into(),
             arg_count: 0,
@@ -54,16 +48,11 @@ impl<'a> Compiler<'a> {
         })
     }
 
-    fn compile_impl(
-        &mut self,
-        input_source: &str,
-        ctx: CompilerContext,
-        debugger: &mut impl Debugger,
-    ) -> Result<()> {
+    fn compile_impl(&mut self, input_source: &str, ctx: CompilerContext) -> Result<()> {
         for node_or_err in Node::parse(input_source) {
             let node = node_or_err.map_err(CompileError::AstError)?;
             let ir = Ir::new(self.arena, &node)?;
-            self.compile_one(&ir, ctx, debugger)?;
+            self.compile_one(&ir, ctx)?;
         }
         Ok(())
     }
@@ -77,12 +66,7 @@ impl<'a> Compiler<'a> {
         None
     }
 
-    fn compile_one(
-        &mut self,
-        ir: &Ir,
-        ctx: CompilerContext,
-        debugger: &mut impl Debugger,
-    ) -> Result<()> {
+    fn compile_one(&mut self, ir: &Ir, ctx: CompilerContext) -> Result<()> {
         match ir {
             Ir::Constant(const_val) => {
                 let instruction = match const_val {
@@ -91,7 +75,7 @@ impl<'a> Compiler<'a> {
                     Constant::Int(x) => Instruction::PushConst((*x).into()),
                     Constant::Float(x) => Instruction::PushConst((*x).into()),
                     Constant::String(x) => Instruction::PushConst(UnsafeVal::String(
-                        self.vm.objects.insert_string((*x).into(), debugger),
+                        self.vm.objects.insert_string((*x).into()),
                     )),
                 };
                 self.instructions.push(instruction);
@@ -136,7 +120,7 @@ impl<'a> Compiler<'a> {
                     })
                     .flatten();
                 if maybe_native_function.is_none() {
-                    self.compile_one(function, CompilerContext::Subexpression, debugger)?;
+                    self.compile_one(function, CompilerContext::Subexpression)?;
                 }
                 for arg in args {
                     if arg.return_type() != IrReturnType::Value {
@@ -144,7 +128,7 @@ impl<'a> Compiler<'a> {
                             context: "function call argument",
                         });
                     }
-                    self.compile_one(arg, CompilerContext::Subexpression, debugger)?;
+                    self.compile_one(arg, CompilerContext::Subexpression)?;
                 }
                 match maybe_native_function {
                     Some(func) => self.instructions.push(Instruction::EvalNative {
@@ -161,7 +145,7 @@ impl<'a> Compiler<'a> {
                 if expr.return_type() != IrReturnType::Value {
                     return Err(CompileError::ExpectedExpression { context: "define" });
                 }
-                self.compile_one(expr, CompilerContext::Subexpression, debugger)?;
+                self.compile_one(expr, CompilerContext::Subexpression)?;
                 self.instructions
                     .push(Instruction::Define((*identifier).into()));
             }
@@ -175,7 +159,7 @@ impl<'a> Compiler<'a> {
                         context: "if predicate",
                     });
                 }
-                self.compile_one(predicate, CompilerContext::Subexpression, debugger)?;
+                self.compile_one(predicate, CompilerContext::Subexpression)?;
                 let true_jump_idx = self.instructions.len();
                 self.instructions.push(Instruction::PushConst(().into()));
                 match false_expr {
@@ -185,7 +169,7 @@ impl<'a> Compiler<'a> {
                                 context: "if expression, false branch",
                             });
                         }
-                        self.compile_one(expr, CompilerContext::Subexpression, debugger)?
+                        self.compile_one(expr, CompilerContext::Subexpression)?
                     }
                     None => self.instructions.push(Instruction::PushConst(().into())),
                 }
@@ -196,7 +180,7 @@ impl<'a> Compiler<'a> {
                         context: "if expression, true branch",
                     });
                 }
-                self.compile_one(true_expr, CompilerContext::Subexpression, debugger)?;
+                self.compile_one(true_expr, CompilerContext::Subexpression)?;
                 self.instructions[true_jump_idx] =
                     Instruction::JumpIf(false_jump_idx - true_jump_idx);
                 self.instructions[false_jump_idx] =
@@ -228,17 +212,15 @@ impl<'a> Compiler<'a> {
                     return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
                 }
                 for expr in expressions.iter() {
-                    lambda_compiler.compile_one(expr, CompilerContext::Subexpression, debugger)?;
+                    lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val =
-                    UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(
-                        ByteCode {
-                            name: name.unwrap_or("").into(),
-                            arg_count: args.len(),
-                            instructions: lambda_compiler.instructions.into_bump_slice().into(),
-                        },
-                        debugger,
-                    ));
+                let lambda_val = UnsafeVal::ByteCodeFunction(
+                    lambda_compiler.vm.objects.insert_bytecode(ByteCode {
+                        name: name.unwrap_or("").into(),
+                        arg_count: args.len(),
+                        instructions: lambda_compiler.instructions.into_bump_slice().into(),
+                    }),
+                );
                 self.instructions.push(Instruction::PushConst(lambda_val));
             }
             Ir::Return { expr } => {
@@ -247,7 +229,7 @@ impl<'a> Compiler<'a> {
                         context: "return statement expected expression",
                     });
                 }
-                self.compile_one(expr, CompilerContext::Subexpression, debugger)?;
+                self.compile_one(expr, CompilerContext::Subexpression)?;
                 self.instructions.push(Instruction::Return);
             }
         };
@@ -528,7 +510,7 @@ mod tests {
     #[test]
     fn empty_expression_is_empty() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -543,7 +525,7 @@ mod tests {
     fn ast_error_is_returned() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(&mut vm, ")", &Bump::new(), &mut DefaultDebugger).unwrap_err(),
+            Compiler::compile(&mut vm, ")", &Bump::new(),).unwrap_err(),
             CompileError::AstError(AstParseError::UnexpectedCloseParen)
         );
     }
@@ -556,7 +538,7 @@ mod tests {
     fn literal_value_produces_single_push_const() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(&mut vm, "true", &Bump::new(), &mut DefaultDebugger).unwrap(),
+            Compiler::compile(&mut vm, "true", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -564,7 +546,7 @@ mod tests {
             }
         );
         assert_eq!(
-            Compiler::compile(&mut vm, "1", &Bump::new(), &mut DefaultDebugger).unwrap(),
+            Compiler::compile(&mut vm, "1", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -572,15 +554,14 @@ mod tests {
             }
         );
         assert_eq!(
-            Compiler::compile(&mut vm, "1.0", &Bump::new(), &mut DefaultDebugger).unwrap(),
+            Compiler::compile(&mut vm, "1.0", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(1.0.into())].into()
             }
         );
-        let got =
-            Compiler::compile(&mut vm, "\"string\"", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let got = Compiler::compile(&mut vm, "\"string\"", &Bump::new()).unwrap();
         assert_eq!(
             got,
             ByteCode {
@@ -608,8 +589,7 @@ mod tests {
     #[test]
     fn single_identifier_is_dereffed() {
         let mut vm = Vm::default();
-        let actual =
-            Compiler::compile(&mut vm, "my-variable", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "my-variable", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -625,7 +605,7 @@ mod tests {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
         });
-        let actual = Compiler::compile(&mut vm, "+", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "+", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -644,8 +624,7 @@ mod tests {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
         });
-        let actual =
-            Compiler::compile(&mut vm, "(+ 1 2)", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -669,13 +648,7 @@ mod tests {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
         });
-        let actual = Compiler::compile(
-            &mut vm,
-            "(does-not-exist 1 2)",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "(does-not-exist 1 2)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -690,13 +663,7 @@ mod tests {
                 .into()
             }
         );
-        let actual = Compiler::compile(
-            &mut vm,
-            "((get-fn) 1 2)",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "((get-fn) 1 2)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -721,7 +688,7 @@ mod tests {
     #[test]
     fn function_call_with_no_args_evalutes_function() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(+)", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "(+)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -735,8 +702,7 @@ mod tests {
     #[test]
     fn function_call_args_evalutes_function_on_args() {
         let mut vm = Vm::default();
-        let actual =
-            Compiler::compile(&mut vm, "(+ 1 2)", &Bump::new(), &mut DefaultDebugger).unwrap();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -756,13 +722,7 @@ mod tests {
     #[test]
     fn multiple_expressions_are_evaluated_in_order() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(+ 1 2) (+ 3 4)",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2) (+ 3 4)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -786,13 +746,7 @@ mod tests {
     #[test]
     fn nested_expressions_are_evaluated() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(+ 1 2 (+ 3 4))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "(+ 1 2 (+ 3 4))", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -816,13 +770,7 @@ mod tests {
     #[test]
     fn define_in_function_args_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(+ 1 (define x 12))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap_err();
+        let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {
@@ -834,13 +782,7 @@ mod tests {
     #[test]
     fn define_in_function_call_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "((define x 12))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap_err();
+        let actual = Compiler::compile(&mut vm, "((define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {
@@ -856,9 +798,7 @@ mod tests {
     #[test]
     fn define_defines_a_new_value() {
         let mut vm = Vm::default();
-        let actual =
-            Compiler::compile(&mut vm, "(define x 12)", &Bump::new(), &mut DefaultDebugger)
-                .unwrap();
+        let actual = Compiler::compile(&mut vm, "(define x 12)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -876,13 +816,8 @@ mod tests {
     #[test]
     fn define_with_list_identifier_produces_lambda() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(define (foo a b) (+ a b))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual =
+            Compiler::compile(&mut vm, "(define (foo a b) (+ a b))", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -891,20 +826,17 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(
                         UnsafeVal::ByteCodeFunction(
-                            vm.objects.get_or_insert_bytecode_slow(
-                                ByteCode {
-                                    name: "foo".into(),
-                                    arg_count: 2,
-                                    instructions: vec![
-                                        Instruction::Deref("+".into()),
-                                        Instruction::GetArg(0),
-                                        Instruction::GetArg(1),
-                                        Instruction::Eval(3),
-                                    ]
-                                    .into(),
-                                },
-                                &mut DefaultDebugger
-                            )
+                            vm.objects.get_or_insert_bytecode_slow(ByteCode {
+                                name: "foo".into(),
+                                arg_count: 2,
+                                instructions: vec![
+                                    Instruction::Deref("+".into()),
+                                    Instruction::GetArg(0),
+                                    Instruction::GetArg(1),
+                                    Instruction::Eval(3),
+                                ]
+                                .into(),
+                            },)
                         )
                         .into()
                     ),
@@ -918,13 +850,7 @@ mod tests {
     #[test]
     fn define_with_subexpression_evaluates_subexpr() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(define x (+ 1 2))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "(define x (+ 1 2))", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -945,13 +871,8 @@ mod tests {
     #[test]
     fn define_in_define_expr_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(define y (define x 12))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap_err();
+        let actual =
+            Compiler::compile(&mut vm, "(define y (define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression { context: "define" }
@@ -966,13 +887,8 @@ mod tests {
     fn if_expression_produces_branching_instructions() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap(),
+            Compiler::compile(&mut vm, "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))", &Bump::new(),)
+                .unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -1004,13 +920,7 @@ mod tests {
     fn if_expression_with_empty_false_branch_defaults_to_void() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if (< 1 2) (+ 4 5 6))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap(),
+            Compiler::compile(&mut vm, "(if (< 1 2) (+ 4 5 6))", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -1037,13 +947,7 @@ mod tests {
     fn if_expression_allows_early_return_on_branches() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if true (return 1) (return 2))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap(),
+            Compiler::compile(&mut vm, "(if true (return 1) (return 2))", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -1065,13 +969,7 @@ mod tests {
     fn early_return_on_predicate_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if (return 10) 1 2)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(if (return 10) 1 2)", &Bump::new(),).unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "if predicate"
             },
@@ -1082,37 +980,19 @@ mod tests {
     fn if_expression_with_non_expression_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if (define x 1) 1 2)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(if (define x 1) 1 2)", &Bump::new(),).unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "if predicate"
             }
         );
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if true (define x 1) 2)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(if true (define x 1) 2)", &Bump::new(),).unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "if expression, true branch"
             }
         );
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if true 1 (define x 2))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(if true 1 (define x 2))", &Bump::new(),).unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "if expression, false branch"
             }
@@ -1123,7 +1003,7 @@ mod tests {
     fn if_with_wrong_number_of_args_produces_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(&mut vm, "(if)", &Bump::new(), &mut DefaultDebugger).unwrap_err(),
+            Compiler::compile(&mut vm, "(if)", &Bump::new(),).unwrap_err(),
             CompileError::ExpressionHasWrongArgs {
                 expression: "if",
                 expected: 2,
@@ -1131,13 +1011,7 @@ mod tests {
             },
         );
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(if true 1 2 3)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(if true 1 2 3)", &Bump::new(),).unwrap_err(),
             CompileError::ExpressionHasWrongArgs {
                 expression: "if",
                 expected: 3,
@@ -1153,23 +1027,18 @@ mod tests {
     #[test]
     fn lambda_produces_lambda_expr() {
         let mut vm = Vm::default();
-        let actual =
-            Compiler::compile(&mut vm, "(lambda () 1)", &Bump::new(), &mut DefaultDebugger)
-                .unwrap();
+        let actual = Compiler::compile(&mut vm, "(lambda () 1)", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    UnsafeVal::ByteCodeFunction(vm.objects.get_or_insert_bytecode_slow(
-                        ByteCode {
-                            name: "".into(),
-                            arg_count: 0,
-                            instructions: vec![Instruction::PushConst(1.into())].into(),
-                        },
-                        &mut DefaultDebugger
-                    ),)
+                    UnsafeVal::ByteCodeFunction(vm.objects.get_or_insert_bytecode_slow(ByteCode {
+                        name: "".into(),
+                        arg_count: 0,
+                        instructions: vec![Instruction::PushConst(1.into())].into(),
+                    },),)
                     .into()
                 )]
                 .into()
@@ -1184,7 +1053,6 @@ mod tests {
             &mut vm,
             "(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))",
             &Bump::new(),
-            &mut DefaultDebugger,
         )
         .unwrap();
         assert_eq!(
@@ -1194,20 +1062,17 @@ mod tests {
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
                     UnsafeVal::ByteCodeFunction(
-                        vm.objects.get_or_insert_bytecode_slow(
-                            ByteCode {
-                                name: "".into(),
-                                arg_count: 3,
-                                instructions: vec![
-                                    Instruction::GetArg(1),
-                                    Instruction::GetArg(0),
-                                    Instruction::GetArg(2),
-                                    Instruction::Eval(3)
-                                ]
-                                .into(),
-                            },
-                            &mut DefaultDebugger
-                        )
+                        vm.objects.get_or_insert_bytecode_slow(ByteCode {
+                            name: "".into(),
+                            arg_count: 3,
+                            instructions: vec![
+                                Instruction::GetArg(1),
+                                Instruction::GetArg(0),
+                                Instruction::GetArg(2),
+                                Instruction::Eval(3)
+                            ]
+                            .into(),
+                        },)
                     )
                     .into()
                 )]
@@ -1219,13 +1084,7 @@ mod tests {
     #[test]
     fn lambda_that_calls_self_with_push_current_function_instruction() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(define (foo n) (foo n))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        let actual = Compiler::compile(&mut vm, "(define (foo n) (foo n))", &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -1234,19 +1093,16 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(
                         UnsafeVal::ByteCodeFunction(
-                            vm.objects.get_or_insert_bytecode_slow(
-                                ByteCode {
-                                    name: "foo".into(),
-                                    arg_count: 1,
-                                    instructions: vec![
-                                        Instruction::PushCurrentFunction,
-                                        Instruction::GetArg(0),
-                                        Instruction::Eval(2)
-                                    ]
-                                    .into(),
-                                },
-                                &mut DefaultDebugger
-                            )
+                            vm.objects.get_or_insert_bytecode_slow(ByteCode {
+                                name: "foo".into(),
+                                arg_count: 1,
+                                instructions: vec![
+                                    Instruction::PushCurrentFunction,
+                                    Instruction::GetArg(0),
+                                    Instruction::Eval(2)
+                                ]
+                                .into(),
+                            },)
                         )
                         .into()
                     ),
@@ -1261,13 +1117,7 @@ mod tests {
     fn lambda_with_same_arg_defined_multiple_times_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(lambda (arg0 arg0) 0)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(lambda (arg0 arg0) 0)", &Bump::new(),).unwrap_err(),
             CompileError::ArgumentDefinedMultipleTimes("arg0".into())
         );
         // Tests the non-short arg optimized path.
@@ -1275,7 +1125,6 @@ mod tests {
             &mut vm,
             "(lambda (arg0 arg1 arg2 arg3 arg4 arg5 arg6) 0)",
             &Bump::new(),
-            &mut DefaultDebugger,
         )
         .is_ok(),);
         assert_eq!(
@@ -1283,7 +1132,6 @@ mod tests {
                 &mut vm,
                 "(lambda (arg0 arg0 arg0 arg0 arg0 arg0 arg0) 0)",
                 &Bump::new(),
-                &mut DefaultDebugger,
             )
             .unwrap_err(),
             CompileError::ArgumentDefinedMultipleTimes("arg0".into())
@@ -1293,8 +1141,7 @@ mod tests {
     #[test]
     fn lambda_with_no_expr_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(lambda ())", &Bump::new(), &mut DefaultDebugger)
-            .unwrap_err();
+        let actual = Compiler::compile(&mut vm, "(lambda ())", &Bump::new()).unwrap_err();
         assert_eq!(
             actual,
             CompileError::ExpectedExpression {
@@ -1306,26 +1153,15 @@ mod tests {
     #[test]
     fn lambda_with_define_statement_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(lambda () (define x 12))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap_err();
+        let actual =
+            Compiler::compile(&mut vm, "(lambda () (define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(actual, CompileError::DefineNotAllowedInSubexpression,);
     }
 
     #[test]
     fn lambda_with_invalid_expression_produces_error() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(lambda () (+ ()))",
-            &Bump::new(),
-            &mut DefaultDebugger,
-        )
-        .unwrap_err();
+        let actual = Compiler::compile(&mut vm, "(lambda () (+ ()))", &Bump::new()).unwrap_err();
         assert_eq!(actual, CompileError::EmptyExpression);
     }
 
@@ -1337,13 +1173,7 @@ mod tests {
     fn return_produces_return_instruction() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(return (if true 1 2))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap(),
+            Compiler::compile(&mut vm, "(return (if true 1 2))", &Bump::new(),).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -1364,13 +1194,7 @@ mod tests {
     fn return_with_non_expression_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(return (define x 0))",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(return (define x 0))", &Bump::new(),).unwrap_err(),
             CompileError::ExpectedExpression {
                 context: "return statement expected expression",
             },
@@ -1381,7 +1205,7 @@ mod tests {
     fn return_with_no_expr_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(&mut vm, "(return)", &Bump::new(), &mut DefaultDebugger).unwrap_err(),
+            Compiler::compile(&mut vm, "(return)", &Bump::new(),).unwrap_err(),
             CompileError::ExpressionHasWrongArgs {
                 expression: "return",
                 expected: 1,
@@ -1394,13 +1218,7 @@ mod tests {
     fn return_with_too_many_exprs_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            Compiler::compile(
-                &mut vm,
-                "(return 0 1 2)",
-                &Bump::new(),
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            Compiler::compile(&mut vm, "(return 0 1 2)", &Bump::new(),).unwrap_err(),
             CompileError::ExpressionHasWrongArgs {
                 expression: "return",
                 expected: 1,

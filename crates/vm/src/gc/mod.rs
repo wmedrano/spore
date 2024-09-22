@@ -7,7 +7,6 @@ use keep_reachable_set::KeepReachableSet;
 use log::*;
 
 use crate::{
-    debugger::Debugger,
     gc::object_store::{Color, ObjectStore},
     val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId},
 };
@@ -88,16 +87,10 @@ impl MemoryManager {
     }
 
     /// Run the garbage collector. All known values must be in `values`.
-    pub fn run_gc(
-        &mut self,
-        arena: &Bump,
-        populate_vals: impl Iterator<Item = UnsafeVal>,
-        debugger: &mut impl Debugger,
-    ) {
-        debugger.start_gc();
+    pub fn run_gc(&mut self, arena: &Bump, populate_vals: impl Iterator<Item = UnsafeVal>) {
         self.stats.gc_invocations += 1;
         self.run_gc_mark(arena, populate_vals);
-        self.run_gc_sweep(debugger);
+        self.run_gc_sweep();
         self.reachable_color = self.reachable_color.other();
     }
 
@@ -162,23 +155,14 @@ impl MemoryManager {
         }
     }
 
-    fn run_gc_sweep(&mut self, debugger: &mut impl Debugger) {
+    fn run_gc_sweep(&mut self) {
         let unreachable_color = self.reachable_color.other();
-        self.stats.strings_freed += self
-            .strings
-            .remove_all_with_color(unreachable_color, debugger);
-        self.stats.mutable_boxes_freed += self
-            .mutable_boxes
-            .remove_all_with_color(unreachable_color, debugger);
-        self.stats.lists_freed += self
-            .lists
-            .remove_all_with_color(unreachable_color, debugger);
-        self.stats.bytecodes_freed += self
-            .bytecodes
-            .remove_all_with_color(unreachable_color, debugger);
-        self.stats.customs_freed += self
-            .customs
-            .remove_all_with_color(unreachable_color, debugger);
+        self.stats.strings_freed += self.strings.remove_all_with_color(unreachable_color);
+        self.stats.mutable_boxes_freed +=
+            self.mutable_boxes.remove_all_with_color(unreachable_color);
+        self.stats.lists_freed += self.lists.remove_all_with_color(unreachable_color);
+        self.stats.bytecodes_freed += self.bytecodes.remove_all_with_color(unreachable_color);
+        self.stats.customs_freed += self.customs.remove_all_with_color(unreachable_color);
     }
 
     /// Marks `value` as reachable so that it doesn't get garbage collected.
@@ -201,14 +185,9 @@ impl MemoryManager {
     }
 
     /// Insert a string and get its id.
-    pub fn insert_string(
-        &mut self,
-        s: CompactString,
-        debugger: &mut impl Debugger,
-    ) -> ValId<CompactString> {
+    pub fn insert_string(&mut self, s: CompactString) -> ValId<CompactString> {
         self.stats.strings_allocated += 1;
-        self.strings
-            .insert(self.vm_id, s, self.reachable_color, debugger)
+        self.strings.insert(self.vm_id, s, self.reachable_color)
     }
 
     /// Get a string by its id.
@@ -227,14 +206,10 @@ impl MemoryManager {
     }
 
     /// Insert a string and get its id.
-    pub fn insert_mutable_box(
-        &mut self,
-        v: UnsafeVal,
-        debugger: &mut impl Debugger,
-    ) -> ValId<UnsafeVal> {
+    pub fn insert_mutable_box(&mut self, v: UnsafeVal) -> ValId<UnsafeVal> {
         self.stats.mutable_boxes_allocated += 1;
         self.mutable_boxes
-            .insert(self.vm_id, v, self.reachable_color, debugger)
+            .insert(self.vm_id, v, self.reachable_color)
     }
 
     pub const EMPTY_LIST: &ListVal = &ListVal::new();
@@ -247,12 +222,12 @@ impl MemoryManager {
     }
 
     /// Insert a list and get its id.
-    pub fn insert_list(&mut self, list: ListVal, debugger: &mut impl Debugger) -> ValId<ListVal> {
+    pub fn insert_list(&mut self, list: ListVal) -> ValId<ListVal> {
         self.stats.lists_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.lists
-            .insert(self.vm_id, list, self.reachable_color.other(), debugger)
+            .insert(self.vm_id, list, self.reachable_color.other())
     }
 
     /// Get a bytecode by its id.
@@ -267,35 +242,23 @@ impl MemoryManager {
     ///
     /// Warning: This may be very slow.
     #[cfg(test)]
-    pub fn get_or_insert_bytecode_slow(
-        &mut self,
-        bytecode: ByteCode,
-        debugger: &mut impl Debugger,
-    ) -> ValId<Arc<ByteCode>> {
+    pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
         for (id, val) in self.bytecodes.iter(self.vm_id) {
             if val.as_ref() == &bytecode {
                 return id;
             }
         }
         // Untested OK: This typically triggers when tests fail.
-        self.insert_bytecode(bytecode, debugger)
+        self.insert_bytecode(bytecode)
     }
 
     /// Insert bytecode into the store and return its id.
-    pub fn insert_bytecode(
-        &mut self,
-        bytecode: ByteCode,
-        debugger: &mut impl Debugger,
-    ) -> ValId<Arc<ByteCode>> {
+    pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
         self.stats.bytecodes_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
-        self.bytecodes.insert(
-            self.vm_id,
-            bytecode.into(),
-            self.reachable_color.other(),
-            debugger,
-        )
+        self.bytecodes
+            .insert(self.vm_id, bytecode.into(), self.reachable_color.other())
     }
 
     /// Get a custom value by its id.
@@ -306,16 +269,12 @@ impl MemoryManager {
     }
 
     /// Insert a custom value and get its id.
-    pub fn insert_custom(
-        &mut self,
-        custom: CustomVal,
-        debugger: &mut impl Debugger,
-    ) -> ValId<CustomVal> {
+    pub fn insert_custom(&mut self, custom: CustomVal) -> ValId<CustomVal> {
         self.stats.customs_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.customs
-            .insert(self.vm_id, custom, self.reachable_color.other(), debugger)
+            .insert(self.vm_id, custom, self.reachable_color.other())
     }
 }
 

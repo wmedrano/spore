@@ -1,10 +1,10 @@
 use compact_str::CompactString;
 
-use crate::{error::VmResult, DefaultDebugger, Vm};
+use crate::{error::VmResult, Vm};
 
 use super::{
     custom::{CustomType, CustomVal},
-    ListVal, UnsafeVal, Val,
+    UnsafeVal, Val,
 };
 
 /// A function that can be executed by the Spore VM. Native functions can be registered with
@@ -81,25 +81,38 @@ impl<'a> NativeFunctionContext<'a> {
         self.vm
     }
 
-    /// Get the underlying VM.
-    pub fn vm_mut(&mut self) -> &mut Vm {
+    /// Get a mutable reference to the underlying VM.
+    ///
+    /// # Safety
+    /// Any operations that triger GC or evaluation will cause undefined behavior.
+    pub unsafe fn vm_mut(&mut self) -> &mut Vm {
         self.vm
     }
 
-    /// Get the argument as a [crate::ProtectedVal] that is guaranteed to not be garbage collected.
-    pub fn arg(&self, idx: usize) -> Val<'a> {
-        let v = self.vm.stack[self.stack_start + idx];
+    /// Get the argument as a [crate::Val]. If the argument is out of range, then [None] is
+    /// returned.
+    pub fn arg(&self, idx: usize) -> Option<Val<'a>> {
+        let v = self.vm.stack.get(self.stack_start + idx)?;
         // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
-        unsafe { Val::from_unsafe_val(v) }
+        Some(unsafe { Val::from_unsafe_val(*v) })
+    }
+
+    /// Get the arguments to the function call.
+    pub fn args(&self) -> &[Val] {
+        // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
+        unsafe { Val::from_unsafe_val_slice(self.raw_args()) }
     }
 
     /// Get the arguments to the function call.
     ///
-    /// All values returned are guaranteed to live for the rest of the scope and not be garbage
-    /// collected.
-    pub fn args(&self) -> &[Val] {
+    /// This is like [Self::args], but returns self as well.
+    pub fn split_args(self) -> (Self, &'a [Val<'a>]) {
         // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
-        unsafe { Val::from_unsafe_val_slice(self.raw_args()) }
+        let args = unsafe {
+            let args = self.args();
+            std::slice::from_raw_parts(args.as_ptr().cast::<Val<'static>>(), args.len())
+        };
+        (self, args)
     }
 
     /// Get the arguments to the function call.
@@ -142,9 +155,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// }
     /// ```
     pub fn new_string(self, s: CompactString) -> ValBuilder<'a> {
-        // TODO: Connect the real debugger.
-        let debugger = &mut DefaultDebugger;
-        let string_id = self.vm.objects.insert_string(s, debugger);
+        let string_id = self.vm.objects.insert_string(s);
         ValBuilder {
             // Unsafe OK: String was just created so it does not have a chance to garbage collect.
             val: unsafe { Val::from_unsafe_val(string_id.into()) },
@@ -158,12 +169,7 @@ impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// `v` must be a valid value within the vm.
     pub unsafe fn new_mutable_box(self, v: Val<'a>) -> ValBuilder<'a> {
-        // TODO: Connect the real debugger.
-        let debugger = &mut DefaultDebugger;
-        let id = self
-            .vm
-            .objects
-            .insert_mutable_box(v.as_unsafe_val(), debugger);
+        let id = self.vm.objects.insert_mutable_box(v.as_unsafe_val());
         ValBuilder {
             // Unsafe OK: Box is just created so it does not have a chance to garbage collect.
             val: Val::from_unsafe_val(id.into()),
@@ -176,10 +182,10 @@ impl<'a> NativeFunctionContext<'a> {
     ///
     /// # Safety
     /// `list` must contain valid values within the vm.
-    pub unsafe fn new_list(self, list: ListVal) -> ValBuilder<'a> {
-        // TODO: Connect the real debugger.
-        let debugger = &mut DefaultDebugger;
-        let list_id = self.vm.objects.insert_list(list, debugger);
+    pub unsafe fn new_list(self, list: &[Val]) -> ValBuilder<'a> {
+        // Unsafe OK: Will be inserting into VM.
+        let unsafe_list = Val::as_unsafe_val_slice(list);
+        let list_id = self.vm.objects.insert_list(unsafe_list.to_vec());
         ValBuilder {
             val: Val::from_unsafe_val(list_id.into()),
         }
@@ -187,10 +193,8 @@ impl<'a> NativeFunctionContext<'a> {
 
     /// Create a new custom value from `obj`.
     pub fn new_custom(self, obj: impl CustomType) -> ValBuilder<'a> {
-        // TODO: Connect the real debugger.
-        let debugger = &mut DefaultDebugger;
         let custom_val = CustomVal::new(obj);
-        let custom_id = self.vm.objects.insert_custom(custom_val, debugger);
+        let custom_id = self.vm.objects.insert_custom(custom_val);
         ValBuilder {
             // Unsafe OK: Custom is just created so it does not have a chance to garbage collect.
             val: unsafe { Val::from_unsafe_val(custom_id.into()) },

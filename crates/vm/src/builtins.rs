@@ -159,51 +159,67 @@ pub fn string_length(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    if ctx.args_len() > 2 {
-        return Err(VmError::ArityError {
-            function: "string-join".into(),
-            expected: 2,
-            actual: ctx.args_len(),
-        });
-    }
-    let mut args = ctx.args().iter();
-    let maybe_list = args
-        .next()
-        .ok_or_else(|| VmError::ArityError {
-            function: "string-join".into(),
-            expected: 1,
-            actual: 0,
-        })?
-        .try_list(ctx.vm())
-        .map_err(|v| VmError::TypeError {
-            context: "string-join arg(idx=0)",
-            expected: UnsafeVal::LIST_TYPE_NAME,
-            actual: v.type_name(),
-            value: v.format_quoted(ctx.vm()).to_string(),
-        })?;
-    let separator = match args.next() {
-        None => "",
-        Some(v) => v.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
-            context: "string-join arg(idx=1)",
-            expected: UnsafeVal::STRING_TYPE_NAME,
-            actual: v.type_name(),
-            value: v.format_quoted(ctx.vm()).to_string(),
-        })?,
+    let (list, separator) = match ctx.args() {
+        [maybe_list] => {
+            let list = maybe_list
+                .try_list(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "string-join arg(idx=0)",
+                    expected: UnsafeVal::LIST_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
+            (list, "")
+        }
+        [maybe_list, maybe_separator] => {
+            let list = maybe_list
+                .try_list(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "string-join arg(idx=0)",
+                    expected: UnsafeVal::LIST_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
+            let separator = maybe_separator
+                .try_str(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "string-join arg(idx=1)",
+                    expected: UnsafeVal::STRING_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
+            (list, separator)
+        }
+        [] => {
+            return Err(VmError::ArityError {
+                function: "string-join".into(),
+                expected: 1,
+                actual: 0,
+            })
+        }
+        args => {
+            return Err(VmError::ArityError {
+                function: "string-join".into(),
+                expected: 2,
+                actual: args.len(),
+            })
+        }
     };
     let mut result = CompactString::default();
-    for (idx, maybe_string_val) in maybe_list.iter().enumerate() {
+    for (idx, list_element) in list.iter().enumerate() {
         if idx > 0 {
             result.push_str(separator);
         }
-        let s = maybe_string_val
-            .try_str(ctx.vm())
-            .map_err(|v| VmError::TypeError {
-                context: "string-join arg(idx=0) list subelement",
-                expected: UnsafeVal::STRING_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            })?;
-        result.push_str(s);
+        result.push_str(
+            list_element
+                .try_str(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "string-join arg(idx=0) list subelement",
+                    expected: UnsafeVal::STRING_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?,
+        );
     }
     Ok(ctx.new_string(result))
 }
@@ -229,7 +245,8 @@ pub fn set_box(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         // Unsafe OK: This is for sure safe...
         [UnsafeVal::MutableBox(id), inner_val] => {
             let (id, inner_val) = (*id, *inner_val);
-            let boxed_val = ctx.vm_mut().objects.set_mutable_box(id, inner_val);
+            // Unsafe OK: Defining new value and returning right away.
+            let boxed_val = unsafe { ctx.vm_mut().objects.set_mutable_box(id, inner_val) };
             // Unsafe OK: `boxed_val` has just been created so it will not be garbage collected.
             Ok(unsafe { ctx.with_unsafe_val(boxed_val) })
         }
@@ -271,9 +288,8 @@ pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 }
 
 pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    // Unsafe OK: `ctx.args()` guarantees values will not be garbage collected.
-    let list = unsafe { ctx.raw_args().to_vec() };
-    Ok(unsafe { ctx.new_list(list) })
+    let (ctx, args) = ctx.split_args();
+    Ok(unsafe { ctx.new_list(args) })
 }
 
 pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
