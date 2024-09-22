@@ -16,17 +16,38 @@ use super::{
 ///
 /// # Return Value
 /// VmResult<[ValBuilder]> is used to build a return value and insert it into the VM.
+///
+/// ```rust
+/// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
+///     Ok(ctx.new_string("42".into()))
+/// }
 pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
-/// Builds a value suitable for return from a [NativeFunction]. `ValBuilder` objects may be built
-/// from [NativeFunctionContext] objects.
+/// Builds a value suitable for return returning.
+///
+/// - This is often returned by [NativeFunction].
+/// - `ValBuilder` objects may be built from [NativeFunctionContext] objects.
+///
+/// ```rust
+/// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
+///     Ok(ctx.new_string("42".into()))
+/// }
+/// ```
 #[derive(Debug)]
 pub struct ValBuilder<'a> {
     val: Val<'a>,
 }
 
 impl ValBuilder<'static> {
-    pub fn new(val: Val<'static>) -> ValBuilder {
+    /// Create a new `ValBuilder` from a static [Val].
+    ///
+    /// ```rust
+    /// spore_vm::val::ValBuilder::new(().into());   // void
+    /// spore_vm::val::ValBuilder::new(true.into()); // bool
+    /// spore_vm::val::ValBuilder::new(0i64.into()); // int
+    /// spore_vm::val::ValBuilder::new(0.0.into());  // float
+    /// ```
+    pub fn new(val: Val<'static>) -> ValBuilder<'static> {
         ValBuilder { val }
     }
 }
@@ -38,6 +59,11 @@ impl From<Val<'static>> for ValBuilder<'static> {
 }
 
 /// The input parameter to native Spore VM functions registered with [Vm::with_native_function].
+///
+/// ```rust
+/// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
+///     Ok(ctx.new_string("42".into()))
+/// }
 pub struct NativeFunctionContext<'a> {
     vm: &'a mut Vm,
     stack_start: usize,
@@ -109,6 +135,12 @@ impl<'a> NativeFunctionContext<'a> {
     /// Create a new `string` value.
     ///
     /// Consumes `self` to ensure that the value isn't garbage collected.
+    ///
+    /// ```rust
+    /// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
+    ///     Ok(ctx.new_string("42".into()))
+    /// }
+    /// ```
     pub fn new_string(self, s: CompactString) -> ValBuilder<'a> {
         let string_id = self.vm.objects.insert_string(s);
         ValBuilder {

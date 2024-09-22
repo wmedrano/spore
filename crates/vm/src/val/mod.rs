@@ -236,6 +236,22 @@ impl<'a> Val<'a> {
     }
 }
 
+macro_rules! to_val_impl {
+    ($rust_type:ty) => {
+        /// Convert from a simple static Rust value into a [Val].
+        impl From<$rust_type> for Val<'static> {
+            fn from(v: $rust_type) -> Val<'static> {
+                unsafe { Self::from_unsafe_val(v.into()) }
+            }
+        }
+    };
+}
+
+to_val_impl!(());
+to_val_impl!(bool);
+to_val_impl!(i64);
+to_val_impl!(f64);
+
 #[cfg(test)]
 mod tests {
     use super::*;

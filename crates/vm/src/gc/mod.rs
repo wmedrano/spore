@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bumpalo::Bump;
 use compact_str::CompactString;
 use keep_reachable_set::KeepReachableSet;
 
@@ -10,6 +11,8 @@ use crate::{
 
 mod keep_reachable_set;
 mod object_store;
+
+type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 /// ValStore manages the lifetime of Val objects.
 #[derive(Debug)]
@@ -82,17 +85,17 @@ impl MemoryManager {
     }
 
     /// Run the garbage collector. All known values must be in `values`.
-    pub fn run_gc(&mut self, populate_vals: impl Iterator<Item = UnsafeVal>) {
+    pub fn run_gc(&mut self, arena: &Bump, populate_vals: impl Iterator<Item = UnsafeVal>) {
         self.stats.gc_invocations += 1;
-        self.run_gc_mark(populate_vals);
+        self.run_gc_mark(arena, populate_vals);
         self.run_gc_sweep();
         self.reachable_color = self.reachable_color.other();
     }
 
     /// Run the GC mark phase.
-    fn run_gc_mark(&mut self, values: impl Iterator<Item = UnsafeVal>) {
-        let mut root_set = self.init_root_set(values);
-        let mut child_set = Vec::new();
+    fn run_gc_mark(&mut self, arena: &Bump, values: impl Iterator<Item = UnsafeVal>) {
+        let mut root_set = self.init_root_set(arena, values);
+        let mut child_set = BumpVec::new_in(arena);
         while !root_set.is_empty() {
             for val in root_set.drain(..) {
                 self.gc_mark_one(val, &mut child_set);
@@ -103,14 +106,18 @@ impl MemoryManager {
 
     /// Initialize the GC mark phase. This takes `values` and enqueues them for marking in
     /// `temp_data.current_queue`.
-    fn init_root_set(&self, values: impl Iterator<Item = UnsafeVal>) -> Vec<UnsafeVal> {
-        let mut root_set = Vec::new();
+    fn init_root_set<'a>(
+        &self,
+        arena: &'a Bump,
+        values: impl Iterator<Item = UnsafeVal>,
+    ) -> BumpVec<'a, UnsafeVal> {
+        let mut root_set = BumpVec::new_in(arena);
         root_set.extend(values);
         root_set.extend(self.keep_reachable.iter());
         root_set
     }
 
-    fn gc_mark_one(&mut self, val: UnsafeVal, child_queue: &mut Vec<UnsafeVal>) {
+    fn gc_mark_one(&mut self, val: UnsafeVal, child_queue: &mut BumpVec<UnsafeVal>) {
         let mut add_child = |v| {
             if is_garbage_collected(v) {
                 child_queue.push(v);

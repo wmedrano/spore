@@ -11,6 +11,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("+", add),
     ("<", less),
     ("not", not),
+    ("string-length", string_length),
     ("string-join", string_join),
     ("new-box", new_box),
     ("set-box!", set_box),
@@ -134,6 +135,25 @@ pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
             function: "not".into(),
             expected: 1,
             actual: args.len(),
+        }),
+    }
+}
+
+pub fn string_length(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    match ctx.args() {
+        [v] => v
+            .try_str(ctx.vm())
+            .map_err(|v| VmError::TypeError {
+                context: "string-length",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.formatted(ctx.vm()).to_string(),
+            })
+            .map(|s| ValBuilder::new((s.len() as i64).into())),
+        _ => Err(VmError::ArityError {
+            function: "string-length".into(),
+            expected: 1,
+            actual: ctx.args_len(),
         }),
     }
 }
@@ -502,6 +522,60 @@ mod tests {
     fn not_with_void_values_returns_true() {
         let mut vm = Vm::default();
         assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap(),);
+    }
+
+    #[test]
+    fn string_length_with_empty_string_is_zero() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(string-length \"\")")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn string_length_gives_string_length() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(string-length \"1234\")")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            4
+        );
+    }
+
+    #[test]
+    fn string_length_with_wrong_args_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(string-length)").unwrap_err(),
+            VmError::ArityError {
+                function: "string-length".into(),
+                expected: 1,
+                actual: 0
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(string-length \"\" \"\")").unwrap_err(),
+            VmError::ArityError {
+                function: "string-length".into(),
+                expected: 1,
+                actual: 2
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(string-length 0)").unwrap_err(),
+            VmError::TypeError {
+                context: "string-length",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
+                value: "0".into(),
+            }
+        );
     }
 
     #[test]

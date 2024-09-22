@@ -3,6 +3,7 @@ use std::{
     sync::{atomic::AtomicU16, Arc, LazyLock},
 };
 
+use bumpalo::Bump;
 use compact_str::CompactString;
 use gc::{is_garbage_collected, MemoryManager};
 use log::*;
@@ -24,6 +25,19 @@ mod tokenizer;
 pub mod val;
 
 /// The Spore virtual machine.
+///
+/// # Example
+/// ```rust
+/// let mut vm = spore_vm::Vm::default();
+/// vm.eval_str("(define foo 42)").unwrap();
+/// let foo = vm.val_by_name("foo").unwrap().try_int().unwrap(); // 42
+/// vm.eval_str("(define (bar x) (+ x foo))").unwrap();
+/// let bar_10 = vm
+///     .eval_function_by_name("bar", std::iter::once(10.into()))
+///     .unwrap()
+///     .try_int()
+///     .unwrap(); // 52
+/// ```
 #[derive(Debug)]
 pub struct Vm {
     /// The data stack. This is used to store temporary values used for computation.
@@ -38,6 +52,8 @@ pub struct Vm {
     pub(crate) objects: MemoryManager,
     /// Contains bytecode compilation settings,
     settings: VmSettings,
+    /// An arena for temporary computations for things like compilation and garbage collection.
+    tmp_arena: Bump,
 }
 
 /// Settings for the Spore virtual machine.
@@ -103,6 +119,7 @@ impl Vm {
             stack_frame: StackFrame::default(),
             objects: MemoryManager::new(vm_id),
             settings,
+            tmp_arena: Bump::new(),
         };
         for (name, func) in builtins::BUILTINS {
             vm = vm.with_native_function(name, *func);
@@ -146,32 +163,7 @@ impl Vm {
 }
 
 impl Vm {
-    /// Run the garbage collector.
-    pub fn run_gc(&mut self) {
-        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
-        let vals = self
-            .stack
-            .iter()
-            .copied()
-            .filter(is_gc)
-            .chain(self.values.values().copied().filter(is_gc))
-            .chain(
-                self.previous_stack_frames
-                    .iter()
-                    .flat_map(|previous_frame| {
-                        previous_frame
-                            .bytecode
-                            .values()
-                            .filter(is_gc)
-                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
-                    }),
-            )
-            .chain(self.stack_frame.bytecode.values().filter(is_gc))
-            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
-        self.objects.run_gc(vals)
-    }
-
-    /// Get the value with the given name.
+    /// Get the value with the given name or [None] if it does not exist.
     pub fn val_by_name(&self, name: &str) -> Option<Val> {
         self.values
             .get(name)
@@ -181,13 +173,32 @@ impl Vm {
     }
 
     /// Evaluate a string in the virtual machine.
+    ///
+    /// ```rust
+    /// let mut vm = spore_vm::Vm::default();
+    /// let x = vm.eval_str("(+ 20 22)").unwrap().try_int().unwrap();
+    /// ```
     pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
-        let bytecode = Compiler::compile(self, source)?;
+        let arena = std::mem::take(&mut self.tmp_arena);
+        let bytecode = Compiler::compile(self, source, &arena)?;
+        self.tmp_arena = arena;
+        self.tmp_arena.reset();
         let bytecode_id = self.objects.insert_bytecode(bytecode);
         self.eval_bytecode(bytecode_id, std::iter::empty())
     }
 
     /// Call a function with the given name.
+    ///
+    /// ```rust
+    /// let mut vm = spore_vm::Vm::default();
+    /// vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
+    ///     .unwrap();
+    /// let ans = vm
+    ///     .eval_function_by_name("fib", std::iter::once(10.into()))
+    ///     .unwrap()
+    ///     .try_int()
+    ///     .unwrap();
+    /// ```
     pub fn eval_function_by_name(
         &mut self,
         name: &str,
@@ -412,6 +423,39 @@ impl Vm {
     }
 }
 
+impl Vm {
+    /// Run the garbage collector.
+    ///
+    /// This does not need to be manually invoked as it is called automatically at the start of
+    /// evaluation through functions like [Self::eval_str] and [Self::eval_function_by_name].
+    pub fn run_gc(&mut self) {
+        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
+        let vals = self
+            .stack
+            .iter()
+            .copied()
+            .filter(is_gc)
+            .chain(self.values.values().copied().filter(is_gc))
+            .chain(
+                self.previous_stack_frames
+                    .iter()
+                    .flat_map(|previous_frame| {
+                        previous_frame
+                            .bytecode
+                            .values()
+                            .filter(is_gc)
+                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
+                    }),
+            )
+            .chain(self.stack_frame.bytecode.values().filter(is_gc))
+            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
+        let arena = std::mem::take(&mut self.tmp_arena);
+        self.objects.run_gc(&arena, vals);
+        self.tmp_arena = arena;
+        self.tmp_arena.reset();
+    }
+}
+
 impl Drop for Vm {
     fn drop(&mut self) {
         info!(
@@ -596,13 +640,69 @@ mod tests {
     }
 
     #[test]
+    fn can_get_val_by_name() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define one 1) (define two 2)").unwrap();
+        assert_eq!(vm.val_by_name("one").unwrap().try_int().unwrap(), 1);
+        assert_eq!(vm.val_by_name("two").unwrap().try_int().unwrap(), 2);
+    }
+
+    #[test]
+    fn getting_val_that_does_not_exist_returns_err() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define one 1) (define two 2)").unwrap();
+        assert!(vm.val_by_name("three").is_none());
+    }
+
+    #[test]
+    fn can_eval_by_function_with_native_function() {
+        let mut vm = Vm::default();
+        let ans = vm
+            .eval_function_by_name("+", [10.into(), 5.into()].into_iter())
+            .unwrap()
+            .try_int()
+            .unwrap();
+        assert_eq!(ans, 15);
+    }
+
+    #[test]
+    fn eval_function_that_does_not_exist_produces_error() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define (foo) 1)").unwrap();
+        assert_eq!(
+            vm.eval_function_by_name("bar", std::iter::empty())
+                .unwrap_err(),
+            VmError::SymbolNotDefined("bar".into())
+        );
+    }
+
+    #[test]
+    fn eval_function_that_is_not_function_produces_error() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define foo 100)").unwrap();
+        assert_eq!(
+            vm.eval_function_by_name("foo", std::iter::empty())
+                .unwrap_err(),
+            VmError::TypeError {
+                context: "eval-function-by-name",
+                expected: UnsafeVal::FUNCTION_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
+                value: "100".into(),
+            }
+        );
+    }
+
+    #[test]
     fn can_call_function_recursively() {
         let mut vm = Vm::default();
-        assert!(vm
-            .eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
+        vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
+            .unwrap();
+        let ans = vm
+            .eval_function_by_name("fib", std::iter::once(10.into()))
             .unwrap()
-            .is_void());
-        assert_eq!(vm.eval_str("(fib 10)").unwrap().try_int().unwrap(), 55);
+            .try_int()
+            .unwrap();
+        assert_eq!(ans, 55);
     }
 
     #[test]

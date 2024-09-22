@@ -1,4 +1,8 @@
-use std::{fs::File, time::Duration};
+use std::{
+    fmt::Write,
+    fs::File,
+    time::{Duration, Instant},
+};
 
 use buffer::SporeBuffer;
 use compact_str::{format_compact, CompactString};
@@ -41,28 +45,43 @@ fn new_vm() -> Vm {
         enable_aggressive_inline: false,
     })
     .with_native_function("read-event!", read_event);
-    SporeBuffer::register(vm)
-}
-
-fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+    let mut vm = SporeBuffer::register(vm);
     let main_src = r#"
-(define running? (new-box true))
+(define *running?* (new-box true))
 (define buffer (new-buffer "*scratch*" "Press <esc> to quit.\n"))
+
+(define (running?) (unbox *running?*))
+(define (quit!) (set-box! *running?* false))
+
+(define (event-to-insert event)
+  (if (= (string-length event) 1) (return event))
+  (if (= event "<space>") (return " "))
+  (if (= event "<enter>") (return "\n"))
+  (return ""))
 
 (define (handle-event-impl! event)
   (if (not event) (return void))
-  (if (= event "<esc>") (set-box! running? false))
-  (if (= event "<esc>") (return void))
-  (buffer-append! buffer "Pressed ")
-  (buffer-append! buffer event)
-  (buffer-append! buffer ".\n"))
+  (if (= event "<esc>") (quit!))
+  (if (= event "<esc>") (return false))
+  (buffer-append! buffer (event-to-insert event)))
 
 
 (define (handle-event!)
   (handle-event-impl! (read-event!)))
 "#;
+    let start_t = Instant::now();
     vm.eval_str(main_src).unwrap();
-    while vm.eval_str("(unbox running?)").unwrap().is_truthy() {
+    info!("Loading main in {:?}.", start_t.elapsed());
+    vm
+}
+
+fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+    let mut tmp_string = String::new();
+    while vm
+        .eval_function_by_name("running?", std::iter::empty())
+        .unwrap()
+        .is_truthy()
+    {
         {
             let buffer = vm.val_by_name("buffer").unwrap();
             let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
@@ -75,7 +94,11 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
                     .borders(Borders::ALL);
                 let contents_area = b.inner(window_area);
                 frame.render_widget(b, window_area);
-                frame.render_widget(Paragraph::new(buffer.contents.to_string()), contents_area);
+                tmp_string.clear();
+                tmp_string
+                    .write_fmt(format_args!("{}", buffer.contents))
+                    .unwrap();
+                frame.render_widget(Paragraph::new(tmp_string.as_str()), contents_area);
             })?;
         }
         vm.eval_function_by_name("handle-event!", std::iter::empty())
