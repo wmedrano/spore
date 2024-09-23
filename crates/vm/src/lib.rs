@@ -147,6 +147,11 @@ impl Vm {
         self
     }
 
+    /// Return the VM returned by calling `fn`.
+    pub fn with(self, f: impl Fn(Vm) -> Vm) -> Self {
+        f(self)
+    }
+
     /// Register a value to the VM.
     ///
     /// # Safety
@@ -248,7 +253,8 @@ impl Vm {
             bytecode_idx: 0,
             stack_start: 0,
         };
-        self.run_gc();
+        // Unsafe OK: The environment has just been set up.
+        unsafe { self.run_gc() };
         loop {
             if let Some(v) = self.run_next(debugger)? {
                 // Unsafe OK: This is a new valid val and we are adding GC protection to it.
@@ -431,7 +437,10 @@ impl Vm {
     ///
     /// This does not need to be manually invoked as it is called automatically at the start of
     /// evaluation through functions like [Self::eval_str] and [Self::eval_function_by_name].
-    pub fn run_gc(&mut self) {
+    ///
+    /// # Safety
+    ///
+    pub unsafe fn run_gc(&mut self) {
         let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
         let vals = self
             .stack

@@ -13,6 +13,7 @@ impl SporeBuffer {
         vm.with_native_function("new-buffer", new_buffer)
             .with_native_function("buffer-insert!", buffer_insert)
             .with_native_function("buffer-delete!", buffer_delete)
+            .with_native_function("buffer-cursor-move!", buffer_cursor_move)
     }
 }
 
@@ -20,13 +21,17 @@ impl SporeBuffer {
 pub struct SporeBuffer {
     pub name: CompactString,
     pub contents: Rope,
-    pub cursor: usize,
+    pub cursor: i64,
 }
 
 impl SporeBuffer {
+    pub fn cursor_offset(&self, offset: i64) -> i64 {
+        (self.cursor + offset).clamp(0, self.contents.byte_len() as i64)
+    }
+
     fn insert(&mut self, text: &str) {
-        self.contents.insert(self.cursor, text);
-        self.cursor += text.len();
+        self.contents.insert(self.cursor as usize, text);
+        self.cursor = self.cursor_offset(text.len() as i64);
     }
 
     fn delete(&mut self) {
@@ -34,8 +39,11 @@ impl SporeBuffer {
             return;
         }
         // TODO: Handle unicode and graphemes better.
-        self.contents.replace(self.cursor - 1..self.cursor, "");
-        self.cursor -= 1;
+        self.contents.replace(
+            self.cursor_offset(-1) as usize..self.cursor_offset(0) as usize,
+            "",
+        );
+        self.cursor = self.cursor_offset(-1);
     }
 }
 
@@ -118,6 +126,28 @@ fn buffer_delete(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
     buffer.delete();
     Ok(Val::new_void().into())
+}
+
+fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    match args {
+        [buffer, n] => {
+            let mut buffer = buffer.as_custom_mut::<SporeBuffer>(ctx.vm())?;
+            let n = n.try_int().map_err(|v| VmError::TypeError {
+                context: "buffer-cursor-move!",
+                expected: UnsafeVal::INT_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+            buffer.cursor = buffer.cursor_offset(n);
+            Ok(ValBuilder::new(().into()))
+        }
+        _ => Err(VmError::ArityError {
+            function: "buffer-cursor-move!".into(),
+            expected: 2,
+            actual: args.len(),
+        }),
+    }
 }
 
 impl CustomType for SporeBuffer {
