@@ -44,14 +44,15 @@ impl<'a> BufferWidget<'a> {
         let (mut x, mut width) = (area.x, area.width);
         let (mut y, mut height) = (area.y, area.height);
         let mut start_byte = 0;
-        for grapheme in self
+        let graphemes = self
             .buffer
             .contents
             .graphemes()
-            .chain(std::iter::once(" ".into()))
-        {
+            // Required for cursor at the end of the text.
+            .chain(std::iter::once(" ".into()));
+        for grapheme in graphemes {
             let end_byte = start_byte + grapheme.as_ref().len();
-            if (start_byte..end_byte).contains(&(self.buffer.cursor_offset(0) as usize)) {
+            if (start_byte..end_byte).contains(&(self.buffer.cursor_offset(0))) {
                 buf[(x, y)].set_bg(Color::Magenta);
             }
             start_byte = end_byte;

@@ -2,6 +2,8 @@ use std::any::Any;
 
 use compact_str::CompactString;
 use crop::Rope;
+#[allow(unused_imports)]
+use log::*;
 use spore_vm::{
     error::{VmError, VmResult},
     val::{CustomType, NativeFunctionContext, UnsafeVal, Val, ValBuilder},
@@ -21,29 +23,50 @@ impl SporeBuffer {
 pub struct SporeBuffer {
     pub name: CompactString,
     pub contents: Rope,
-    pub cursor: i64,
+    pub cursor: Cursor,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Cursor {
+    Absolute(usize),
+    ColRow(usize, usize),
+}
+
+impl Default for Cursor {
+    fn default() -> Cursor {
+        Cursor::Absolute(0)
+    }
 }
 
 impl SporeBuffer {
-    pub fn cursor_offset(&self, offset: i64) -> i64 {
-        (self.cursor + offset).clamp(0, self.contents.byte_len() as i64)
+    pub fn cursor_offset(&self, offset: i64) -> usize {
+        let absolute = match self.cursor {
+            Cursor::Absolute(x) => x,
+            Cursor::ColRow(x, y) => {
+                let y = y.clamp(0, self.contents.line_len().saturating_sub(1));
+                let line_start = self.contents.byte_of_line(y);
+                let line = self.contents.line(y);
+                let x = x.clamp(0, line.byte_len());
+                line_start + x
+            }
+        };
+        let cursor = (absolute as i64 + offset).clamp(0, self.contents.byte_len() as i64);
+        cursor as usize
     }
 
     fn insert(&mut self, text: &str) {
-        self.contents.insert(self.cursor as usize, text);
-        self.cursor = self.cursor_offset(text.len() as i64);
+        self.contents.insert(self.cursor_offset(0), text);
+        self.cursor = Cursor::Absolute(self.cursor_offset(text.len() as i64));
     }
 
     fn delete(&mut self) {
-        if self.cursor == 0 {
+        if matches!(self.cursor, Cursor::Absolute(0) | Cursor::ColRow(0, 0)) {
             return;
         }
         // TODO: Handle unicode and graphemes better.
-        self.contents.replace(
-            self.cursor_offset(-1) as usize..self.cursor_offset(0) as usize,
-            "",
-        );
-        self.cursor = self.cursor_offset(-1);
+        self.contents
+            .replace(self.cursor_offset(-1)..self.cursor_offset(0), "");
+        self.cursor = Cursor::Absolute(self.cursor_offset(-1));
     }
 }
 
@@ -131,15 +154,40 @@ fn buffer_delete(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let (ctx, args) = ctx.split_args();
     match args {
-        [buffer, n] => {
+        [buffer, xs, ys] => {
             let mut buffer = buffer.as_custom_mut::<SporeBuffer>(ctx.vm())?;
-            let n = n.try_int().map_err(|v| VmError::TypeError {
-                context: "buffer-cursor-move!",
+            let xs = xs.try_int().map_err(|v| VmError::TypeError {
+                context: "buffer-cursor-move! (arg-idx=1)",
                 expected: UnsafeVal::INT_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             })?;
-            buffer.cursor = buffer.cursor_offset(n);
+            if xs != 0 {
+                buffer.cursor = Cursor::Absolute(buffer.cursor_offset(xs));
+            }
+            let ys = ys.try_int().map_err(|v| VmError::TypeError {
+                context: "buffer-cursor-move! (arg-idx=2)",
+                expected: UnsafeVal::INT_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+            if ys != 0 {
+                let (x, y) = match buffer.cursor {
+                    Cursor::Absolute(pos) => {
+                        let line = buffer.contents.line_of_byte(pos);
+                        let line_start = buffer.contents.byte_of_line(line);
+                        let x = pos - line_start;
+                        let y = (line as i64 + ys)
+                            .clamp(0, buffer.contents.line_len().saturating_sub(1) as i64);
+                        (x, y)
+                    }
+                    Cursor::ColRow(x, y) => (x, y as i64 + ys),
+                };
+                buffer.cursor = Cursor::ColRow(
+                    x,
+                    y.clamp(0, buffer.contents.line_len().saturating_sub(1) as i64) as usize,
+                )
+            }
             Ok(ValBuilder::new(().into()))
         }
         _ => Err(VmError::ArityError {

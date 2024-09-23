@@ -46,8 +46,10 @@ fn new_vm() -> Vm {
   (if (not event) (return void))
   (if (= event "<esc>") (return (quit!)))
   (if (= event "<backspace>") (return (buffer-delete! buffer)))
-  (if (= event "<left>") (return (buffer-cursor-move! buffer -1)))
-  (if (= event "<right>") (return (buffer-cursor-move! buffer 1)))
+  (if (= event "<left>") (return (buffer-cursor-move! buffer -1 0)))
+  (if (= event "<right>") (return (buffer-cursor-move! buffer 1 0)))
+  (if (= event "<up>") (return (buffer-cursor-move! buffer 0 -1)))
+  (if (= event "<down>") (return (buffer-cursor-move! buffer 0 1)))
   (buffer-insert! buffer (event-to-insert event)))
 
 (define (handle-event!)
