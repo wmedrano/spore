@@ -41,10 +41,10 @@ pub struct GcStats {
     strings_allocated: usize,
     /// The total number of strings freed.
     strings_freed: usize,
-    /// The total number of mutable boxes freed.
-    mutable_boxes_freed: usize,
     /// The total number of mutable boxes allocated.
     mutable_boxes_allocated: usize,
+    /// The total number of mutable boxes freed.
+    mutable_boxes_freed: usize,
     /// The total number of lists allocated.
     lists_allocated: usize,
     /// The total number of lists freed.
@@ -209,7 +209,7 @@ impl MemoryManager {
     pub fn insert_mutable_box(&mut self, v: UnsafeVal) -> ValId<UnsafeVal> {
         self.stats.mutable_boxes_allocated += 1;
         self.mutable_boxes
-            .insert(self.vm_id, v, self.reachable_color)
+            .insert(self.vm_id, v, self.reachable_color.other())
     }
 
     pub const EMPTY_LIST: &ListVal = &ListVal::new();
@@ -219,6 +219,13 @@ impl MemoryManager {
         let res = self.lists.get(self.vm_id, id);
         debug_assert!(res.is_some(), "{id:?} not found.");
         res.unwrap_or(Self::EMPTY_LIST)
+    }
+
+    /// Get a mutable list by its id.
+    pub fn get_list_mut(&mut self, id: ValId<ListVal>) -> &mut ListVal {
+        let res = self.lists.get_mut(self.vm_id, id);
+        debug_assert!(res.is_some(), "{id:?} not found.");
+        res.unwrap()
     }
 
     /// Insert a list and get its id.

@@ -52,7 +52,7 @@ impl<'a> BufferWidget<'a> {
             .chain(std::iter::once(" ".into()));
         for grapheme in graphemes {
             let end_byte = start_byte + grapheme.as_ref().len();
-            if (start_byte..end_byte).contains(&(self.buffer.cursor_offset(0))) {
+            if (start_byte..end_byte).contains(&(self.buffer.cursor.byte_idx())) {
                 buf[(x, y)].set_bg(Color::Magenta);
             }
             start_byte = end_byte;

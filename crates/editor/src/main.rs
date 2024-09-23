@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
 use ratatui::DefaultTerminal;
@@ -16,49 +17,34 @@ mod widgets;
 
 fn main() -> anyhow::Result<()> {
     init_logger();
+    let vm = new_vm()?;
     let mut terminal = ratatui::init();
     terminal.clear()?;
-    let app_result = run(new_vm(), terminal);
+    let app_result = run(vm, terminal);
     ratatui::restore();
     app_result
 }
 
-fn new_vm() -> Vm {
+fn new_vm() -> anyhow::Result<Vm> {
     let mut vm = Vm::new(Settings {
         enable_aggressive_inline: false,
     })
     .with(event::register)
     .with(SporeBuffer::register);
-    let main_src = r#"
-(define *running?* (new-box true))
-(define buffer (new-buffer "*scratch*" "Press <esc> to quit.\n"))
-
-(define (running?) (unbox *running?*))
-(define (quit!) (set-box! *running?* false))
-
-(define (event-to-insert event)
-  (if (= (string-length event) 1) (return event))
-  (if (= event "<space>") (return " "))
-  (if (= event "<enter>") (return "\n"))
-  (return ""))
-
-(define (handle-event-impl! event)
-  (if (not event) (return void))
-  (if (= event "<esc>") (return (quit!)))
-  (if (= event "<backspace>") (return (buffer-delete! buffer)))
-  (if (= event "<left>") (return (buffer-cursor-move! buffer -1 0)))
-  (if (= event "<right>") (return (buffer-cursor-move! buffer 1 0)))
-  (if (= event "<up>") (return (buffer-cursor-move! buffer 0 -1)))
-  (if (= event "<down>") (return (buffer-cursor-move! buffer 0 1)))
-  (buffer-insert! buffer (event-to-insert event)))
-
-(define (handle-event!)
-  (handle-event-impl! (read-event!)))
-"#;
+    let working_directory = std::env::current_dir().unwrap_or_default();
+    let main_src_file = "main.spore";
     let start_t = Instant::now();
-    vm.eval_str(main_src, &mut DefaultDebugger).unwrap();
-    info!("Loading main in {:?}.", start_t.elapsed());
-    vm
+    let main_src = std::fs::read_to_string(main_src_file)
+        .with_context(|| format!("Not found under working directory: {working_directory:?}"))
+        .with_context(|| format!("Failed to open {main_src_file:?}"))?;
+    info!(
+        "Loaded source code from {main_src_file:?} with working directory {working_directory:?} in {duration:?}.",
+        duration = start_t.elapsed()
+    );
+    let start_t = Instant::now();
+    vm.eval_str(&main_src, &mut DefaultDebugger).unwrap();
+    info!("Evaluated main in {:?}.", start_t.elapsed());
+    Ok(vm)
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
@@ -68,13 +54,11 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         .unwrap()
         .is_truthy()
     {
-        {
+        terminal.draw(|frame| {
             let buffer = vm.val_by_name("buffer").unwrap();
             let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
-            terminal.draw(|frame| {
-                frame.render_widget(BufferWidget::new(&buffer), frame.area());
-            })?;
-        }
+            frame.render_widget(BufferWidget::new(&buffer), frame.area());
+        })?;
         vm.eval_function_by_name("handle-event!", std::iter::empty(), &mut debugger)
             .unwrap();
     }

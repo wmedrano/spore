@@ -65,7 +65,12 @@ impl From<Val<'static>> for ValBuilder<'static> {
 ///     Ok(ctx.new_string("42".into()))
 /// }
 pub struct NativeFunctionContext<'a> {
+    /// The Vm for the native function.
+    ///
+    /// # Safety
+    /// Do not run anything that may remove references or call the garbage collector.
     vm: &'a mut Vm,
+    /// Where the stack starts for the current function call.
     stack_start: usize,
 }
 

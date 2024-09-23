@@ -26,47 +26,62 @@ pub struct SporeBuffer {
     pub cursor: Cursor,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Cursor {
-    Absolute(usize),
-    ColRow(usize, usize),
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Cursor {
+    /// The byte index of the cursor.
+    byte_idx: usize,
+    /// The x and y position. This is only populated when scrolling vertically to keep the desired
+    /// column position for further vertical scrolls.
+    x_y: Option<(usize, usize)>,
 }
 
-impl Default for Cursor {
-    fn default() -> Cursor {
-        Cursor::Absolute(0)
+impl Cursor {
+    /// The byte index of the cursor.
+    pub fn byte_idx(self) -> usize {
+        self.byte_idx
+    }
+
+    /// Move the cursor horizontally by `delta_x`. `buffer` is used to check maximum bounds.
+    ///
+    /// If the cursor reaches the end of the line, it will wrap to the next line.
+    pub fn move_horizontal(&mut self, buffer: &Rope, delta_x: i64) {
+        let pos = self.byte_idx as i64 + delta_x;
+        self.byte_idx = pos.clamp(0, buffer.byte_len() as i64) as usize;
+        self.x_y.take();
+    }
+
+    /// Move the cursor vertically by `delta_y`. `buffer` is used to check maximum bounds.
+    ///
+    /// If the cursor is on the first or last line, then this is a no op.
+    pub fn move_vertical(&mut self, buffer: &Rope, delta_y: i64) {
+        let (x, y) = self.x_y.unwrap_or_else(|| {
+            let y = buffer.line_of_byte(self.byte_idx);
+            let line_start = buffer.byte_of_line(y);
+            let x = self.byte_idx - line_start;
+            (x, y)
+        });
+        let new_y =
+            (y as i64 + delta_y).clamp(0, buffer.line_len().saturating_sub(1) as i64) as usize;
+        self.x_y = Some((x, new_y));
+        let line = buffer.line(new_y);
+        self.byte_idx = buffer.byte_of_line(new_y) + x.clamp(0, line.byte_len());
     }
 }
 
 impl SporeBuffer {
-    pub fn cursor_offset(&self, offset: i64) -> usize {
-        let absolute = match self.cursor {
-            Cursor::Absolute(x) => x,
-            Cursor::ColRow(x, y) => {
-                let y = y.clamp(0, self.contents.line_len().saturating_sub(1));
-                let line_start = self.contents.byte_of_line(y);
-                let line = self.contents.line(y);
-                let x = x.clamp(0, line.byte_len());
-                line_start + x
-            }
-        };
-        let cursor = (absolute as i64 + offset).clamp(0, self.contents.byte_len() as i64);
-        cursor as usize
-    }
-
     fn insert(&mut self, text: &str) {
-        self.contents.insert(self.cursor_offset(0), text);
-        self.cursor = Cursor::Absolute(self.cursor_offset(text.len() as i64));
+        self.contents.insert(self.cursor.byte_idx(), text);
+        self.cursor
+            .move_horizontal(&self.contents, text.len() as i64);
     }
 
     fn delete(&mut self) {
-        if matches!(self.cursor, Cursor::Absolute(0) | Cursor::ColRow(0, 0)) {
-            return;
-        }
         // TODO: Handle unicode and graphemes better.
-        self.contents
-            .replace(self.cursor_offset(-1)..self.cursor_offset(0), "");
-        self.cursor = Cursor::Absolute(self.cursor_offset(-1));
+        self.contents.replace(
+            self.cursor.byte_idx().saturating_sub(1)..self.cursor.byte_idx(),
+            "",
+        );
+        self.cursor.move_horizontal(&self.contents, -1);
     }
 }
 
@@ -162,31 +177,21 @@ fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             })?;
-            if xs != 0 {
-                buffer.cursor = Cursor::Absolute(buffer.cursor_offset(xs));
-            }
             let ys = ys.try_int().map_err(|v| VmError::TypeError {
                 context: "buffer-cursor-move! (arg-idx=2)",
                 expected: UnsafeVal::INT_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             })?;
+            if xs != 0 {
+                let mut cursor = std::mem::take(&mut buffer.cursor);
+                cursor.move_horizontal(&buffer.contents, xs);
+                buffer.cursor = cursor;
+            }
             if ys != 0 {
-                let (x, y) = match buffer.cursor {
-                    Cursor::Absolute(pos) => {
-                        let line = buffer.contents.line_of_byte(pos);
-                        let line_start = buffer.contents.byte_of_line(line);
-                        let x = pos - line_start;
-                        let y = (line as i64 + ys)
-                            .clamp(0, buffer.contents.line_len().saturating_sub(1) as i64);
-                        (x, y)
-                    }
-                    Cursor::ColRow(x, y) => (x, y as i64 + ys),
-                };
-                buffer.cursor = Cursor::ColRow(
-                    x,
-                    y.clamp(0, buffer.contents.line_len().saturating_sub(1) as i64) as usize,
-                )
+                let mut cursor = std::mem::take(&mut buffer.cursor);
+                cursor.move_vertical(&buffer.contents, ys);
+                buffer.cursor = cursor;
             }
             Ok(ValBuilder::new(().into()))
         }

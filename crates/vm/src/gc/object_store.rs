@@ -64,6 +64,7 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
         let start_free = self.free_object_idx.len();
         for (idx, obj) in self.objects.iter_mut().enumerate() {
             if obj.inner.is_some() && obj.color == color {
+                obj.inner.take();
                 self.free_object_idx.push(idx as _);
             }
         }

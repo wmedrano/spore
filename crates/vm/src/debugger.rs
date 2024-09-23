@@ -23,10 +23,17 @@ impl Debugger for DefaultDebugger {}
 
 /// Logs all instructions.
 #[derive(Copy, Clone, Debug, Default)]
-pub struct LogDebugger;
+pub enum LogDebugger {
+    #[default]
+    Stderr,
+    Log,
+}
 
 impl Debugger for LogDebugger {
     fn execute_instruction(&mut self, i: &Instruction) {
-        info!("Instruction: {i:?}");
+        match self {
+            LogDebugger::Stderr => eprintln!("Instruction: {i:?}"),
+            LogDebugger::Log => info!("Instruction: {i:?}"),
+        }
     }
 }
