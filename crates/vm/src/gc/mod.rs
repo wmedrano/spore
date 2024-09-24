@@ -221,13 +221,6 @@ impl MemoryManager {
         res.unwrap_or(Self::EMPTY_LIST)
     }
 
-    /// Get a mutable list by its id.
-    pub fn get_list_mut(&mut self, id: ValId<ListVal>) -> &mut ListVal {
-        let res = self.lists.get_mut(self.vm_id, id);
-        debug_assert!(res.is_some(), "{id:?} not found.");
-        res.unwrap()
-    }
-
     /// Insert a list and get its id.
     pub fn insert_list(&mut self, list: ListVal) -> ValId<ListVal> {
         self.stats.lists_allocated += 1;

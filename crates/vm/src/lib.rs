@@ -19,14 +19,13 @@ use val::{
     ValId,
 };
 
-mod ast;
 mod builtins;
 mod compiler;
 pub mod debugger;
 pub mod error;
 mod gc;
+pub mod parser;
 mod settings;
-mod tokenizer;
 pub mod val;
 
 /// The Spore virtual machine.

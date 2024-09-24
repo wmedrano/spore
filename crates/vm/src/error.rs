@@ -2,8 +2,7 @@
 use compact_str::CompactString;
 use thiserror::Error;
 
-pub use crate::ast::AstParseError;
-use crate::val::custom::CustomValError;
+use crate::{parser::ast::AstParseError, val::custom::CustomValError};
 
 /// A `Result` with `VmError` as the error branch.
 pub type VmResult<T> = Result<T, VmError>;

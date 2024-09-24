@@ -6,8 +6,8 @@ use compact_str::CompactString;
 type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 use crate::{
-    ast::Node,
     error::CompileError,
+    parser::ast::Node,
     val::{ByteCode, Instruction, UnsafeVal},
     Settings, Vm,
 };
@@ -503,7 +503,7 @@ fn node_to_ident<'a>(node: &'a Node) -> Result<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{error::AstParseError, DefaultDebugger};
+    use crate::{parser::ast::AstParseError, DefaultDebugger};
 
     use super::*;
 

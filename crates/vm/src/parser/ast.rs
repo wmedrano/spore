@@ -1,7 +1,7 @@
 use compact_str::CompactString;
 use thiserror::Error;
 
-use crate::tokenizer::{Token, TokenType};
+use super::tokenizer::{Token, TokenType};
 
 type Result<T> = std::result::Result<T, AstParseError>;
 
