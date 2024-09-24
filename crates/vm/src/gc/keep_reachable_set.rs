@@ -1,7 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
     hash::Hash,
-    sync::Arc,
 };
 
 use compact_str::CompactString;
@@ -20,7 +19,7 @@ pub struct KeepReachableSet {
     strings: HashMap<ValId<CompactString>, ReferenceCounter>,
     mutable_boxes: HashMap<ValId<UnsafeVal>, ReferenceCounter>,
     lists: HashMap<ValId<ListVal>, ReferenceCounter>,
-    bytecodes: HashMap<ValId<Arc<ByteCode>>, ReferenceCounter>,
+    bytecodes: HashMap<ValId<ByteCode>, ReferenceCounter>,
     customs: HashMap<ValId<CustomVal>, ReferenceCounter>,
 }
 

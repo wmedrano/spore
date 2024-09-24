@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use compact_str::CompactString;
 
 use crate::Vm;
@@ -43,7 +41,7 @@ pub enum UnsafeVal {
     ///
     /// # Safety
     /// May be garbage collected or mutated by the VM.
-    ByteCodeFunction(ValId<Arc<ByteCode>>),
+    ByteCodeFunction(ValId<ByteCode>),
     /// A function implemented in Rust.
     NativeFunction(NativeFunction),
     /// A handle to a custom type.
@@ -123,7 +121,7 @@ to_internal_val_impl!(NativeFunction => NativeFunction);
 to_internal_val_impl!(ValId<CompactString> => String);
 to_internal_val_impl!(ValId<UnsafeVal> => MutableBox);
 to_internal_val_impl!(ValId<ListVal> => List);
-to_internal_val_impl!(ValId<Arc<ByteCode>> => ByteCodeFunction);
+to_internal_val_impl!(ValId<ByteCode> => ByteCodeFunction);
 to_internal_val_impl!(ValId<CustomVal> => Custom);
 
 impl From<()> for UnsafeVal {

@@ -63,9 +63,9 @@ pub struct Vm {
 }
 
 /// Used to decide the next instruction to take.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct StackFrame {
-    bytecode_id: ValId<Arc<ByteCode>>,
+    bytecode_id: ValId<ByteCode>,
     /// The instructions that will be taken.
     instructions: Arc<[Instruction]>,
     /// The index of the next instruction within bytecode.
@@ -76,7 +76,7 @@ struct StackFrame {
 
 impl StackFrame {
     /// Get the underlying bytecode object.
-    fn bytecode<'a>(&self, vm: &'a Vm) -> &'a Arc<ByteCode> {
+    fn bytecode<'a>(&self, vm: &'a Vm) -> &'a ByteCode {
         vm.objects.get_bytecode(self.bytecode_id)
     }
 }
@@ -244,7 +244,7 @@ impl Vm {
     /// Evaluate some bytecode in the virtual machine.
     fn eval_bytecode(
         &mut self,
-        bytecode_id: ValId<Arc<ByteCode>>,
+        bytecode_id: ValId<ByteCode>,
         args: impl Iterator<Item = UnsafeVal>,
         debugger: &mut impl Debugger,
     ) -> VmResult<ProtectedVal> {
@@ -453,7 +453,7 @@ impl Vm {
         let arena = std::mem::take(&mut self.tmp_arena);
         {
             let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
-            let mut bytecodes: BumpVec<(ValId<_>, Arc<ByteCode>)> = BumpVec::new_in(&arena);
+            let mut bytecodes: BumpVec<(ValId<_>, ByteCode)> = BumpVec::new_in(&arena);
             bytecodes.push((
                 self.stack_frame.bytecode_id,
                 self.stack_frame.bytecode(self).clone(),

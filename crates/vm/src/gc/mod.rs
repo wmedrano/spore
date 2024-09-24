@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bumpalo::Bump;
 use compact_str::CompactString;
 use keep_reachable_set::KeepReachableSet;
@@ -23,7 +21,7 @@ pub struct MemoryManager {
     strings: ObjectStore<CompactString>,
     mutable_boxes: ObjectStore<UnsafeVal>,
     lists: ObjectStore<ListVal>,
-    bytecodes: ObjectStore<Arc<ByteCode>>,
+    bytecodes: ObjectStore<ByteCode>,
     customs: ObjectStore<CustomVal>,
     keep_reachable: KeepReachableSet,
     reachable_color: Color,
@@ -231,7 +229,7 @@ impl MemoryManager {
     }
 
     /// Get a bytecode by its id.
-    pub fn get_bytecode(&self, id: ValId<Arc<ByteCode>>) -> &Arc<ByteCode> {
+    pub fn get_bytecode(&self, id: ValId<ByteCode>) -> &ByteCode {
         let res = self.bytecodes.get(self.vm_id, id);
         debug_assert!(res.is_some(), "{id:?} not found");
         res.unwrap()
@@ -242,9 +240,9 @@ impl MemoryManager {
     ///
     /// Warning: This may be very slow.
     #[cfg(test)]
-    pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
+    pub fn get_or_insert_bytecode_slow(&mut self, bytecode: ByteCode) -> ValId<ByteCode> {
         for (id, val) in self.bytecodes.iter(self.vm_id) {
-            if val.as_ref() == &bytecode {
+            if val == &bytecode {
                 return id;
             }
         }
@@ -253,12 +251,12 @@ impl MemoryManager {
     }
 
     /// Insert bytecode into the store and return its id.
-    pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<Arc<ByteCode>> {
+    pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<ByteCode> {
         self.stats.bytecodes_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.bytecodes
-            .insert(self.vm_id, bytecode.into(), self.reachable_color.other())
+            .insert(self.vm_id, bytecode, self.reachable_color.other())
     }
 
     /// Get a custom value by its id.
