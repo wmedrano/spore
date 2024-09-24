@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use compact_str::CompactString;
 
 use super::{NativeFunction, UnsafeVal};
@@ -10,7 +12,7 @@ pub struct ByteCode {
     /// The number of arguments for the bytecode.
     pub arg_count: usize,
     /// The instructions for the bytecode.
-    pub instructions: Box<[Instruction]>,
+    pub instructions: Arc<[Instruction]>,
 }
 
 impl ByteCode {
@@ -23,7 +25,7 @@ impl ByteCode {
         ByteCode {
             name: name.into(),
             arg_count: 0,
-            instructions: Box::new([Instruction::EvalNative { func, arg_count }]),
+            instructions: Arc::new([Instruction::EvalNative { func, arg_count }]),
         }
     }
 

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicU16, Arc, LazyLock},
+    sync::{atomic::AtomicU16, Arc},
 };
 
 use bumpalo::Bump;
@@ -27,6 +27,8 @@ mod gc;
 pub mod parser;
 mod settings;
 pub mod val;
+
+type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 /// The Spore virtual machine.
 ///
@@ -65,15 +67,19 @@ pub struct Vm {
 struct StackFrame {
     bytecode_id: ValId<Arc<ByteCode>>,
     /// The instructions that will be taken.
-    bytecode: Arc<ByteCode>,
+    instructions: Arc<[Instruction]>,
     /// The index of the next instruction within bytecode.
     bytecode_idx: usize,
     /// The index of the stack for the first value of this stack frame's local stack.
     stack_start: usize,
 }
 
-/// A reference to some trivial bytecode. Used to avoid allocations when creating a [StackFrame].
-static DEFAULT_BYTECODE: LazyLock<Arc<ByteCode>> = LazyLock::new(Arc::default);
+impl StackFrame {
+    /// Get the underlying bytecode object.
+    fn bytecode<'a>(&self, vm: &'a Vm) -> &'a Arc<ByteCode> {
+        vm.objects.get_bytecode(self.bytecode_id)
+    }
+}
 
 impl Default for StackFrame {
     fn default() -> StackFrame {
@@ -84,7 +90,7 @@ impl Default for StackFrame {
                 idx: 0,
                 _marker: std::marker::PhantomData,
             },
-            bytecode: DEFAULT_BYTECODE.clone(),
+            instructions: Arc::default(),
             bytecode_idx: 0,
             stack_start: 0,
         }
@@ -246,9 +252,10 @@ impl Vm {
         self.stack.extend(args);
         self.previous_stack_frames.clear();
         let bytecode = self.objects.get_bytecode(bytecode_id).clone();
+        let instructions = bytecode.instructions.clone();
         self.stack_frame = StackFrame {
             bytecode_id,
-            bytecode,
+            instructions,
             bytecode_idx: 0,
             stack_start: 0,
         };
@@ -270,8 +277,8 @@ impl Vm {
     fn run_next(&mut self, debugger: &mut impl Debugger) -> VmResult<Option<UnsafeVal>> {
         let maybe_instruction = self
             .stack_frame
-            .bytecode
             .instructions
+            .as_ref()
             .get(self.stack_frame.bytecode_idx);
         self.stack_frame.bytecode_idx += 1;
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
@@ -353,21 +360,24 @@ impl Vm {
                 Ok(())
             }
             UnsafeVal::ByteCodeFunction(bytecode_id) => {
-                let bytecode = self.objects.get_bytecode(bytecode_id).clone();
-                let arg_count = n - 1;
-                if bytecode.arg_count != arg_count {
-                    return Err(VmError::ArityError {
-                        function: bytecode.name.clone(),
-                        expected: bytecode.arg_count,
-                        actual: arg_count,
-                    });
-                }
-                if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
-                    return Err(self.execute_call_stack_limit_reached());
-                }
+                let instructions = {
+                    let bytecode = self.objects.get_bytecode(bytecode_id);
+                    let arg_count = n - 1;
+                    if bytecode.arg_count != arg_count {
+                        return Err(VmError::ArityError {
+                            function: bytecode.name.clone(),
+                            expected: bytecode.arg_count,
+                            actual: arg_count,
+                        });
+                    }
+                    if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
+                        return Err(self.execute_call_stack_limit_reached());
+                    }
+                    bytecode.instructions.clone()
+                };
                 let new_stack_frame = StackFrame {
                     bytecode_id,
-                    bytecode,
+                    instructions,
                     bytecode_idx: 0,
                     stack_start,
                 };
@@ -387,12 +397,12 @@ impl Vm {
 
     fn execute_call_stack_limit_reached(&mut self) -> VmError {
         let mut call_stack = Vec::with_capacity(1 + self.previous_stack_frames.len());
-        call_stack.push(self.stack_frame.bytecode.name.clone());
+        call_stack.push(self.stack_frame.bytecode(self).name.clone());
         call_stack.extend(
             self.previous_stack_frames
                 .iter()
                 .rev()
-                .map(|sf| sf.bytecode.name.clone()),
+                .map(|sf| sf.bytecode(self).name.clone()),
         );
         VmError::MaximumRecursionDepth {
             call_stack,
@@ -440,28 +450,34 @@ impl Vm {
     /// # Safety
     ///
     pub unsafe fn run_gc(&mut self) {
-        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
-        let vals = self
-            .stack
-            .iter()
-            .copied()
-            .filter(is_gc)
-            .chain(self.values.values().copied().filter(is_gc))
-            .chain(
-                self.previous_stack_frames
-                    .iter()
-                    .flat_map(|previous_frame| {
-                        previous_frame
-                            .bytecode
-                            .values()
-                            .filter(is_gc)
-                            .chain(std::iter::once(previous_frame.bytecode_id.into()))
-                    }),
-            )
-            .chain(self.stack_frame.bytecode.values().filter(is_gc))
-            .chain(std::iter::once(self.stack_frame.bytecode_id.into()));
         let arena = std::mem::take(&mut self.tmp_arena);
-        self.objects.run_gc(&arena, vals);
+        {
+            let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
+            let mut bytecodes: BumpVec<(ValId<_>, Arc<ByteCode>)> = BumpVec::new_in(&arena);
+            bytecodes.push((
+                self.stack_frame.bytecode_id,
+                self.stack_frame.bytecode(self).clone(),
+            ));
+            for previous_frame in self.previous_stack_frames.iter() {
+                bytecodes.push((
+                    previous_frame.bytecode_id,
+                    previous_frame.bytecode(self).clone(),
+                ));
+            }
+            let vals = self
+                .stack
+                .iter()
+                .copied()
+                .filter(is_gc)
+                .chain(self.values.values().copied().filter(is_gc))
+                .chain(bytecodes.iter().flat_map(|(id, bytecode)| {
+                    bytecode
+                        .values()
+                        .filter(is_gc)
+                        .chain(std::iter::once((*id).into()))
+                }));
+            self.objects.run_gc(&arena, vals);
+        }
         self.tmp_arena = arena;
         self.tmp_arena.reset();
     }
