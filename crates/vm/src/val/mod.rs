@@ -11,8 +11,7 @@ mod unsafe_val;
 use std::marker::PhantomData;
 
 pub use bytecode::{ByteCode, Instruction};
-pub use custom::CustomType;
-use custom::{CustomValError, CustomValMut, CustomValRef};
+pub use custom::{CustomType, CustomVal, CustomValError, CustomValMut, CustomValRef};
 pub use formatter::ValFormatter;
 pub use id::ValId;
 pub use native_function::{NativeFunction, NativeFunctionContext, ValBuilder};

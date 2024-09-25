@@ -2,10 +2,7 @@ use compact_str::CompactString;
 
 use crate::{error::VmResult, Vm};
 
-use super::{
-    custom::{CustomType, CustomVal},
-    UnsafeVal, Val,
-};
+use super::{custom::CustomVal, CustomType, UnsafeVal, Val};
 
 /// A function that can be executed by the Spore VM. Native functions can be registered with
 /// [Vm::with_native_function].

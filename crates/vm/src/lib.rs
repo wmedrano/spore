@@ -12,9 +12,8 @@ use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
 pub use settings::Settings;
 use val::{
-    custom::{CustomType, CustomVal},
-    ByteCode, Instruction, NativeFunction, NativeFunctionContext, ProtectedVal, UnsafeVal, Val,
-    ValId,
+    custom::CustomVal, ByteCode, CustomType, Instruction, NativeFunction, NativeFunctionContext,
+    ProtectedVal, UnsafeVal, Val, ValId,
 };
 
 mod builtins;

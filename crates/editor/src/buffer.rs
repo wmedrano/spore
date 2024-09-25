@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use compact_str::CompactString;
 use crop::Rope;
 #[allow(unused_imports)]
@@ -146,9 +144,11 @@ fn buffer_insert(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
             actual: v.type_name(),
             value: v.format_quoted(ctx.vm()).to_string(),
         })?;
-    let buffer_val = ctx.arg(0).unwrap();
-    let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
-    buffer.insert(insert_string);
+    if !insert_string.is_empty() {
+        let buffer_val = ctx.arg(0).unwrap();
+        let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
+        buffer.insert(insert_string);
+    }
     Ok(Val::new_void().into())
 }
 
@@ -203,15 +203,7 @@ fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
-impl CustomType for SporeBuffer {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
+impl CustomType for SporeBuffer {}
 
 impl std::fmt::Display for SporeBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

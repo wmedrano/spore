@@ -5,16 +5,17 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use log::*;
 use spore_vm::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
     Vm,
 };
 
 pub fn register(vm: Vm) -> Vm {
     vm.with_native_function("read-event!", read_event)
+        .with_native_function("special-event?", special_event_p)
 }
 
 /// The minimum frames per second. This occurs when no user events are detected.
-const MINIMUM_FRAMES_PER_SECOND: u64 = 1;
+const MINIMUM_FRAMES_PER_SECOND: u64 = 60;
 /// The amount of time to wait for an event before moving on with rendering.
 const READ_EVENT_TIMEOUT_DURATION: Duration =
     Duration::from_nanos(1_000_000_000 / MINIMUM_FRAMES_PER_SECOND);
@@ -24,6 +25,7 @@ fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         return Ok(ValBuilder::new(false.into()));
     };
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
+    let mut is_special = true;
     let (mut event_key, modifiers): (CompactString, _) = match event {
         event::Event::Key(KeyEvent {
             kind: KeyEventKind::Press,
@@ -48,7 +50,10 @@ fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                 KeyCode::Insert => "insert".into(),
                 KeyCode::F(n) => format_compact!("f{n}"),
                 KeyCode::Char(' ') => "space".into(),
-                KeyCode::Char(ch) => format_compact!("{ch}"),
+                KeyCode::Char(ch) => {
+                    is_special = false;
+                    format_compact!("{ch}")
+                }
                 KeyCode::Null => "null".into(),
                 KeyCode::Esc => "esc".into(),
                 KeyCode::CapsLock => "caps-lock".into(),
@@ -65,7 +70,10 @@ fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         }
         _ => ("unknown".into(), KeyModifiers::empty()),
     };
-    if modifiers.contains(KeyModifiers::SHIFT) && event_key.len() > 1 {
+    if modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT) {
+        is_special = true;
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) && is_special {
         event_key.insert_str(0, "shift-");
     }
     if modifiers.contains(KeyModifiers::CONTROL) {
@@ -74,12 +82,35 @@ fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if modifiers.contains(KeyModifiers::ALT) {
         event_key.insert_str(0, "alt-");
     }
-    if event_key.len() > 1 {
+    if is_special {
         event_key.insert_str(0, "<");
         event_key.push_str(">");
     }
     if cfg!(debug_assertions) && event_key.is_heap_allocated() {
-        warn!("Generated large event string of length {len}. Large strings may negatively impact performance.", len=event_key.len());
+        warn!(
+            "Generated large event string of length {len}. Large strings may negatively impact performance.",
+            len=event_key.len());
     };
     Ok(ctx.new_string(event_key))
+}
+
+fn special_event_p(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    match args {
+        [event] => {
+            let event = event.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
+                context: "special-event?",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+            let is_special = event.starts_with('<') && event.ends_with('>');
+            Ok(ValBuilder::new(is_special.into()))
+        }
+        _ => Err(VmError::ArityError {
+            function: "special-event?".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
 }

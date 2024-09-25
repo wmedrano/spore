@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
-use ratatui::DefaultTerminal;
+use ratatui::{style::Style, DefaultTerminal};
 use spore_vm::{Settings, Vm};
 use widgets::BufferWidget;
 
@@ -54,6 +54,8 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         .is_truthy()
     {
         terminal.draw(|frame| {
+            let area = frame.area();
+            frame.buffer_mut().set_style(area, Style::reset());
             let buffer = vm.val_by_name("buffer").unwrap();
             let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
             frame.render_widget(BufferWidget::new(&buffer), frame.area());

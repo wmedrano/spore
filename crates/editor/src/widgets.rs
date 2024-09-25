@@ -40,10 +40,9 @@ impl<'a> BufferWidget<'a> {
         if area.width == 0 || area.height == 0 {
             return;
         }
-        buf.set_style(area, Style::new().fg(Color::White).bg(Color::Black));
         let (mut x, mut width) = (area.x, area.width);
         let (mut y, mut height) = (area.y, area.height);
-        let mut start_byte = 0;
+        let mut byte_range = 0..0;
         let graphemes = self
             .buffer
             .contents
@@ -51,11 +50,14 @@ impl<'a> BufferWidget<'a> {
             // Required for cursor at the end of the text.
             .chain(std::iter::once(" ".into()));
         for grapheme in graphemes {
-            let end_byte = start_byte + grapheme.as_ref().len();
-            if (start_byte..end_byte).contains(&(self.buffer.cursor.byte_idx())) {
-                buf[(x, y)].set_bg(Color::Magenta);
+            let cell = &mut buf[(x, y)];
+            byte_range = byte_range.end..byte_range.end + grapheme.as_ref().len();
+            if byte_range.contains(&(self.buffer.cursor.byte_idx())) {
+                cell.set_bg(Color::Magenta);
+            } else {
+                cell.set_fg(Color::White);
+                cell.set_bg(Color::Black);
             }
-            start_byte = end_byte;
             match grapheme.as_ref() {
                 "\n" => {
                     (x, width) = (area.x, area.width);
@@ -65,15 +67,24 @@ impl<'a> BufferWidget<'a> {
                     }
                 }
                 sym => {
-                    buf[(x, y)].set_symbol(sym);
-                    if width <= 1 {
+                    let cell_width = match sym {
+                        "\t" => {
+                            cell.set_symbol(" ");
+                            4
+                        }
+                        _ => {
+                            cell.set_symbol(sym);
+                            1
+                        }
+                    };
+                    if width <= cell_width {
                         (x, width) = (area.x, area.width);
                         (y, height) = (y + 1, height - 1);
                         if height == 0 {
                             return;
                         }
                     } else {
-                        (x, width) = (x + 1, width - 1);
+                        (x, width) = (x + cell_width, width - cell_width);
                     }
                 }
             }

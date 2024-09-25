@@ -5,7 +5,8 @@
 (define (quit!) (set-box! *running?* false))
 
 (define (event-to-insert event)
-  (if (= (string-length event) 1) (return event))
+  (if (not (special-event? event)) (return event))
+  (if (= event "<tab>") (return "\t"))
   (if (= event "<space>") (return " "))
   (if (= event "<enter>") (return "\n"))
   (return ""))

@@ -9,6 +9,8 @@ use std::{
 use log::*;
 use thiserror::Error;
 
+use super::UnsafeVal;
+
 #[derive(Error, Debug, PartialEq)]
 pub enum CustomValError {
     #[error("Lock is poisoned")]
@@ -35,7 +37,7 @@ impl<T> From<TryLockError<T>> for CustomValError {
 
 /// Contains a custom value.
 #[derive(Debug)]
-pub struct CustomVal(RwLock<Box<dyn CustomType>>);
+pub struct CustomVal(pub(crate) RwLock<Box<dyn CustomTypeSealed>>);
 
 impl CustomVal {
     /// Create a new `CustomVal` from any type that implements `CustomType`.
@@ -104,7 +106,7 @@ impl std::fmt::Display for CustomVal {
 
 #[derive(Debug)]
 pub struct CustomValRef<'a, T> {
-    guard: RwLockReadGuard<'a, Box<dyn CustomType>>,
+    guard: RwLockReadGuard<'a, Box<dyn CustomTypeSealed>>,
     _type: PhantomData<T>,
 }
 
@@ -118,7 +120,7 @@ impl<'a, T: 'static> Deref for CustomValRef<'a, T> {
 
 #[derive(Debug)]
 pub struct CustomValMut<'a, T> {
-    guard: RwLockWriteGuard<'a, Box<dyn CustomType>>,
+    guard: RwLockWriteGuard<'a, Box<dyn CustomTypeSealed>>,
     _type: PhantomData<T>,
 }
 
@@ -141,6 +143,9 @@ impl<'a, T: 'static> DerefMut for CustomValMut<'a, T> {
 }
 
 /// A trait that defines a value that can be created or referenced within the VM.
+///
+/// If the type does not hold references, prefer implementing [CustomTypeDefault] instead.
+///
 /// ```rust
 /// #[derive(Debug, Default)]
 /// pub struct MyType(i64);
@@ -158,11 +163,56 @@ impl<'a, T: 'static> DerefMut for CustomValMut<'a, T> {
 ///     }
 /// }
 /// ```
-pub trait CustomType: 'static + Send + Sync + std::fmt::Display + std::fmt::Debug {
+pub(crate) trait CustomTypeSealed:
+    'static + Send + Sync + std::fmt::Display + std::fmt::Debug
+{
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn as_any(&self) -> &dyn Any;
     fn name(&self) -> &'static str {
         std::any::type_name_of_val(self)
+    }
+    unsafe fn gc_val_references(&self) -> &[UnsafeVal];
+}
+
+/// A simpler way to implement the [CustomType] trait.
+///
+/// ```rust
+/// #[derive(Debug, Default)]
+/// pub struct MyType(i64);
+/// impl spore_vm::val::CustomTypeDefault for MyType {}
+///
+/// impl std::fmt::Display for MyType {
+///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+///         write!(f, "my number is {}", self.0)
+///     }
+/// }
+/// ```
+pub trait CustomType:
+    'static + Send + Sync + std::fmt::Display + std::fmt::Debug + std::any::Any
+{
+    unsafe fn gc_val_references(&self) -> &[UnsafeVal] {
+        &[]
+    }
+}
+
+impl<T> CustomTypeSealed for T
+where
+    T: CustomType,
+{
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+
+    unsafe fn gc_val_references(&self) -> &[UnsafeVal] {
+        self.gc_val_references()
     }
 }
 
@@ -179,15 +229,7 @@ mod tests {
         number: i64,
     }
 
-    impl CustomType for MyType {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-    }
+    impl CustomType for MyType {}
 
     impl std::fmt::Display for MyType {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -305,15 +347,7 @@ mod tests {
         string: &'static str,
     }
 
-    impl CustomType for OtherType {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-    }
+    impl CustomType for OtherType {}
 
     impl std::fmt::Display for OtherType {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

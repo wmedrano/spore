@@ -147,7 +147,14 @@ impl MemoryManager {
                 }
             }
             UnsafeVal::Custom(id) => {
-                self.customs.set_color(id, self.reachable_color);
+                if let Some(c) = self.customs.set_color(id, self.reachable_color) {
+                    let c_inner = c.0.try_read().unwrap();
+                    // Unsafe OK: Values are being marked to avoid GC so they should not be garbage
+                    // collected.
+                    for child_val in unsafe { c_inner.gc_val_references() } {
+                        add_child(*child_val);
+                    }
+                }
             }
             v => debug_assert!(!is_garbage_collected(v)),
         }
