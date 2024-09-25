@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use log::*;
 
-use crate::val::ValId;
+use crate::{val::ValId, ISSUE_LINK};
 
 #[derive(Clone, Debug)]
 pub struct ValWithColor<T> {
@@ -112,7 +112,7 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
                         actual=obj.id);
                     error!(
                         "If no egregious use of unsafe was used, please file a reproducible issue at {issues_link}.",
-                        issues_link = "https://github.com/wmedrano/spore/issues");
+                        issues_link = ISSUE_LINK);
                     false
                 }
             })

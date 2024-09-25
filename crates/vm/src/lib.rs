@@ -27,6 +27,9 @@ pub mod val;
 
 type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
+/// The GitHub issues page to file issues to.
+pub const ISSUE_LINK: &str = "https://github.com/wmedrano/spore/issues";
+
 /// The Spore virtual machine.
 ///
 /// # Example
@@ -56,7 +59,7 @@ pub struct Vm {
     /// Contains bytecode compilation settings,
     settings: Settings,
     /// An arena for temporary computations for things like compilation and garbage collection.
-    tmp_arena: Bump,
+    tmp_arena: Option<Bump>,
 }
 
 /// Used to decide the next instruction to take.
@@ -120,7 +123,7 @@ impl Vm {
             stack_frame: StackFrame::default(),
             objects: MemoryManager::new(vm_id),
             settings,
-            tmp_arena: Bump::new(),
+            tmp_arena: Some(Bump::new()),
         };
         for (name, func) in builtins::BUILTINS {
             vm = vm.with_native_function(name, *func);
@@ -185,10 +188,13 @@ impl Vm {
     /// let x = vm.eval_str("(+ 20 22)").unwrap().try_int().unwrap();
     /// ```
     pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
-        let arena = std::mem::take(&mut self.tmp_arena);
+        let mut arena = self.tmp_arena.take().unwrap_or_else(|| {
+            warn!("Arena was unexpectedly unavailable. Please file an issue at {ISSUE_LINK} with proper context.");
+            Bump::new()
+        });
         let bytecode = Compiler::compile(self, source, &arena)?;
-        self.tmp_arena = arena;
-        self.tmp_arena.reset();
+        arena.reset();
+        self.tmp_arena = Some(arena);
         let bytecode_id = self.objects.insert_bytecode(bytecode);
         self.eval_bytecode(bytecode_id, std::iter::empty())
     }
@@ -440,9 +446,12 @@ impl Vm {
     /// # Safety
     ///
     pub unsafe fn run_gc(&mut self) {
-        let arena = std::mem::take(&mut self.tmp_arena);
+        let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
+        let mut arena = self.tmp_arena.take().unwrap_or_else(|| {
+            warn!("Arena was unexpectedly unavailable. Please file an issue at {ISSUE_LINK} with proper context.");
+            Bump::new()
+        });
         {
-            let is_gc = |v: &UnsafeVal| is_garbage_collected(*v);
             let mut bytecodes: BumpVec<(ValId<_>, ByteCode)> = BumpVec::new_in(&arena);
             bytecodes.push((
                 self.stack_frame.bytecode_id,
@@ -468,8 +477,8 @@ impl Vm {
                 }));
             self.objects.run_gc(&arena, vals);
         }
-        self.tmp_arena = arena;
-        self.tmp_arena.reset();
+        arena.reset();
+        self.tmp_arena = Some(arena);
     }
 }
 
