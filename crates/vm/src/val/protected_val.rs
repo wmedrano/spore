@@ -10,9 +10,9 @@ use super::{
     CustomType, Val,
 };
 
-/// Holds a Value from the [Vm].
+/// Holds a value from the [Vm] that is guaranteed to not be garbage collected.
 ///
-/// The underlying value is protected from garbage collection until `ProtectedVal` is dropped..
+/// The underlying value is protected from garbage collection until `ProtectedVal` is dropped.
 #[derive(Debug)]
 pub struct ProtectedVal<'a> {
     pub(crate) vm: &'a mut Vm,

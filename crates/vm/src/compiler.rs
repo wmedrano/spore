@@ -503,7 +503,7 @@ fn node_to_ident<'a>(node: &'a Node) -> Result<&'a str> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{parser::ast::AstParseError, DefaultDebugger};
+    use crate::parser::ast::AstParseError;
 
     use super::*;
 
@@ -573,7 +573,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("\"string\"", &mut DefaultDebugger)
+            vm.eval_str("\"string\"")
                 .unwrap()
                 .try_str()
                 .unwrap()

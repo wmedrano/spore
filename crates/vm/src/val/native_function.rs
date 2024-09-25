@@ -23,7 +23,7 @@ use super::{
 /// }
 pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
-/// Builds a value suitable for return returning.
+/// Builds a value for the VM to consume.
 ///
 /// - This is often returned by [NativeFunction].
 /// - `ValBuilder` objects may be built from [NativeFunctionContext] objects.

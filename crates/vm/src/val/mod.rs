@@ -24,6 +24,7 @@ use crate::Vm;
 /// A container for a list.
 pub type ListVal = Vec<UnsafeVal>;
 
+/// Contains a [Val] from the [Vm].
 #[repr(transparent)]
 #[derive(Copy, Clone, Debug, Default)]
 pub struct Val<'a> {

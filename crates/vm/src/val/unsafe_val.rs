@@ -6,11 +6,11 @@ use super::{
     bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, ListVal, NativeFunction, ValId,
 };
 
-/// Contains a Spore value.
+/// Contains a Spore value. The value is considered unsafe as it may be garbage collected.
 ///
 /// # Safety
-///The value is considered unsafe as some variants contain references that may be mutated or garbage
-/// collected by the VM. Unsafe fields contain a `Safety` section in their documentation.
+/// The value is considered unsafe as some variants contain references that may be mutated or
+/// garbage collected by the VM. Unsafe fields contain a `Safety` section in their documentation.
 #[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub enum UnsafeVal {
     /// A type that contains a single value. Used to represent nothingness.

@@ -8,7 +8,7 @@ use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
 use ratatui::DefaultTerminal;
-use spore_vm::{DefaultDebugger, Settings, Vm};
+use spore_vm::{Settings, Vm};
 use widgets::BufferWidget;
 
 mod buffer;
@@ -42,15 +42,14 @@ fn new_vm() -> anyhow::Result<Vm> {
         duration = start_t.elapsed()
     );
     let start_t = Instant::now();
-    vm.eval_str(&main_src, &mut DefaultDebugger).unwrap();
+    vm.eval_str(&main_src).unwrap();
     info!("Evaluated main in {:?}.", start_t.elapsed());
     Ok(vm)
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
-    let mut debugger = DefaultDebugger;
     while vm
-        .eval_function_by_name("running?", std::iter::empty(), &mut debugger)
+        .eval_function_by_name("running?", std::iter::empty())
         .unwrap()
         .is_truthy()
     {
@@ -59,7 +58,7 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
             let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
             frame.render_widget(BufferWidget::new(&buffer), frame.area());
         })?;
-        vm.eval_function_by_name("handle-event!", std::iter::empty(), &mut debugger)
+        vm.eval_function_by_name("handle-event!", std::iter::empty())
             .unwrap();
     }
     info!("Exiting Spore.");

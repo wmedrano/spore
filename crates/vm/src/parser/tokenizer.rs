@@ -16,12 +16,16 @@ pub enum TokenType {
 /// Contains a token type and the portion of the text defining the token.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Token {
+    /// The type held within the token.
     pub token_type: TokenType,
+    /// The start index of the token.
     pub start: usize,
+    /// The end index of the token.
     pub end: usize,
 }
 
 impl Token {
+    /// Get the current token's backing [str].
     pub fn as_str<'a>(&self, src: &'a str) -> &'a str {
         &src[self.start..self.end]
     }

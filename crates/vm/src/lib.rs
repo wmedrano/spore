@@ -5,12 +5,10 @@ use std::{
 
 use bumpalo::Bump;
 use compact_str::CompactString;
-use debugger::Debugger;
 use gc::{is_garbage_collected, MemoryManager};
 use log::*;
 
 use compiler::Compiler;
-pub use debugger::DefaultDebugger;
 use error::{BacktraceError, VmError, VmResult};
 pub use settings::Settings;
 use val::{
@@ -21,7 +19,6 @@ use val::{
 
 mod builtins;
 mod compiler;
-pub mod debugger;
 pub mod error;
 mod gc;
 pub mod parser;
@@ -35,11 +32,11 @@ type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 /// # Example
 /// ```rust
 /// let mut vm = spore_vm::Vm::default();
-/// vm.eval_str("(define foo 42)", &mut spore_vm::DefaultDebugger).unwrap();
+/// vm.eval_str("(define foo 42)").unwrap();
 /// let foo = vm.val_by_name("foo").unwrap().try_int().unwrap(); // 42
-/// vm.eval_str("(define (bar x) (+ x foo))", &mut spore_vm::DefaultDebugger).unwrap();
+/// vm.eval_str("(define (bar x) (+ x foo))").unwrap();
 /// let bar_10 = vm
-///     .eval_function_by_name("bar", std::iter::once(10.into()), &mut spore_vm::DefaultDebugger)
+///     .eval_function_by_name("bar", std::iter::once(10.into()))
 ///     .unwrap()
 ///     .try_int()
 ///     .unwrap(); // 52
@@ -185,29 +182,25 @@ impl Vm {
     ///
     /// ```rust
     /// let mut vm = spore_vm::Vm::default();
-    /// let x = vm.eval_str("(+ 20 22)", &mut spore_vm::DefaultDebugger).unwrap().try_int().unwrap();
+    /// let x = vm.eval_str("(+ 20 22)").unwrap().try_int().unwrap();
     /// ```
-    pub fn eval_str(
-        &mut self,
-        source: &str,
-        debugger: &mut impl Debugger,
-    ) -> VmResult<ProtectedVal> {
+    pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
         let arena = std::mem::take(&mut self.tmp_arena);
         let bytecode = Compiler::compile(self, source, &arena)?;
         self.tmp_arena = arena;
         self.tmp_arena.reset();
         let bytecode_id = self.objects.insert_bytecode(bytecode);
-        self.eval_bytecode(bytecode_id, std::iter::empty(), debugger)
+        self.eval_bytecode(bytecode_id, std::iter::empty())
     }
 
     /// Call a function with the given name.
     ///
     /// ```rust
     /// let mut vm = spore_vm::Vm::default();
-    /// vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))", &mut spore_vm::DefaultDebugger)
+    /// vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
     ///     .unwrap();
     /// let ans = vm
-    ///     .eval_function_by_name("fib", std::iter::once(10.into()), &mut spore_vm::DefaultDebugger)
+    ///     .eval_function_by_name("fib", std::iter::once(10.into()))
     ///     .unwrap()
     ///     .try_int()
     ///     .unwrap();
@@ -216,7 +209,6 @@ impl Vm {
         &mut self,
         name: &str,
         args: impl ExactSizeIterator<Item = Val<'static>>,
-        debugger: &mut impl Debugger,
     ) -> VmResult<ProtectedVal> {
         let function_val = *self
             .values
@@ -238,7 +230,7 @@ impl Vm {
         };
         // Unsafe Ack: These values should be inserted into VM stack ASAP.
         let args = args.map(|arg| unsafe { arg.as_unsafe_val() });
-        self.eval_bytecode(bytecode_id, args, debugger)
+        self.eval_bytecode(bytecode_id, args)
     }
 
     /// Evaluate some bytecode in the virtual machine.
@@ -246,7 +238,6 @@ impl Vm {
         &mut self,
         bytecode_id: ValId<ByteCode>,
         args: impl Iterator<Item = UnsafeVal>,
-        debugger: &mut impl Debugger,
     ) -> VmResult<ProtectedVal> {
         self.stack.clear();
         self.stack.extend(args);
@@ -262,7 +253,7 @@ impl Vm {
         // Unsafe OK: The environment has just been set up.
         unsafe { self.run_gc() };
         loop {
-            if let Some(v) = self.run_next(debugger)? {
+            if let Some(v) = self.run_next()? {
                 // Unsafe OK: This is a new valid val and we are adding GC protection to it.
                 let v = unsafe { Val::from_unsafe_val(v) };
                 return Ok(ProtectedVal::new(self, v));
@@ -274,7 +265,7 @@ impl Vm {
     ///
     /// If there are no more instructions to run, then `Some(return_value)` will be
     /// returned. Otherwise, `None` will be returned.
-    fn run_next(&mut self, debugger: &mut impl Debugger) -> VmResult<Option<UnsafeVal>> {
+    fn run_next(&mut self) -> VmResult<Option<UnsafeVal>> {
         let maybe_instruction = self
             .stack_frame
             .instructions
@@ -282,7 +273,6 @@ impl Vm {
             .get(self.stack_frame.bytecode_idx);
         self.stack_frame.bytecode_idx += 1;
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
-        debugger.execute_instruction(instruction);
         match instruction {
             Instruction::PushConst(c) => self.stack.push(*c),
             Instruction::PushCurrentFunction => {
@@ -501,32 +491,28 @@ mod tests {
     #[test]
     fn constant_expression_evaluates_to_constant() {
         let mut vm = Vm::default();
-        let actual = vm.eval_str("42", &mut DefaultDebugger).unwrap();
+        let actual = vm.eval_str("42").unwrap();
         assert_eq!(actual.try_int().unwrap(), 42);
     }
 
     #[test]
     fn expression_can_evaluate() {
         let mut vm = Vm::default();
-        let actual = vm.eval_str("(+ 1 2 3 4.0)", &mut DefaultDebugger).unwrap();
+        let actual = vm.eval_str("(+ 1 2 3 4.0)").unwrap();
         assert_eq!(actual.try_float().unwrap(), 10.0);
     }
 
     #[test]
     fn list_function_returns_list() {
         let mut vm = Vm::default();
-        let actual = vm
-            .eval_str("(list 1 2.3 \"three\")", &mut DefaultDebugger)
-            .unwrap();
+        let actual = vm.eval_str("(list 1 2.3 \"three\")").unwrap();
         assert_eq!(actual.to_string(), "(1 2.3 \"three\")");
     }
 
     #[test]
     fn vm_error_is_reported() {
         let mut vm = Vm::default();
-        let actual = vm
-            .eval_str("(+ true false)", &mut DefaultDebugger)
-            .unwrap_err();
+        let actual = vm.eval_str("(+ true false)").unwrap_err();
         assert_eq!(
             actual,
             VmError::TypeError {
@@ -541,9 +527,7 @@ mod tests {
     #[test]
     fn compile_error_is_reported() {
         let mut vm = Vm::default();
-        let actual = vm
-            .eval_str("((define x 12))", &mut DefaultDebugger)
-            .unwrap_err();
+        let actual = vm.eval_str("((define x 12))").unwrap_err();
         assert_eq!(
             actual,
             VmError::CompileError(CompileError::ExpectedExpression {
@@ -556,48 +540,37 @@ mod tests {
     fn defined_variable_can_be_referenced() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(define x 12) (+ x x)", &mut DefaultDebugger)
+            vm.eval_str("(define x 12) (+ x x)")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             24
         );
-        assert_eq!(
-            vm.eval_str("(+ x 10)", &mut DefaultDebugger)
-                .unwrap()
-                .try_int()
-                .unwrap(),
-            22
-        );
+        assert_eq!(vm.eval_str("(+ x 10)").unwrap().try_int().unwrap(), 22);
     }
 
     #[test]
     fn if_statement_can_return_any_of() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(if true (+ 1 2))", &mut DefaultDebugger)
+            vm.eval_str("(if true (+ 1 2))").unwrap().try_int().unwrap(),
+            3
+        );
+        assert_eq!(
+            vm.eval_str("(if true (+ 1 2) (+ 3 4))")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             3
         );
         assert_eq!(
-            vm.eval_str("(if true (+ 1 2) (+ 3 4))", &mut DefaultDebugger)
-                .unwrap()
-                .try_int()
-                .unwrap(),
-            3
-        );
-        assert_eq!(
-            vm.eval_str("(if false (+ 1 2) (+ 3 4))", &mut DefaultDebugger)
+            vm.eval_str("(if false (+ 1 2) (+ 3 4))")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             7
         );
-        let got = vm
-            .eval_str("(if false (+ 1 2))", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(if false (+ 1 2))").unwrap();
         assert!(got.is_void(), "{got}");
     }
 
@@ -605,33 +578,24 @@ mod tests {
     fn if_statement_with_truthy_predicate_true_branch() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))", &mut DefaultDebugger)
+            vm.eval_str("(if 1 (+ 1 2) (+ 3 4))")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             3
         );
-        assert_eq!(
-            vm.eval_str("(if 1 (+ 1 2))", &mut DefaultDebugger)
-                .unwrap()
-                .try_int()
-                .unwrap(),
-            3
-        );
+        assert_eq!(vm.eval_str("(if 1 (+ 1 2))").unwrap().try_int().unwrap(), 3);
     }
 
     #[test]
     fn lambda_can_be_evaluated() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("((lambda () 7))", &mut DefaultDebugger)
-                .unwrap()
-                .try_int()
-                .unwrap(),
+            vm.eval_str("((lambda () 7))").unwrap().try_int().unwrap(),
             7
         );
         assert_eq!(
-            vm.eval_str("((lambda () (+ 1 2 3)))", &mut DefaultDebugger)
+            vm.eval_str("((lambda () (+ 1 2 3)))")
                 .unwrap()
                 .try_int()
                 .unwrap(),
@@ -643,14 +607,14 @@ mod tests {
     fn lambda_with_args_can_be_evaluated() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("((lambda (a b) 4) 1 2)", &mut DefaultDebugger)
+            vm.eval_str("((lambda (a b) 4) 1 2)")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             4,
         );
         assert_eq!(
-            vm.eval_str("((lambda (a b) (+ a b)) 1 2)", &mut DefaultDebugger)
+            vm.eval_str("((lambda (a b) (+ a b)) 1 2)")
                 .unwrap()
                 .try_int()
                 .unwrap(),
@@ -662,8 +626,7 @@ mod tests {
     fn function_called_with_wrong_number_of_args_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("((lambda () 10) 1)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("((lambda () 10) 1)").unwrap_err(),
             VmError::ArityError {
                 function: "".into(),
                 expected: 0,
@@ -671,8 +634,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("((lambda (a) a))", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("((lambda (a) a))").unwrap_err(),
             VmError::ArityError {
                 function: "".into(),
                 expected: 1,
@@ -680,16 +642,12 @@ mod tests {
             },
         );
         let mut got = vm
-            .eval_str(
-                "(define (takes-two-args arg1 arg2) (+ arg1 arg2))",
-                &mut DefaultDebugger,
-            )
+            .eval_str("(define (takes-two-args arg1 arg2) (+ arg1 arg2))")
             .unwrap();
         assert!(got.is_void(), "{got}");
         let (vm, _) = got.split();
         assert_eq!(
-            vm.eval_str("(takes-two-args 1)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(takes-two-args 1)").unwrap_err(),
             VmError::ArityError {
                 function: "takes-two-args".into(),
                 expected: 2,
@@ -701,8 +659,7 @@ mod tests {
     #[test]
     fn can_get_val_by_name() {
         let mut vm = Vm::default();
-        vm.eval_str("(define one 1) (define two 2)", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(define one 1) (define two 2)").unwrap();
         assert_eq!(vm.val_by_name("one").unwrap().try_int().unwrap(), 1);
         assert_eq!(vm.val_by_name("two").unwrap().try_int().unwrap(), 2);
     }
@@ -710,8 +667,7 @@ mod tests {
     #[test]
     fn getting_val_that_does_not_exist_returns_err() {
         let mut vm = Vm::default();
-        vm.eval_str("(define one 1) (define two 2)", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(define one 1) (define two 2)").unwrap();
         assert!(vm.val_by_name("three").is_none());
     }
 
@@ -719,7 +675,7 @@ mod tests {
     fn can_eval_by_function_with_native_function() {
         let mut vm = Vm::default();
         let ans = vm
-            .eval_function_by_name("+", [10.into(), 5.into()].into_iter(), &mut DefaultDebugger)
+            .eval_function_by_name("+", [10.into(), 5.into()].into_iter())
             .unwrap()
             .try_int()
             .unwrap();
@@ -729,10 +685,9 @@ mod tests {
     #[test]
     fn eval_function_that_does_not_exist_produces_error() {
         let mut vm = Vm::default();
-        vm.eval_str("(define (foo) 1)", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(define (foo) 1)").unwrap();
         assert_eq!(
-            vm.eval_function_by_name("bar", std::iter::empty(), &mut DefaultDebugger)
+            vm.eval_function_by_name("bar", std::iter::empty())
                 .unwrap_err(),
             VmError::SymbolNotDefined("bar".into())
         );
@@ -741,10 +696,9 @@ mod tests {
     #[test]
     fn eval_function_that_is_not_function_produces_error() {
         let mut vm = Vm::default();
-        vm.eval_str("(define foo 100)", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(define foo 100)").unwrap();
         assert_eq!(
-            vm.eval_function_by_name("foo", std::iter::empty(), &mut DefaultDebugger)
+            vm.eval_function_by_name("foo", std::iter::empty())
                 .unwrap_err(),
             VmError::TypeError {
                 context: "eval-function-by-name",
@@ -758,13 +712,10 @@ mod tests {
     #[test]
     fn can_call_function_recursively() {
         let mut vm = Vm::default();
-        vm.eval_str(
-            "(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))",
-            &mut DefaultDebugger,
-        )
-        .unwrap();
+        vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
+            .unwrap();
         let ans = vm
-            .eval_function_by_name("fib", std::iter::once(10.into()), &mut DefaultDebugger)
+            .eval_function_by_name("fib", std::iter::once(10.into()))
             .unwrap()
             .try_int()
             .unwrap();
@@ -775,11 +726,11 @@ mod tests {
     fn infinite_recursion_halts() {
         let mut vm = Vm::default();
         assert!(vm
-            .eval_str("(define (recurse) (recurse))", &mut DefaultDebugger)
+            .eval_str("(define (recurse) (recurse))")
             .unwrap()
             .is_void());
         assert_eq!(
-            vm.eval_str("(recurse)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(recurse)").unwrap_err(),
             VmError::MaximumRecursionDepth {
                 max_depth: 64,
                 call_stack: std::iter::repeat("recurse")
@@ -802,14 +753,8 @@ mod tests {
         let srcs = ["(define x 12)", "x", "(+ x x)"];
         for src in srcs {
             assert_eq!(
-                aggressive_inline_vm
-                    .eval_str(src, &mut DefaultDebugger)
-                    .unwrap()
-                    .to_string(),
-                default_vm
-                    .eval_str(src, &mut DefaultDebugger)
-                    .unwrap()
-                    .to_string(),
+                aggressive_inline_vm.eval_str(src).unwrap().to_string(),
+                default_vm.eval_str(src).unwrap().to_string(),
             )
         }
     }

@@ -171,7 +171,7 @@ mod tests {
     use super::*;
     use crate::{
         val::{NativeFunctionContext, UnsafeVal, ValBuilder},
-        DefaultDebugger, Vm, VmResult,
+        Vm, VmResult,
     };
 
     #[derive(Debug, PartialEq)]
@@ -199,9 +199,7 @@ mod tests {
     fn custom_type_can_be_printed() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         assert_eq!(
-            vm.eval_str("custom-value", &mut DefaultDebugger)
-                .unwrap()
-                .to_string(),
+            vm.eval_str("custom-value").unwrap().to_string(),
             "magic number 42"
         );
     }
@@ -209,7 +207,7 @@ mod tests {
     #[test]
     fn custom_type_can_be_accessed() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-        let val = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val = vm.eval_str("custom-value").unwrap();
         let got = val.as_custom::<MyType>().unwrap();
         assert_eq!(got.deref(), &MyType { number: 42 });
     }
@@ -217,21 +215,19 @@ mod tests {
     #[test]
     fn custom_type_can_be_accessed_multiple_times() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-        vm.eval_str("custom-value", &mut DefaultDebugger)
-            .unwrap()
-            .map(|vm, val1| {
-                let got1 = val1.as_custom::<MyType>().unwrap();
-                let val2 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
-                let got2 = val2.as_custom::<MyType>().unwrap();
-                assert_eq!(got1.deref() as *const MyType, got2.deref() as *const MyType);
-            });
+        vm.eval_str("custom-value").unwrap().map(|vm, val1| {
+            let got1 = val1.as_custom::<MyType>().unwrap();
+            let val2 = vm.eval_str("custom-value").unwrap();
+            let got2 = val2.as_custom::<MyType>().unwrap();
+            assert_eq!(got1.deref() as *const MyType, got2.deref() as *const MyType);
+        });
     }
 
     #[test]
     fn custom_type_get_after_get_mut_fails() {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-            let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+            let val1 = vm.eval_str("custom-value").unwrap();
             let get1 = val1.as_custom_mut::<MyType>().unwrap();
             std::mem::forget(get1);
             std::mem::forget(val1);
@@ -239,7 +235,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
             val1.as_custom::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
@@ -250,7 +246,7 @@ mod tests {
     fn display_on_locked_value_does_not_freeze_or_panic() {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-            let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+            let val1 = vm.eval_str("custom-value").unwrap();
             let get1 = val1.as_custom_mut::<MyType>().unwrap();
             std::mem::forget(get1);
             std::mem::forget(val1);
@@ -258,7 +254,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
             val1.as_custom::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
@@ -270,7 +266,7 @@ mod tests {
     fn custom_type_get_mut_after_read_fails() {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-            let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+            let val1 = vm.eval_str("custom-value").unwrap();
             let get1 = val1.as_custom::<MyType>().unwrap();
             let get2 = val1.as_custom::<MyType>().unwrap();
             std::mem::forget(get1);
@@ -280,7 +276,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        let val1 = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
             val1.as_custom_mut::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
@@ -291,13 +287,13 @@ mod tests {
     fn get_mut_can_mutate_value() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         {
-            let mutate_val = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+            let mutate_val = vm.eval_str("custom-value").unwrap();
             let mut mutate_val_ref = mutate_val.as_custom_mut::<MyType>().unwrap();
             *mutate_val_ref = MyType { number: -42 };
             assert_eq!(mutate_val_ref.deref(), &MyType { number: -42 });
         }
 
-        let val = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val = vm.eval_str("custom-value").unwrap();
         assert_eq!(
             val.as_custom::<MyType>().unwrap().deref(),
             &MyType { number: -42 }
@@ -328,7 +324,7 @@ mod tests {
     #[test]
     fn custom_type_get_and_get_mut_with_wrong_custom_type_fails() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-        let val = vm.eval_str("custom-value", &mut DefaultDebugger).unwrap();
+        let val = vm.eval_str("custom-value").unwrap();
         assert_eq!(
             val.as_custom::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
@@ -348,7 +344,7 @@ mod tests {
     #[test]
     fn custom_type_get_and_get_mut_with_wrong_val_type_fails() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
-        let val = vm.eval_str("42.0", &mut DefaultDebugger).unwrap();
+        let val = vm.eval_str("42.0").unwrap();
         assert_eq!(
             val.as_custom::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
@@ -374,7 +370,7 @@ mod tests {
         }
         let mut vm = Vm::default().with_native_function("custom-function", custom_function);
         assert_eq!(
-            vm.eval_str("(custom-function 6)", &mut DefaultDebugger)
+            vm.eval_str("(custom-function 6)")
                 .unwrap()
                 .as_custom::<MyType>()
                 .unwrap()

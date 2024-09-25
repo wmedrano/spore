@@ -312,15 +312,13 @@ pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
 #[cfg(test)]
 mod tests {
 
-    use crate::DefaultDebugger;
-
     use super::*;
 
     #[test]
     fn equal_with_wrong_number_of_args_produces_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(=)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(=)").unwrap_err(),
             VmError::ArityError {
                 function: "=".into(),
                 expected: 2,
@@ -328,7 +326,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(= 1)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(= 1)").unwrap_err(),
             VmError::ArityError {
                 function: "=".into(),
                 expected: 2,
@@ -336,7 +334,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(= 1 2 3)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(= 1 2 3)").unwrap_err(),
             VmError::ArityError {
                 function: "=".into(),
                 expected: 2,
@@ -348,117 +346,60 @@ mod tests {
     #[test]
     fn equal_with_equal_items_returns_true() {
         let mut vm = Vm::default();
+        assert!(vm.eval_str("(= false false)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 1 1)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 2.0 2.0)").unwrap().try_bool().unwrap());
         assert!(vm
-            .eval_str("(= false false)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(= 1 1)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(= 2.0 2.0)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(= \"string\" \"string\")", &mut DefaultDebugger)
+            .eval_str("(= \"string\" \"string\")")
             .unwrap()
             .try_bool()
             .unwrap(),);
         assert!(vm
-            .eval_str("(= (list \"list\") (list \"list\"))", &mut DefaultDebugger)
+            .eval_str("(= (list \"list\") (list \"list\"))")
             .unwrap()
             .try_bool()
             .unwrap(),);
-        vm.eval_str("(define (foo) 42)", &mut DefaultDebugger)
-            .unwrap();
-        assert!(vm
-            .eval_str("(= foo foo)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(= (foo) (foo))", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(= + +)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
+        vm.eval_str("(define (foo) 42)").unwrap();
+        assert!(vm.eval_str("(= foo foo)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= (foo) (foo))").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= + +)").unwrap().try_bool().unwrap());
 
         vm.values.insert("void1".into(), ().into());
         vm.values.insert("void2".into(), ().into());
-        assert!(vm
-            .eval_str("(= void1 void2)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
+        assert!(vm.eval_str("(= void1 void2)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn equal_with_different_items_returns_true() {
         let mut vm = Vm::default();
+        assert!(!vm.eval_str("(= 1 1.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= true false)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= 1 2)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= 1.0 2.0)").unwrap().try_bool().unwrap(),);
         assert!(!vm
-            .eval_str("(= 1 1.0)", &mut DefaultDebugger)
+            .eval_str("(= \"string\" \"other\")")
             .unwrap()
             .try_bool()
             .unwrap(),);
         assert!(!vm
-            .eval_str("(= true false)", &mut DefaultDebugger)
+            .eval_str("(= (list) (list 0))")
             .unwrap()
             .try_bool()
             .unwrap(),);
         assert!(!vm
-            .eval_str("(= 1 2)", &mut DefaultDebugger)
+            .eval_str("(= (list \"list\" 1) (list \"list\" 2))",)
             .unwrap()
             .try_bool()
             .unwrap(),);
-        assert!(!vm
-            .eval_str("(= 1.0 2.0)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(= \"string\" \"other\")", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(= (list) (list 0))", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str(
-                "(= (list \"list\" 1) (list \"list\" 2))",
-                &mut DefaultDebugger
-            )
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        vm.eval_str("(define (foo) 42) (define (bar) 42)", &mut DefaultDebugger)
-            .unwrap();
-        assert!(!vm
-            .eval_str("(= foo bar)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(= + <)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
+        vm.eval_str("(define (foo) 42) (define (bar) 42)").unwrap();
+        assert!(!vm.eval_str("(= foo bar)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= + <)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn add_with_no_args_is_int_0() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(+)", &mut DefaultDebugger).unwrap();
+        let got = vm.eval_str("(+)").unwrap();
         assert_eq!(got.try_int().unwrap(), 0);
         assert!(got.try_float().is_err());
     }
@@ -466,9 +407,7 @@ mod tests {
     #[test]
     fn add_with_nonnumber_is_type_error() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(+ 1 2 \"fish\")", &mut DefaultDebugger)
-            .unwrap_err();
+        let got = vm.eval_str("(+ 1 2 \"fish\")").unwrap_err();
         assert_eq!(
             got,
             VmError::TypeError {
@@ -483,7 +422,7 @@ mod tests {
     #[test]
     fn add_ints_produces_int() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(+ 1 2 3)", &mut DefaultDebugger).unwrap();
+        let got = vm.eval_str("(+ 1 2 3)").unwrap();
         assert_eq!(got.try_int().unwrap(), 6);
         assert!(got.try_float().is_err());
     }
@@ -491,9 +430,7 @@ mod tests {
     #[test]
     fn add_floats_produces_floats() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(+ 1.0 2.0 3.0)", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(+ 1.0 2.0 3.0)").unwrap();
         assert_eq!(got.try_float().unwrap(), 6.0);
         assert!(got.try_int().is_err());
     }
@@ -501,7 +438,7 @@ mod tests {
     #[test]
     fn add_ints_and_floats_produces_floats() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(+ 1 2.0 3)", &mut DefaultDebugger).unwrap();
+        let got = vm.eval_str("(+ 1 2.0 3)").unwrap();
         assert_eq!(got.try_float().unwrap(), 6.0);
         assert!(got.try_int().is_err());
     }
@@ -509,41 +446,35 @@ mod tests {
     #[test]
     fn less_with_no_args_is_true() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(<)", &mut DefaultDebugger).unwrap();
+        let got = vm.eval_str("(<)").unwrap();
         assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_single_arg_is_true() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(< 1)", &mut DefaultDebugger).unwrap();
+        let got = vm.eval_str("(< 1)").unwrap();
         assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_increasing_ordered_args_is_true() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(< -1 0 1 1.2 1.8 2)", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(< -1 0 1 1.2 1.8 2)").unwrap();
         assert!(got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_unordered_args_is_false() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(< -1 0 -0.1 1.2 2)", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(< -1 0 -0.1 1.2 2)").unwrap();
         assert!(!got.try_bool().unwrap());
     }
 
     #[test]
     fn less_with_nonumber_args_is_type_error() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(< \"blue\" 2)", &mut DefaultDebugger)
-            .unwrap_err();
+        let got = vm.eval_str("(< \"blue\" 2)").unwrap_err();
         assert_eq!(
             got,
             VmError::TypeError {
@@ -553,9 +484,7 @@ mod tests {
                 value: "\"blue\"".to_string(),
             }
         );
-        let got = vm
-            .eval_str("(< \"blue\" 2.0)", &mut DefaultDebugger)
-            .unwrap_err();
+        let got = vm.eval_str("(< \"blue\" 2.0)").unwrap_err();
         assert_eq!(
             got,
             VmError::TypeError {
@@ -565,9 +494,7 @@ mod tests {
                 value: "\"blue\"".to_string(),
             }
         );
-        let got = vm
-            .eval_str("(< -1 \"fish\" 2)", &mut DefaultDebugger)
-            .unwrap_err();
+        let got = vm.eval_str("(< -1 \"fish\" 2)").unwrap_err();
         assert_eq!(
             got,
             VmError::TypeError {
@@ -582,23 +509,15 @@ mod tests {
     #[test]
     fn not_inverts_bool() {
         let mut vm = Vm::default();
-        assert!(!vm
-            .eval_str("(not true)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
-        assert!(vm
-            .eval_str("(not false)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap());
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(not false)").unwrap().try_bool().unwrap());
     }
 
     #[test]
     fn not_with_wrong_not_just_one_arg_produces_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(not)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(not)").unwrap_err(),
             VmError::ArityError {
                 function: "not".into(),
                 expected: 1,
@@ -606,8 +525,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(not true false)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(not true false)").unwrap_err(),
             VmError::ArityError {
                 function: "not".into(),
                 expected: 1,
@@ -619,18 +537,14 @@ mod tests {
     #[test]
     fn not_with_void_values_returns_true() {
         let mut vm = Vm::default();
-        assert!(vm
-            .eval_str("(not void)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
+        assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn string_length_with_empty_string_is_zero() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-length \"\")", &mut DefaultDebugger)
+            vm.eval_str("(string-length \"\")")
                 .unwrap()
                 .try_int()
                 .unwrap(),
@@ -642,7 +556,7 @@ mod tests {
     fn string_length_gives_string_length() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-length \"1234\")", &mut DefaultDebugger)
+            vm.eval_str("(string-length \"1234\")")
                 .unwrap()
                 .try_int()
                 .unwrap(),
@@ -654,8 +568,7 @@ mod tests {
     fn string_length_with_wrong_args_produces_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-length)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-length)").unwrap_err(),
             VmError::ArityError {
                 function: "string-length".into(),
                 expected: 1,
@@ -663,8 +576,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(string-length \"\" \"\")", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-length \"\" \"\")").unwrap_err(),
             VmError::ArityError {
                 function: "string-length".into(),
                 expected: 1,
@@ -672,8 +584,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(string-length 0)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-length 0)").unwrap_err(),
             VmError::TypeError {
                 context: "string-length",
                 expected: UnsafeVal::STRING_TYPE_NAME,
@@ -686,44 +597,18 @@ mod tests {
     #[test]
     fn not_with_truthy_values_returns_true() {
         let mut vm = Vm::default();
-        assert!(!vm
-            .eval_str("(not true)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(not 1)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(not 1.0)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(not \"\")", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(not not)", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
-        assert!(!vm
-            .eval_str("(not (list))", &mut DefaultDebugger)
-            .unwrap()
-            .try_bool()
-            .unwrap(),);
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not 1)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not 1.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap(),);
     }
 
     #[test]
     fn string_join_on_empty_list_is_empty() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(string-join (list))", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(string-join (list))").unwrap();
         assert_eq!(got.try_str().unwrap(), "");
     }
 
@@ -731,8 +616,7 @@ mod tests {
     fn string_join_with_wrong_number_of_args_is_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-join)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-join)").unwrap_err(),
             VmError::ArityError {
                 function: "string-join".into(),
                 expected: 1,
@@ -740,8 +624,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(string-join (list) \"\" 3)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-join (list) \"\" 3)").unwrap_err(),
             VmError::ArityError {
                 function: "string-join".into(),
                 expected: 2,
@@ -754,8 +637,7 @@ mod tests {
     fn string_join_with_wrong_type_args_is_type_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-join 2)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-join 2)").unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=0)",
                 expected: UnsafeVal::LIST_TYPE_NAME,
@@ -764,11 +646,8 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str(
-                "(string-join (list \"ok string\" 42))",
-                &mut DefaultDebugger
-            )
-            .unwrap_err(),
+            vm.eval_str("(string-join (list \"ok string\" 42))",)
+                .unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=0) list subelement",
                 expected: UnsafeVal::STRING_TYPE_NAME,
@@ -777,8 +656,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(string-join (list) 3)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(string-join (list) 3)").unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=1)",
                 expected: UnsafeVal::STRING_TYPE_NAME,
@@ -791,9 +669,7 @@ mod tests {
     #[test]
     fn string_join_with_no_separator_concatenates() {
         let mut vm = Vm::default();
-        let got = vm
-            .eval_str("(string-join (list \"one\" \"two\"))", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(string-join (list \"one\" \"two\"))").unwrap();
         assert_eq!(got.try_str().unwrap(), "onetwo");
     }
 
@@ -801,10 +677,7 @@ mod tests {
     fn string_join_with_custom_separator_concatenates_with_separator() {
         let mut vm = Vm::default();
         let got = vm
-            .eval_str(
-                "(string-join (list \"one\" \"two\") \" fish \")",
-                &mut DefaultDebugger,
-            )
+            .eval_str("(string-join (list \"one\" \"two\") \" fish \")")
             .unwrap();
         assert_eq!(got.try_str().unwrap(), "one fish two");
     }
@@ -813,7 +686,7 @@ mod tests {
     fn new_box_with_wrong_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(new-box)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(new-box)").unwrap_err(),
             VmError::ArityError {
                 function: "new-box".into(),
                 expected: 1,
@@ -821,8 +694,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(new-box 0 1)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(new-box 0 1)").unwrap_err(),
             VmError::ArityError {
                 function: "new-box".into(),
                 expected: 1,
@@ -834,25 +706,16 @@ mod tests {
     #[test]
     fn referencing_box_does_not_return_inner_value() {
         let mut vm = Vm::default();
-        vm.eval_str("(define val (new-box \"foo\"))", &mut DefaultDebugger)
-            .unwrap();
-        assert!(vm
-            .eval_str("val", &mut DefaultDebugger)
-            .unwrap()
-            .try_str()
-            .is_err());
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
+        assert!(vm.eval_str("val").unwrap().try_str().is_err());
     }
 
     #[test]
     fn get_box_returns_value_inside_box() {
         let mut vm = Vm::default();
-        vm.eval_str("(define val (new-box \"foo\"))", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
         assert_eq!(
-            vm.eval_str("(unbox val)", &mut DefaultDebugger)
-                .unwrap()
-                .try_str()
-                .unwrap(),
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
             "foo"
         );
     }
@@ -861,7 +724,7 @@ mod tests {
     fn get_box_with_wrong_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(unbox)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(unbox)").unwrap_err(),
             VmError::ArityError {
                 function: "unbox".into(),
                 expected: 1,
@@ -869,8 +732,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(unbox (new-box 0) 1)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(unbox (new-box 0) 1)").unwrap_err(),
             VmError::ArityError {
                 function: "unbox".into(),
                 expected: 1,
@@ -878,7 +740,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(unbox 0)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(unbox 0)").unwrap_err(),
             VmError::TypeError {
                 context: "unbox",
                 expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
@@ -891,28 +753,16 @@ mod tests {
     #[test]
     fn set_box_changes_value_for_subsequent_get_box_calls() {
         let mut vm = Vm::default();
-        vm.eval_str("(define val (new-box \"foo\"))", &mut DefaultDebugger)
-            .unwrap();
-        assert!(vm
-            .eval_str("val", &mut DefaultDebugger)
-            .unwrap()
-            .try_str()
-            .is_err());
+        vm.eval_str("(define val (new-box \"foo\"))").unwrap();
+        assert!(vm.eval_str("val").unwrap().try_str().is_err());
         assert_eq!(
-            vm.eval_str("(unbox val)", &mut DefaultDebugger)
-                .unwrap()
-                .try_str()
-                .unwrap(),
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
             "foo"
         );
 
-        vm.eval_str("(set-box! val \"bar\")", &mut DefaultDebugger)
-            .unwrap();
+        vm.eval_str("(set-box! val \"bar\")").unwrap();
         assert_eq!(
-            vm.eval_str("(unbox val)", &mut DefaultDebugger)
-                .unwrap()
-                .try_str()
-                .unwrap(),
+            vm.eval_str("(unbox val)").unwrap().try_str().unwrap(),
             "bar"
         );
     }
@@ -921,7 +771,7 @@ mod tests {
     fn set_box_with_wrong_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(set-box!)", &mut DefaultDebugger).unwrap_err(),
+            vm.eval_str("(set-box!)").unwrap_err(),
             VmError::ArityError {
                 function: "set-box!".into(),
                 expected: 2,
@@ -929,8 +779,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(set-box! (new-box 0))", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(set-box! (new-box 0))").unwrap_err(),
             VmError::ArityError {
                 function: "set-box!".into(),
                 expected: 2,
@@ -938,8 +787,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(set-box! 0 (new-box 0))", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(set-box! 0 (new-box 0))").unwrap_err(),
             VmError::TypeError {
                 context: "set-box!",
                 expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
@@ -948,8 +796,7 @@ mod tests {
             }
         );
         assert_eq!(
-            vm.eval_str("(set-box! (new-box 0) 1 2)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(set-box! (new-box 0) 1 2)").unwrap_err(),
             VmError::ArityError {
                 function: "set-box!".into(),
                 expected: 2,
@@ -962,8 +809,7 @@ mod tests {
     fn working_directory_with_args_produces_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(working-directory 1)", &mut DefaultDebugger)
-                .unwrap_err(),
+            vm.eval_str("(working-directory 1)").unwrap_err(),
             VmError::ArityError {
                 function: "working-directory".into(),
                 expected: 0,
@@ -981,9 +827,7 @@ mod tests {
             .unwrap()
             .to_string();
         assert_ne!(working_directory, "");
-        let got = vm
-            .eval_str("(working-directory)", &mut DefaultDebugger)
-            .unwrap();
+        let got = vm.eval_str("(working-directory)").unwrap();
         assert_eq!(got.try_str().unwrap(), working_directory.as_str());
     }
 }

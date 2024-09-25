@@ -2,6 +2,7 @@ use crate::Vm;
 
 use super::UnsafeVal;
 
+/// Formats a value for display.
 pub struct ValFormatter<'a> {
     vm: &'a Vm,
     val: UnsafeVal,
@@ -86,8 +87,6 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::DefaultDebugger;
-
     use super::*;
 
     #[test]
@@ -147,9 +146,8 @@ mod tests {
     #[test]
     fn format_mutable_box_produces_underlying_value() {
         let mut vm = Vm::default();
-        vm.eval_str("(define x (new-box \"string\"))", &mut DefaultDebugger)
-            .unwrap();
-        let res = vm.eval_str("x", &mut DefaultDebugger).unwrap();
+        vm.eval_str("(define x (new-box \"string\"))").unwrap();
+        let res = vm.eval_str("x").unwrap();
         assert!(res.get_mutable_box_ref().is_ok());
         assert_eq!(res.formatted(res.vm()).to_string(), "box<\"string\">");
     }
@@ -157,16 +155,14 @@ mod tests {
     #[test]
     fn format_function_prints_name() {
         let mut vm = Vm::default();
-        let v = vm
-            .eval_str("(define (foo) 10) foo", &mut DefaultDebugger)
-            .unwrap();
+        let v = vm.eval_str("(define (foo) 10) foo").unwrap();
         assert_eq!(v.to_string(), "<function foo>");
     }
 
     #[test]
     fn format_native_function_prints_native_function() {
         let mut vm = Vm::default();
-        let v = vm.eval_str("+", &mut DefaultDebugger).unwrap();
+        let v = vm.eval_str("+").unwrap();
         assert_eq!(v.to_string(), "<native-function>");
     }
 }
