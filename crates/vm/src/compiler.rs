@@ -51,7 +51,7 @@ impl<'a> Compiler<'a> {
     fn compile_impl(&mut self, input_source: &str, ctx: CompilerContext) -> Result<()> {
         for node_or_err in Node::parse(input_source) {
             let node = node_or_err.map_err(CompileError::AstError)?;
-            let ir = Ir::new(self.arena, &node)?;
+            let ir = Ir::new(self.arena, input_source, &node)?;
             self.compile_one(&ir, ctx)?;
         }
         Ok(())
@@ -75,7 +75,7 @@ impl<'a> Compiler<'a> {
                     Constant::Int(x) => Instruction::PushConst((*x).into()),
                     Constant::Float(x) => Instruction::PushConst((*x).into()),
                     Constant::String(x) => Instruction::PushConst(UnsafeVal::String(
-                        self.vm.objects.insert_string((*x).into()),
+                        self.vm.objects.insert_string(x.clone()),
                     )),
                 };
                 self.instructions.push(instruction);
@@ -262,8 +262,8 @@ fn find_duplicate(vec: &[CompactString]) -> Option<CompactString> {
 /// Contains a constant.
 ///
 /// All values should require no additional cleanup for best use with [Ir]'s arena.
-#[derive(Copy, Clone)]
-enum Constant<'a> {
+#[derive(Clone)]
+enum Constant {
     /// Just void, nothing.
     Void,
     /// A boolean consant.
@@ -275,7 +275,7 @@ enum Constant<'a> {
     /// A string constant. The string is escaped.
     /// For example, "what \"is\" a string" is parsed as:
     ///     what "is" a string
-    String(&'a str),
+    String(CompactString),
 }
 
 /// Contains the intermediate representation. This is a slightly more processed AST that is usefull
@@ -287,7 +287,7 @@ enum Constant<'a> {
 /// references. To detect possible memory leaks, try running valgrind on the test suite.
 enum Ir<'a> {
     /// A constant literal.
-    Constant(Constant<'a>),
+    Constant(Constant),
     /// Dereference a symbol.
     Deref(&'a str),
     /// A function call expression of the form: (<function> <args>...)
@@ -321,78 +321,86 @@ enum Ir<'a> {
 }
 
 impl<'a> Ir<'a> {
-    fn new(arena: &'a Bump, node: &'a Node<'a>) -> Result<Ir<'a>> {
+    fn new(arena: &'a Bump, src: &'a str, node: &'a Node) -> Result<Ir<'a>> {
         let ir = match node {
             Node::Void => Ir::Constant(Constant::Void),
             Node::Bool(b) => Ir::Constant(Constant::Bool(*b)),
             Node::Int(int) => Ir::Constant(Constant::Int(*int)),
             Node::Float(float) => Ir::Constant(Constant::Float(*float)),
-            Node::String(string) => Ir::Constant(Constant::String(string.as_str())),
-            Node::Identifier(ident) => Ir::Deref(ident),
+            Node::String(_) => Ir::Constant(Constant::String(node.to_string_literal(src).unwrap())),
+            Node::Identifier(ident) => Ir::Deref(ident.as_str(src)),
             Node::Tree(tree) => match tree.as_slice() {
-                [Node::Identifier("define"), define_args @ ..] => match define_args {
-                    [Node::Identifier(identifier), expr] => Ir::Define {
-                        identifier,
-                        expr: arena.alloc(Ir::new(arena, expr)?),
-                    },
-                    [Node::Tree(lambda_signature), exprs @ ..] => {
-                        match lambda_signature.as_slice() {
-                            [Node::Identifier(identifier), args @ ..] => {
-                                let mut args_vec = BumpVec::new_in(arena);
-                                for arg in args.iter() {
-                                    let ident = node_to_ident(arg)?;
-                                    args_vec.push(ident);
+                [Node::Identifier(maybe_define), define_args @ ..]
+                    if maybe_define.as_str(src) == "define" =>
+                {
+                    match define_args {
+                        [Node::Identifier(identifier_span), expr] => Ir::Define {
+                            identifier: identifier_span.as_str(src),
+                            expr: arena.alloc(Ir::new(arena, src, expr)?),
+                        },
+                        [Node::Tree(lambda_signature), exprs @ ..] => {
+                            match lambda_signature.as_slice() {
+                                [Node::Identifier(identifier_span), args @ ..] => {
+                                    let mut args_vec = BumpVec::new_in(arena);
+                                    for arg in args.iter() {
+                                        let ident = node_to_ident(src, arg)?;
+                                        args_vec.push(ident);
+                                    }
+                                    let mut exprs_vec = BumpVec::new_in(arena);
+                                    for expr in exprs.iter() {
+                                        let expr_ir = Ir::new(arena, src, expr)?;
+                                        exprs_vec.push(expr_ir);
+                                    }
+                                    Ir::Define {
+                                        identifier: identifier_span.as_str(src),
+                                        expr: arena.alloc(Ir::Lambda {
+                                            name: Some(identifier_span.as_str(src)),
+                                            args: args_vec,
+                                            expressions: exprs_vec,
+                                        }),
+                                    }
                                 }
-                                let mut exprs_vec = BumpVec::new_in(arena);
-                                for expr in exprs.iter() {
-                                    let expr_ir = Ir::new(arena, expr)?;
-                                    exprs_vec.push(expr_ir);
+                                _ => {
+                                    return Err(CompileError::ExpectedIdentifierList {
+                                        context: "function definition",
+                                    })
                                 }
-                                Ir::Define {
-                                    identifier,
-                                    expr: arena.alloc(Ir::Lambda {
-                                        name: Some(identifier),
-                                        args: args_vec,
-                                        expressions: exprs_vec,
-                                    }),
-                                }
-                            }
-                            _ => {
-                                return Err(CompileError::ExpectedIdentifierList {
-                                    context: "function definition",
-                                })
                             }
                         }
+                        [_, _] => return Err(CompileError::ExpectedIdentifier),
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "define",
+                                expected: 2,
+                                actual: define_args.len(),
+                            })
+                        }
                     }
-                    [_, _] => return Err(CompileError::ExpectedIdentifier),
-                    _ => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "define",
-                            expected: 2,
-                            actual: define_args.len(),
-                        })
+                }
+                [Node::Identifier(maybe_if), args @ ..] if maybe_if.as_str(src) == "if" => {
+                    match args {
+                        [predicate, true_expr] => Ir::If {
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                            false_expr: None,
+                        },
+                        [predicate, true_expr, false_expr] => Ir::If {
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                            false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
+                        },
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "if",
+                                expected: if args.len() > 3 { 3 } else { 2 },
+                                actual: args.len(),
+                            })
+                        }
                     }
-                },
-                [Node::Identifier("if"), args @ ..] => match args {
-                    [predicate, true_expr] => Ir::If {
-                        predicate: arena.alloc(Ir::new(arena, predicate)?),
-                        true_expr: arena.alloc(Ir::new(arena, true_expr)?),
-                        false_expr: None,
-                    },
-                    [predicate, true_expr, false_expr] => Ir::If {
-                        predicate: arena.alloc(Ir::new(arena, predicate)?),
-                        true_expr: arena.alloc(Ir::new(arena, true_expr)?),
-                        false_expr: Some(arena.alloc(Ir::new(arena, false_expr)?)),
-                    },
-                    _ => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "if",
-                            expected: if args.len() > 3 { 3 } else { 2 },
-                            actual: args.len(),
-                        })
-                    }
-                },
-                [Node::Identifier("lambda"), lambda_args, exprs @ ..] => {
+                }
+                [Node::Identifier(maybe_lambda), lambda_args, exprs @ ..]
+                    if maybe_lambda.as_str(src) == "lambda" =>
+                {
                     let lambda_args = match lambda_args {
                         Node::Tree(t) => t,
                         _ => {
@@ -403,12 +411,12 @@ impl<'a> Ir<'a> {
                     };
                     let mut args_vec = BumpVec::new_in(arena);
                     for arg in lambda_args.iter() {
-                        let ident = node_to_ident(arg)?;
+                        let ident = node_to_ident(src, arg)?;
                         args_vec.push(ident);
                     }
                     let mut exprs_vec = BumpVec::new_in(arena);
                     for expr in exprs.iter() {
-                        let expr_ir = Ir::new(arena, expr)?;
+                        let expr_ir = Ir::new(arena, src, expr)?;
                         exprs_vec.push(expr_ir);
                     }
                     Ir::Lambda {
@@ -417,29 +425,33 @@ impl<'a> Ir<'a> {
                         expressions: exprs_vec,
                     }
                 }
-                [Node::Identifier("return"), return_args @ ..] => match return_args {
-                    [expr] => Ir::Return {
-                        expr: arena.alloc(Ir::new(arena, expr)?),
-                    },
-                    _ => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "return",
-                            expected: 1,
-                            actual: return_args.len(),
-                        })
+                [Node::Identifier(maybe_return), return_args @ ..]
+                    if maybe_return.as_str(src) == "return" =>
+                {
+                    match return_args {
+                        [expr] => Ir::Return {
+                            expr: arena.alloc(Ir::new(arena, src, expr)?),
+                        },
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "return",
+                                expected: 1,
+                                actual: return_args.len(),
+                            })
+                        }
                     }
-                },
+                }
                 [f, args @ ..] => match f {
-                    Node::Identifier("if") => match args {
+                    Node::Identifier(maybe_if) if maybe_if.as_str(src) == "if" => match args {
                         [predicate, true_expr] => Ir::If {
-                            predicate: arena.alloc(Ir::new(arena, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, true_expr)?),
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
                             false_expr: None,
                         },
                         [predicate, true_expr, false_expr] => Ir::If {
-                            predicate: arena.alloc(Ir::new(arena, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, true_expr)?),
-                            false_expr: Some(arena.alloc(Ir::new(arena, false_expr)?)),
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                            false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
                         },
                         _ => {
                             return Err(CompileError::ExpressionHasWrongArgs {
@@ -452,11 +464,11 @@ impl<'a> Ir<'a> {
                     ident => {
                         let mut args_vec = BumpVec::new_in(arena);
                         for arg in args.iter() {
-                            let arg_ir = Ir::new(arena, arg)?;
+                            let arg_ir = Ir::new(arena, src, arg)?;
                             args_vec.push(arg_ir);
                         }
                         Ir::FunctionCall {
-                            function: arena.alloc(Ir::new(arena, ident)?),
+                            function: arena.alloc(Ir::new(arena, src, ident)?),
                             args: args_vec,
                         }
                     }
@@ -492,9 +504,9 @@ enum IrReturnType {
     EarlyReturn,
 }
 
-fn node_to_ident<'a>(node: &'a Node) -> Result<&'a str> {
+fn node_to_ident<'a>(src: &'a str, node: &Node) -> Result<&'a str> {
     match node {
-        Node::Identifier(ident) => Ok(ident),
+        Node::Identifier(ident) => Ok(ident.as_str(src)),
         _ => Err(CompileError::ExpectedIdentifierList {
             context: "lambda/function definition",
         }),

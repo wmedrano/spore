@@ -7,12 +7,14 @@
 (define *windows*
     (list
      (struct "buffer" scratch-buffer
+             ;; TODO: Set dimensions based on terminal dimensions.
              "x" 0
              "y" 0
              "width" 1000
              "height" 1000
              "draw-cursor?" true)
      (struct "buffer" modal-buffer
+             ;; TODO: Set dimensions based on terminal dimensions.
              "x" 20
              "y" 20
              "width" 80
