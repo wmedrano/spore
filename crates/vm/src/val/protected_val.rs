@@ -71,7 +71,7 @@ impl<'a> ProtectedVal<'a> {
 
     /// value.
     pub fn as_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
-        self.val.as_custom(self.vm)
+        self.val.try_custom(self.vm)
     }
 
     /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
@@ -83,7 +83,7 @@ impl<'a> ProtectedVal<'a> {
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
     pub fn as_custom_mut<T: CustomType>(&self) -> Result<CustomValMut<T>, CustomValError> {
-        self.val.as_custom_mut(self.vm)
+        self.val.try_custom_mut(self.vm)
     }
 }
 

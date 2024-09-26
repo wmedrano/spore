@@ -146,7 +146,7 @@ fn buffer_insert(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         })?;
     if !insert_string.is_empty() {
         let buffer_val = ctx.arg(0).unwrap();
-        let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
+        let mut buffer = buffer_val.try_custom_mut::<SporeBuffer>(ctx.vm())?;
         buffer.insert(insert_string);
     }
     Ok(Val::new_void().into())
@@ -161,7 +161,7 @@ fn buffer_delete(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         });
     }
     let buffer_val = ctx.arg(0).unwrap();
-    let mut buffer = buffer_val.as_custom_mut::<SporeBuffer>(ctx.vm())?;
+    let mut buffer = buffer_val.try_custom_mut::<SporeBuffer>(ctx.vm())?;
     buffer.delete();
     Ok(Val::new_void().into())
 }
@@ -170,7 +170,7 @@ fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let (ctx, args) = ctx.split_args();
     match args {
         [buffer, xs, ys] => {
-            let mut buffer = buffer.as_custom_mut::<SporeBuffer>(ctx.vm())?;
+            let mut buffer = buffer.try_custom_mut::<SporeBuffer>(ctx.vm())?;
             let xs = xs.try_int().map_err(|v| VmError::TypeError {
                 context: "buffer-cursor-move! (arg-idx=1)",
                 expected: UnsafeVal::INT_TYPE_NAME,

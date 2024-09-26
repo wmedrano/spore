@@ -280,7 +280,8 @@ pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                     actual: v.type_name(),
                     value: v.format_quoted(ctx.vm()).to_string(),
                 })?;
-            let v =
+            // Unsafe OK: The returned val is a reference to a valid value.
+            let v = unsafe {
                 maybe_struct
                     .try_struct_get(ctx.vm(), field)
                     .map_err(|v| VmError::TypeError {
@@ -288,9 +289,10 @@ pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
                         expected: UnsafeVal::STRUCT_TYPE_NAME,
                         actual: v.type_name(),
                         value: v.format_quoted(ctx.vm()).to_string(),
-                    })?;
-            // Unsafe OK: This is from the map we got. GC does not run anywhere in between.
-            let v = unsafe { v.as_unsafe_val() };
+                    })?
+                    .unwrap_or(Val::new_void())
+                    .as_unsafe_val()
+            };
             Ok(unsafe { ctx.with_unsafe_val(v) })
         }
         args => Err(VmError::ArityError {

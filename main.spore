@@ -1,25 +1,42 @@
-(define *running?* (new-box true))
-(define buffer (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
+(define *running?*
+    (new-box true))
+(define scratch-buffer
+    (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
+(define modal-buffer
+    (new-buffer "*modal*" "TODO"))
+(define *windows*
+    (list
+     (struct "buffer" scratch-buffer
+             "x" 0
+             "y" 0
+             "width" 1000
+             "height" 1000
+             "draw-cursor?" true)
+     (struct "buffer" modal-buffer
+             "x" 20
+             "y" 20
+             "width" 80
+             "height" 10)))
 
 (define (running?) (unbox *running?*))
 (define (quit!) (set-box! *running?* false))
 
-(define (event-to-insert event)
-  (if (not (special-event? event)) (return event))
-  (if (= event "<tab>") (return "\t"))
-  (if (= event "<space>") (return " "))
-  (if (= event "<enter>") (return "\n"))
-  (return ""))
+(define (event->insert-str event)
+    (if (not (special-event? event)) (return event))
+    (if (= event "<tab>") (return "\t"))
+    (if (= event "<space>") (return " "))
+    (if (= event "<enter>") (return "\n"))
+    "")
 
 (define (handle-event-impl! event)
-  (if (not event) (return void))
-  (if (= event "<ctrl-q>") (return (quit!)))
-  (if (= event "<backspace>") (return (buffer-delete! buffer)))
-  (if (= event "<left>") (return (buffer-cursor-move! buffer -1 0)))
-  (if (= event "<right>") (return (buffer-cursor-move! buffer 1 0)))
-  (if (= event "<up>") (return (buffer-cursor-move! buffer 0 -1)))
-  (if (= event "<down>") (return (buffer-cursor-move! buffer 0 1)))
-  (buffer-insert! buffer (event-to-insert event)))
+    (if (not event) (return void))
+    (if (= event "<ctrl-q>") (return (quit!)))
+    (if (= event "<left>") (return (buffer-cursor-move! scratch-buffer -1 0)))
+    (if (= event "<right>") (return (buffer-cursor-move! scratch-buffer 1 0)))
+    (if (= event "<up>") (return (buffer-cursor-move! scratch-buffer 0 -1)))
+    (if (= event "<down>") (return (buffer-cursor-move! scratch-buffer 0 1)))
+    (if (= event "<backspace>") (return (buffer-delete! scratch-buffer)))
+    (buffer-insert! scratch-buffer (event->insert-str event)))
 
 (define (handle-event!)
-  (handle-event-impl! (read-event!)))
+    (handle-event-impl! (read-event!)))

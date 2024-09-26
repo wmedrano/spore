@@ -9,7 +9,7 @@ use buffer::SporeBuffer;
 use log::*;
 use ratatui::{style::Style, DefaultTerminal};
 use spore_vm::{Settings, Vm};
-use widgets::BufferWidget;
+use widgets::WindowWidget;
 
 mod buffer;
 mod event;
@@ -56,9 +56,10 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         terminal.draw(|frame| {
             let area = frame.area();
             frame.buffer_mut().set_style(area, Style::reset());
-            let buffer = vm.val_by_name("buffer").unwrap();
-            let buffer = buffer.as_custom::<SporeBuffer>(&vm).unwrap();
-            frame.render_widget(BufferWidget::new(&buffer), frame.area());
+            let windows = vm.val_by_name("*windows*").unwrap();
+            for window in windows.try_list(&vm).unwrap() {
+                frame.render_widget(WindowWidget::new(&vm, *window), area);
+            }
         })?;
         vm.eval_function_by_name("handle-event!", std::iter::empty())
             .unwrap();

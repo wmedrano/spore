@@ -117,6 +117,11 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Returns `true` if `self` is a struct.
+    pub fn is_struct(self) -> bool {
+        matches!(self.inner, UnsafeVal::Struct(_))
+    }
+
     /// Get the underlying struct as an iterator or `Err<Val>` if `self` is not a struct.
     ///
     /// The returned iterator produces `(field, value)`. pairs.
@@ -134,13 +139,16 @@ impl<'a> Val<'a> {
     }
 
     /// Get the underlying struct's field named `field` as as a value or `Err<Val>` if `self` is not
-    /// a struct. If `field` is not a memeber of the struct, then `void` is returned.
+    /// a struct.
     ///
     /// The returned iterator produces `(field, value)`. pairs.
-    pub fn try_struct_get(self, vm: &'a Vm, field: &str) -> Result<Val<'a>, Val<'a>> {
-        // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
+    pub fn try_struct_get(self, vm: &'a Vm, field: &str) -> Result<Option<Val<'a>>, Val<'a>> {
         let strct = unsafe { self.try_unsafe_struct(vm) }?;
-        let v = unsafe { Val::from_unsafe_val(strct.get(field).copied().unwrap_or_default()) };
+        let v = strct
+            .get(field)
+            .copied()
+            // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
+            .map(|v| unsafe { Val::from_unsafe_val(v) });
         Ok(v)
     }
 
@@ -193,7 +201,7 @@ impl<'a> Val<'a> {
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
-    pub fn as_custom<T: CustomType>(&self, vm: &'a Vm) -> Result<CustomValRef<T>, CustomValError> {
+    pub fn try_custom<T: CustomType>(&self, vm: &'a Vm) -> Result<CustomValRef<T>, CustomValError> {
         match self.inner {
             UnsafeVal::Custom(id) => vm.objects.get_custom(id).get(),
             _ => Err(CustomValError::WrongType {
@@ -205,7 +213,7 @@ impl<'a> Val<'a> {
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
     /// value.
-    pub fn as_custom_mut<T: CustomType>(
+    pub fn try_custom_mut<T: CustomType>(
         &self,
         vm: &'a Vm,
     ) -> Result<CustomValMut<T>, CustomValError> {
