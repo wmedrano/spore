@@ -37,7 +37,7 @@ pub enum Node {
 
 impl Node {
     /// Parse the contents of `src` into a stream of `Node`.
-    pub fn parse<'a>(src: &'a str) -> impl 'a + Iterator<Item = Result<Self>> {
+    pub fn parse(src: &str) -> impl '_ + Iterator<Item = Result<Self>> {
         let mut tokens = Token::parse_tokens(src);
         std::iter::from_fn(move || Node::parse_next(src, &mut tokens))
     }
@@ -164,7 +164,7 @@ impl Node {
                     "void" => Node::Void,
                     "true" => Node::Bool(true),
                     "false" => Node::Bool(false),
-                    _ => return Node::Identifier(token.span),
+                    _ => Node::Identifier(token.span),
                 }
             }
         }
