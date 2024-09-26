@@ -9,8 +9,26 @@ pub enum TokenType {
     String,
     /// A string literal, but missing the closing quote.
     UnterminatedString,
+    /// A comment.
+    Comment,
     /// Something else. Usually an atom(int, float literal) or an identifier.
     Other,
+}
+
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct Span {
+    pub start: u32,
+    pub end: u32,
+}
+
+impl Span {
+    pub fn new(start: u32, end: u32) -> Span {
+        Span { start, end }
+    }
+
+    pub fn as_str(self, src: &str) -> &str {
+        &src[self.start as usize..self.end as usize]
+    }
 }
 
 /// Contains a token type and the portion of the text defining the token.
@@ -18,23 +36,21 @@ pub enum TokenType {
 pub struct Token {
     /// The type held within the token.
     pub token_type: TokenType,
-    /// The start index of the token.
-    pub start: usize,
-    /// The end index of the token.
-    pub end: usize,
+    /// The location within the source string.
+    pub span: Span,
 }
 
 impl Token {
     /// Get the current token's backing [str].
     pub fn as_str<'a>(&self, src: &'a str) -> &'a str {
-        &src[self.start..self.end]
+        self.span.as_str(src)
     }
 
     /// Parse an input source into a stream of tokens.
     pub fn parse_tokens(input_source: &str) -> impl '_ + Iterator<Item = Token> {
         let mut start = 0;
         std::iter::from_fn(move || {
-            Token::parse_next(input_source, start).inspect(|t| start = t.end)
+            Token::parse_next(input_source, start).inspect(|t| start = t.span.end as usize)
         })
     }
 
@@ -42,8 +58,8 @@ impl Token {
     /// using `Self::parse_tokens`.
     #[cfg(test)]
     pub fn parse_tokens_to_vec<'a>(input_src: &'a str) -> Vec<(TokenType, &'a str)> {
-        let tokens = Token::parse_tokens(input_src)
-            .map(|token| (token.token_type, &input_src[token.start..token.end]));
+        let tokens =
+            Token::parse_tokens(input_src).map(|token| (token.token_type, token.as_str(input_src)));
         tokens.collect()
     }
 
@@ -54,19 +70,23 @@ impl Token {
         let start = src.len() - input_src.len();
         match input_src.chars().next() {
             None => return None,
+            Some(';') => {
+                return Some(Token {
+                    token_type: TokenType::Comment,
+                    span: Token::parse_comment(src, start),
+                })
+            }
             Some('"') => return Some(Token::parse_next_string(src, start)),
             Some('(') => {
                 return Some(Token {
                     token_type: TokenType::OpenParen,
-                    start,
-                    end: start + 1,
+                    span: Span::new(start as u32, start as u32 + 1),
                 })
             }
             Some(')') => {
                 return Some(Token {
                     token_type: TokenType::CloseParen,
-                    start,
-                    end: start + 1,
+                    span: Span::new(start as u32, start as u32 + 1),
                 })
             }
             _ => {}
@@ -79,16 +99,25 @@ impl Token {
             if is_end {
                 return Some(Token {
                     token_type: TokenType::Other,
-                    start,
-                    end: start + idx,
+                    span: Span::new(start as u32, start as u32 + idx as u32),
                 });
             }
         }
         Some(Token {
             token_type: TokenType::Other,
-            start,
-            end: src.len(),
+            span: Span::new(start as u32, src.len() as u32),
         })
+    }
+
+    /// Parse the next string in input source. `input_source` must start with a '"'
+    /// character. Returns a tuple of the parsed token and the rest of the string.
+    fn parse_comment(src: &str, start: usize) -> Span {
+        for (idx, ch) in (start + 1..src.len()).zip(src[start..].chars()) {
+            if ch == '\n' {
+                return Span::new(start as u32, idx as u32);
+            }
+        }
+        Span::new(start as u32, src.len() as u32)
     }
 
     /// Parse the next string in input source. `input_source` must start with a '"'
@@ -109,8 +138,7 @@ impl Token {
                     if !is_escaped {
                         return Token {
                             token_type: TokenType::String,
-                            start,
-                            end: start + idx + 1,
+                            span: Span::new(start as u32, start as u32 + idx as u32 + 1),
                         };
                     }
                     is_escaped = false;
@@ -122,8 +150,7 @@ impl Token {
         }
         Token {
             token_type: TokenType::UnterminatedString,
-            start,
-            end: src.len(),
+            span: Span::new(start as u32, src.len() as u32),
         }
     }
 }
@@ -201,6 +228,21 @@ mod tests {
                 (TokenType::Other, "left"),
                 (TokenType::Other, "right"),
                 (TokenType::CloseParen, ")")
+            ]
+        );
+    }
+
+    #[test]
+    fn colon_denotes_start_of_line_comment() {
+        let actual = Token::parse_tokens_to_vec("(code) ; comment\n;other comment");
+        assert_eq!(
+            actual,
+            vec![
+                (TokenType::OpenParen, "("),
+                (TokenType::Other, "code"),
+                (TokenType::CloseParen, ")"),
+                (TokenType::Comment, "; comment\n"),
+                (TokenType::Comment, ";other comment"),
             ]
         );
     }

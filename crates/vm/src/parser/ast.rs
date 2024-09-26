@@ -1,7 +1,7 @@
 use compact_str::CompactString;
 use thiserror::Error;
 
-use super::tokenizer::{Token, TokenType};
+use super::tokenizer::{Span, Token, TokenType};
 
 type Result<T> = std::result::Result<T, AstParseError>;
 
@@ -13,14 +13,14 @@ pub enum AstParseError {
     #[error("found unexpected closing parenthesis")]
     UnexpectedCloseParen,
     #[error("string was not properly closed, did you forget \"?")]
-    UnclosedString(usize),
+    UnclosedString(Span),
 }
 
 /// Describes a node in the AST.
 #[derive(Debug, PartialEq)]
-pub enum Node<'a> {
-    /// A node containing an identifier.
-    Identifier(&'a str),
+pub enum Node {
+    /// A node containing the start and end points of the identifier.
+    Identifier(Span),
     /// A node containing the void literal.
     Void,
     /// A node containing a boolean literal.
@@ -30,70 +30,58 @@ pub enum Node<'a> {
     /// A node containing a float literal.
     Float(f64),
     /// A node containing a string literal.
-    String(CompactString),
+    String(Span),
     /// A node containing a sub-tree.
-    Tree(Vec<Node<'a>>),
+    Tree(Vec<Node>),
 }
 
-impl<'a> Node<'a> {
+impl Node {
     /// Parse the contents of `src` into a stream of `Node`.
-    pub fn parse(src: &'a str) -> impl Iterator<Item = Result<Self>> {
+    pub fn parse<'a>(src: &'a str) -> impl 'a + Iterator<Item = Result<Self>> {
         let mut tokens = Token::parse_tokens(src);
         std::iter::from_fn(move || Node::parse_next(src, &mut tokens))
     }
 }
 
-impl<'a> Node<'a> {
+impl Node {
     /// Parse the contents of `src` into a vector of `Node`.
     ///
     /// For unit testing only, prefer using `Node::parse`.
     #[cfg(test)]
-    pub fn parse_to_vec(src: &'a str) -> Result<Vec<Node<'a>>> {
+    pub fn parse_to_vec(src: &str) -> Result<Vec<Node>> {
         Node::parse(src).collect()
     }
 
     /// Parse the next Node from `tokenizer`.
-    fn parse_next(
-        src: &'a str,
-        tokenizer: &mut impl Iterator<Item = Token>,
-    ) -> Option<Result<Node<'a>>> {
-        let next_token = match tokenizer.next() {
-            Some(t) => t,
-            None => return None,
-        };
-        match next_token.token_type {
-            TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
-                Ok(tree) => Some(Ok(Node::Tree(tree))),
-                Err(err) => Some(Err(err)),
-            },
-            TokenType::CloseParen => Some(Err(AstParseError::UnexpectedCloseParen)),
-            TokenType::UnterminatedString => {
-                Some(Err(AstParseError::UnclosedString(next_token.start)))
-            }
-            TokenType::String | TokenType::Other => {
-                return Some(Ok(Node::parse_atom(
-                    next_token.token_type,
-                    next_token.as_str(src),
-                )))
+    fn parse_next(src: &str, tokenizer: &mut impl Iterator<Item = Token>) -> Option<Result<Node>> {
+        while let Some(next_token) = tokenizer.next() {
+            match next_token.token_type {
+                TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
+                    Ok(tree) => return Some(Ok(Node::Tree(tree))),
+                    Err(err) => return Some(Err(err)),
+                },
+                TokenType::CloseParen => return Some(Err(AstParseError::UnexpectedCloseParen)),
+                TokenType::UnterminatedString => {
+                    return Some(Err(AstParseError::UnclosedString(next_token.span)))
+                }
+                TokenType::String | TokenType::Other => {
+                    return Some(Ok(Node::parse_atom(next_token, next_token.as_str(src))))
+                }
+                TokenType::Comment => continue,
             }
         }
+        None
     }
 
     /// Parse the nodes in `tokenizer` until a closing parenthesis is encountered.
     ///
     /// An error is returned if no closing parenthesis is ever encountered.
     fn parse_until_close(
-        src: &'a str,
+        src: &str,
         tokenizer: &mut impl Iterator<Item = Token>,
-    ) -> Result<Vec<Node<'a>>> {
+    ) -> Result<Vec<Node>> {
         let mut tree = vec![];
-        loop {
-            let next_token = match tokenizer.next() {
-                Some(t) => t,
-                None => {
-                    return Err(AstParseError::UnclosedParen);
-                }
-            };
+        while let Some(next_token) = tokenizer.next() {
             match next_token.token_type {
                 TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
                     Ok(t) => tree.push(Node::Tree(t)),
@@ -101,49 +89,59 @@ impl<'a> Node<'a> {
                 },
                 TokenType::CloseParen => return Ok(tree),
                 TokenType::UnterminatedString => {
-                    return Err(AstParseError::UnclosedString(next_token.start))
+                    return Err(AstParseError::UnclosedString(next_token.span))
                 }
-                TokenType::String | TokenType::Other => tree.push(Node::parse_atom(
-                    next_token.token_type,
-                    next_token.as_str(src),
-                )),
+                TokenType::String | TokenType::Other => {
+                    tree.push(Node::parse_atom(next_token, next_token.as_str(src)))
+                }
+                TokenType::Comment => continue,
             }
         }
+        Err(AstParseError::UnclosedParen)
+    }
+
+    /// Returns the string literal contained in the node or `None` if `self` is not a
+    /// [Node::String].
+    pub fn to_string_literal(&self, src: &str) -> Option<CompactString> {
+        let contents = match self {
+            Node::String(span) => span.as_str(src),
+            _ => return None,
+        };
+        let mut res = CompactString::with_capacity(contents.len().saturating_sub(2));
+        let mut escaped = false;
+        for ch in contents[1..contents.len() - 1].chars() {
+            if escaped {
+                let ch = match ch {
+                    'n' => '\n',
+                    't' => '\t',
+                    ch => ch,
+                };
+                res.push(ch);
+                escaped = false;
+            } else {
+                match ch {
+                    '\\' => escaped = true,
+                    // Not a well formed string.
+                    '"' => return None,
+                    ch => res.push(ch),
+                }
+            }
+        }
+        Some(res)
     }
 
     /// Parse `contents` as if it were an atom. Panics if `token_type` does not correspond to an
     /// atom.
-    fn parse_atom(token_type: TokenType, contents: &'a str) -> Node<'a> {
-        match token_type {
-            TokenType::OpenParen | TokenType::CloseParen | TokenType::UnterminatedString => {
+    fn parse_atom(token: Token, contents: &str) -> Node {
+        match token.token_type {
+            TokenType::OpenParen
+            | TokenType::CloseParen
+            | TokenType::UnterminatedString
+            | TokenType::Comment => {
                 // Unreachable OK: The above scenarios are caught by callers of `parse_atom`.
                 unreachable!()
             }
-            TokenType::String => {
-                let mut res = CompactString::with_capacity(contents.len().saturating_sub(2));
-                let mut escaped = false;
-                for ch in contents[1..contents.len() - 1].chars() {
-                    if escaped {
-                        let ch = match ch {
-                            'n' => '\n',
-                            't' => '\t',
-                            ch => ch,
-                        };
-                        res.push(ch);
-                        escaped = false;
-                    } else {
-                        match ch {
-                            '\\' => escaped = true,
-                            // Unreachable OK: An unescaped quote signals the end of the
-                            // string. This token is guaranteed to be a well formed string so a
-                            // naked quote won't be encountered in the middle of the string.
-                            '"' => unreachable!(),
-                            ch => res.push(ch),
-                        }
-                    }
-                }
-                Node::String(res)
-            }
+            TokenType::String => Node::String(token.span),
             TokenType::Other => {
                 let maybe_is_number = contents
                     .chars()
@@ -166,7 +164,7 @@ impl<'a> Node<'a> {
                     "void" => Node::Void,
                     "true" => Node::Bool(true),
                     "false" => Node::Bool(false),
-                    ident => return Node::Identifier(ident),
+                    _ => return Node::Identifier(token.span),
                 }
             }
         }
@@ -193,8 +191,8 @@ mod tests {
             vec![
                 Node::Int(1),
                 Node::Float(2.0),
-                Node::Identifier("three"),
-                Node::String("four".into()),
+                Node::Identifier(Span::new(6, 11)),
+                Node::String(Span::new(12, 18)),
                 Node::Bool(true),
                 Node::Bool(false),
             ]
@@ -209,20 +207,20 @@ mod tests {
             actual,
             vec![
                 Node::Tree(vec![
-                    Node::Identifier("+"),
+                    Node::Identifier(Span::new(1, 2)),
                     Node::Int(1),
                     Node::Tree(vec![
-                        Node::Identifier("-"),
-                        Node::Identifier("a"),
-                        Node::Identifier("b")
+                        Node::Identifier(Span::new(6, 7)),
+                        Node::Identifier(Span::new(8, 9)),
+                        Node::Identifier(Span::new(10, 11))
                     ]),
-                    Node::String("number".into()),
+                    Node::String(Span::new(13, 21)),
                 ]),
                 Node::Tree(vec![
-                    Node::Identifier("str-len"),
-                    Node::String("str".into())
+                    Node::Identifier(Span::new(24, 31)),
+                    Node::String(Span::new(32, 37))
                 ]),
-                Node::String("atom".into()),
+                Node::String(Span::new(39, 45)),
             ]
         );
     }
@@ -231,21 +229,21 @@ mod tests {
     fn quoted_strings_within_strings_are_preserved() {
         let src = "\"this \\\"is\\\" a string\"";
         let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(actual, vec![Node::String("this \"is\" a string".into())]);
+        assert_eq!(actual, vec![Node::String(Span::new(0, 22))]);
     }
 
     #[test]
     fn backslash_with_n_produces_newline() {
         let src = "\"\\nn\\n\"";
         let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(actual, vec![Node::String("\nn\n".into())]);
+        assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
     }
 
     #[test]
     fn backslash_with_t_produces_tab() {
         let src = "\"\\tt\\t\"";
         let actual = Node::parse_to_vec(src).unwrap();
-        assert_eq!(actual, vec![Node::String("\tt\t".into())]);
+        assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
     }
 
     #[test]
@@ -266,14 +264,14 @@ mod tests {
     fn unterminated_string_produces_error() {
         let src = "\"start of string but no end";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnclosedString(0));
+        assert_eq!(actual_err, AstParseError::UnclosedString(Span::new(0, 27)));
     }
 
     #[test]
     fn error_in_subexpression_is_returned() {
         let src = "(((\"unterminated quote)";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
-        assert_eq!(actual_err, AstParseError::UnclosedString(3));
+        assert_eq!(actual_err, AstParseError::UnclosedString(Span::new(3, 23)));
     }
 
     #[test]
