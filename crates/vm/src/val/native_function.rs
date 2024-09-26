@@ -2,7 +2,7 @@ use compact_str::CompactString;
 
 use crate::{error::VmResult, Vm};
 
-use super::{custom::CustomVal, CustomType, UnsafeVal, Val};
+use super::{custom::CustomVal, CustomType, StructVal, UnsafeVal, Val};
 
 /// A function that can be executed by the Spore VM. Native functions can be registered with
 /// [Vm::with_native_function].
@@ -190,6 +190,19 @@ impl<'a> NativeFunctionContext<'a> {
         let list_id = self.vm.objects.insert_list(unsafe_list.to_vec());
         ValBuilder {
             val: Val::from_unsafe_val(list_id.into()),
+        }
+    }
+
+    /// Create a new struct from `StructVal`.
+    ///
+    /// Consumes the self to ensure that the value isn't garbage collected.
+    ///
+    /// # Safety
+    /// `strct` must contain valid values within the vm.
+    pub unsafe fn new_struct(self, strct: StructVal) -> ValBuilder<'a> {
+        let struct_id = self.vm.objects.insert_struct(strct);
+        ValBuilder {
+            val: Val::from_unsafe_val(struct_id.into()),
         }
     }
 

@@ -6,7 +6,7 @@ use std::{
 use compact_str::CompactString;
 use log::*;
 
-use crate::val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId};
+use crate::val::{custom::CustomVal, ByteCode, ListVal, StructVal, UnsafeVal, ValId};
 
 use super::is_garbage_collected;
 
@@ -19,6 +19,7 @@ pub struct KeepReachableSet {
     strings: HashMap<ValId<CompactString>, ReferenceCounter>,
     mutable_boxes: HashMap<ValId<UnsafeVal>, ReferenceCounter>,
     lists: HashMap<ValId<ListVal>, ReferenceCounter>,
+    structs: HashMap<ValId<StructVal>, ReferenceCounter>,
     bytecodes: HashMap<ValId<ByteCode>, ReferenceCounter>,
     customs: HashMap<ValId<CustomVal>, ReferenceCounter>,
 }
@@ -51,6 +52,7 @@ impl KeepReachableSet {
             UnsafeVal::String(x) => self.strings.increment(x),
             UnsafeVal::MutableBox(x) => self.mutable_boxes.increment(x),
             UnsafeVal::List(x) => self.lists.increment(x),
+            UnsafeVal::Struct(x) => self.structs.increment(x),
             UnsafeVal::ByteCodeFunction(x) => self.bytecodes.increment(x),
             UnsafeVal::Custom(x) => self.customs.increment(x),
             v => assert!(!is_garbage_collected(v)),
@@ -63,6 +65,7 @@ impl KeepReachableSet {
             UnsafeVal::String(x) => self.strings.decrement(x),
             UnsafeVal::MutableBox(x) => self.mutable_boxes.decrement(x),
             UnsafeVal::List(x) => self.lists.decrement(x),
+            UnsafeVal::Struct(x) => self.structs.decrement(x),
             UnsafeVal::ByteCodeFunction(x) => self.bytecodes.decrement(x),
             UnsafeVal::Custom(x) => self.customs.decrement(x),
             v => assert!(!is_garbage_collected(v)),

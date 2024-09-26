@@ -9,8 +9,6 @@ use std::{
 use log::*;
 use thiserror::Error;
 
-use super::UnsafeVal;
-
 #[derive(Error, Debug, PartialEq)]
 pub enum CustomValError {
     #[error("Lock is poisoned")]
@@ -142,27 +140,6 @@ impl<'a, T: 'static> DerefMut for CustomValMut<'a, T> {
     }
 }
 
-/// A trait that defines a value that can be created or referenced within the VM.
-///
-/// If the type does not hold references, prefer implementing [CustomTypeDefault] instead.
-///
-/// ```rust
-/// #[derive(Debug, Default)]
-/// pub struct MyType(i64);
-/// impl spore_vm::val::CustomType for MyType {
-///     fn as_any(&self) -> &dyn std::any::Any {
-///         self
-///     }
-///     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-///         self
-///     }
-/// }
-/// impl std::fmt::Display for MyType {
-///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-///         write!(f, "my number is {}", self.0)
-///     }
-/// }
-/// ```
 pub(crate) trait CustomTypeSealed:
     'static + Send + Sync + std::fmt::Display + std::fmt::Debug
 {
@@ -171,16 +148,14 @@ pub(crate) trait CustomTypeSealed:
     fn name(&self) -> &'static str {
         std::any::type_name_of_val(self)
     }
-    unsafe fn gc_val_references(&self) -> &[UnsafeVal];
 }
 
-/// A simpler way to implement the [CustomType] trait.
+/// A trait that defines a value that can be created or referenced within the VM.
 ///
 /// ```rust
 /// #[derive(Debug, Default)]
 /// pub struct MyType(i64);
-/// impl spore_vm::val::CustomTypeDefault for MyType {}
-///
+/// impl spore_vm::val::CustomType for MyType {}
 /// impl std::fmt::Display for MyType {
 ///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 ///         write!(f, "my number is {}", self.0)
@@ -190,9 +165,6 @@ pub(crate) trait CustomTypeSealed:
 pub trait CustomType:
     'static + Send + Sync + std::fmt::Display + std::fmt::Debug + std::any::Any
 {
-    unsafe fn gc_val_references(&self) -> &[UnsafeVal] {
-        &[]
-    }
 }
 
 impl<T> CustomTypeSealed for T
@@ -209,10 +181,6 @@ where
 
     fn name(&self) -> &'static str {
         std::any::type_name::<T>()
-    }
-
-    unsafe fn gc_val_references(&self) -> &[UnsafeVal] {
-        self.gc_val_references()
     }
 }
 

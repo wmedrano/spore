@@ -1,4 +1,6 @@
-use compact_str::CompactString;
+use std::collections::HashMap;
+
+use compact_str::{CompactString, ToCompactString};
 
 use crate::{
     error::{VmError, VmResult},
@@ -13,10 +15,12 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("not", not),
     ("string-length", string_length),
     ("string-join", string_join),
+    ("list", list),
+    ("struct", strct),
+    ("struct-get", struct_get),
     ("new-box", new_box),
     ("set-box!", set_box),
     ("unbox", unbox),
-    ("list", list),
     ("working-directory", working_directory),
 ];
 
@@ -48,10 +52,33 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
         (List(a), List(b)) => {
             let a = vm.objects.get_list(a);
             let b = vm.objects.get_list(b);
+            if a == b {
+                return true;
+            }
             if a.len() != b.len() {
                 return false;
             }
             a.iter().zip(b.iter()).all(|(a, b)| equal_impl(vm, *a, *b))
+        }
+        (Struct(a), Struct(b)) => {
+            if a == b {
+                return true;
+            }
+            let a = vm.objects.get_struct(a);
+            let b = vm.objects.get_struct(b);
+            if a.len() != b.len() {
+                return false;
+            }
+            for (k, v) in a.iter() {
+                let other = match b.get(k) {
+                    Some(other) => other,
+                    None => return false,
+                };
+                if !equal_impl(vm, *v, *other) {
+                    return false;
+                }
+            }
+            true
         }
         (ByteCodeFunction(a), ByteCodeFunction(b)) => a == b,
         (NativeFunction(a), NativeFunction(b)) => a == b,
@@ -224,6 +251,73 @@ pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     Ok(ctx.new_string(result))
 }
 
+pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    Ok(unsafe { ctx.new_list(args) })
+}
+
+pub fn strct(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    let mut args_iter = args.iter();
+    let mut strct = HashMap::with_capacity(args.len() / 2);
+    while let Some(field) = args_iter.next() {
+        let field = field.try_str(ctx.vm()).unwrap().to_compact_string();
+        let val = args_iter.next().unwrap();
+        strct.insert(field, unsafe { val.as_unsafe_val() });
+    }
+    Ok(unsafe { ctx.new_struct(strct) })
+}
+
+pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    match args {
+        [maybe_struct, maybe_string] => {
+            let field = maybe_string
+                .try_str(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "struct-get arg(idx=1)",
+                    expected: UnsafeVal::STRING_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
+            let v =
+                maybe_struct
+                    .try_struct_get(ctx.vm(), field)
+                    .map_err(|v| VmError::TypeError {
+                        context: "struct-get arg(idx=0)",
+                        expected: UnsafeVal::STRUCT_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    })?;
+            // Unsafe OK: This is from the map we got. GC does not run anywhere in between.
+            let v = unsafe { v.as_unsafe_val() };
+            Ok(unsafe { ctx.with_unsafe_val(v) })
+        }
+        args => Err(VmError::ArityError {
+            function: "struct-get".into(),
+            expected: 2,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let arg_len = ctx.args_len();
+    if arg_len != 0 {
+        return Err(VmError::ArityError {
+            function: "working-directory".into(),
+            expected: 0,
+            actual: arg_len,
+        });
+    }
+    let working_directory: CompactString = match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().into(),
+        // Untested OK: It is hard to create a working directory error and is not common.
+        Err(err) => return Err(VmError::CustomError(err.to_string())),
+    };
+    Ok(ctx.new_string(working_directory))
+}
+
 pub fn new_box(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     match ctx.args() {
         [v] => {
@@ -287,28 +381,6 @@ pub fn unbox(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
-pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
-    Ok(unsafe { ctx.new_list(args) })
-}
-
-pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let arg_len = ctx.args_len();
-    if arg_len != 0 {
-        return Err(VmError::ArityError {
-            function: "working-directory".into(),
-            expected: 0,
-            actual: arg_len,
-        });
-    }
-    let working_directory: CompactString = match std::env::current_dir() {
-        Ok(path) => path.to_string_lossy().into(),
-        // Untested OK: It is hard to create a working directory error and is not common.
-        Err(err) => return Err(VmError::CustomError(err.to_string())),
-    };
-    Ok(ctx.new_string(working_directory))
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -353,12 +425,17 @@ mod tests {
             .eval_str("(= \"string\" \"string\")")
             .unwrap()
             .try_bool()
-            .unwrap(),);
+            .unwrap());
         assert!(vm
             .eval_str("(= (list \"list\") (list \"list\"))")
             .unwrap()
             .try_bool()
-            .unwrap(),);
+            .unwrap());
+        assert!(vm
+            .eval_str("(= (struct \"field\" 1) (struct \"field\" 1))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
         vm.eval_str("(define (foo) 42)").unwrap();
         assert!(vm.eval_str("(= foo foo)").unwrap().try_bool().unwrap());
         assert!(vm.eval_str("(= (foo) (foo))").unwrap().try_bool().unwrap());
@@ -366,34 +443,39 @@ mod tests {
 
         vm.values.insert("void1".into(), ().into());
         vm.values.insert("void2".into(), ().into());
-        assert!(vm.eval_str("(= void1 void2)").unwrap().try_bool().unwrap(),);
+        assert!(vm.eval_str("(= void1 void2)").unwrap().try_bool().unwrap());
     }
 
     #[test]
-    fn equal_with_different_items_returns_true() {
+    fn equal_with_different_items_returns_false() {
         let mut vm = Vm::default();
-        assert!(!vm.eval_str("(= 1 1.0)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(= true false)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(= 1 2)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(= 1.0 2.0)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= 1 1.0)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= true false)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= 1 2)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= 1.0 2.0)").unwrap().try_bool().unwrap());
         assert!(!vm
             .eval_str("(= \"string\" \"other\")")
             .unwrap()
             .try_bool()
-            .unwrap(),);
+            .unwrap());
         assert!(!vm
             .eval_str("(= (list) (list 0))")
             .unwrap()
             .try_bool()
-            .unwrap(),);
+            .unwrap());
         assert!(!vm
-            .eval_str("(= (list \"list\" 1) (list \"list\" 2))",)
+            .eval_str("(= (list \"list\" 1) (list \"list\" 2))")
             .unwrap()
             .try_bool()
-            .unwrap(),);
+            .unwrap());
+        assert!(!vm
+            .eval_str("(= (struct \"field\" 1) (struct \"field\" 2))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
         vm.eval_str("(define (foo) 42) (define (bar) 42)").unwrap();
-        assert!(!vm.eval_str("(= foo bar)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(= + <)").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(= foo bar)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= + <)").unwrap().try_bool().unwrap());
     }
 
     #[test]
@@ -537,7 +619,7 @@ mod tests {
     #[test]
     fn not_with_void_values_returns_true() {
         let mut vm = Vm::default();
-        assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap(),);
+        assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap());
     }
 
     #[test]
@@ -597,12 +679,12 @@ mod tests {
     #[test]
     fn not_with_truthy_values_returns_true() {
         let mut vm = Vm::default();
-        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(not 1)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(not 1.0)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap(),);
-        assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap(),);
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not 1)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not 1.0)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap());
     }
 
     #[test]
@@ -646,7 +728,7 @@ mod tests {
             },
         );
         assert_eq!(
-            vm.eval_str("(string-join (list \"ok string\" 42))",)
+            vm.eval_str("(string-join (list \"ok string\" 42))")
                 .unwrap_err(),
             VmError::TypeError {
                 context: "string-join arg(idx=0) list subelement",
@@ -680,6 +762,24 @@ mod tests {
             .eval_str("(string-join (list \"one\" \"two\") \" fish \")")
             .unwrap();
         assert_eq!(got.try_str().unwrap(), "one fish two");
+    }
+
+    #[test]
+    fn struct_get_with_field_returns_field() {
+        let mut vm = Vm::default();
+        let got = vm
+            .eval_str("(struct-get (struct \"field\" 1.0) \"field\")")
+            .unwrap();
+        assert_eq!(got.try_float().unwrap(), 1.0);
+    }
+
+    #[test]
+    fn struct_get_with_field_that_does_not_exist_returns_void() {
+        let mut vm = Vm::default();
+        let got = vm
+            .eval_str("(struct-get (struct \"field\" 1) \"not-field\")")
+            .unwrap();
+        assert!(got.is_void());
     }
 
     #[test]

@@ -6,7 +6,7 @@ use log::*;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
-    val::{custom::CustomVal, ByteCode, ListVal, UnsafeVal, ValId},
+    val::{custom::CustomVal, ByteCode, ListVal, StructVal, UnsafeVal, ValId},
 };
 
 mod keep_reachable_set;
@@ -21,6 +21,7 @@ pub struct MemoryManager {
     strings: ObjectStore<CompactString>,
     mutable_boxes: ObjectStore<UnsafeVal>,
     lists: ObjectStore<ListVal>,
+    structs: ObjectStore<StructVal>,
     bytecodes: ObjectStore<ByteCode>,
     customs: ObjectStore<CustomVal>,
     keep_reachable: KeepReachableSet,
@@ -47,6 +48,10 @@ pub struct GcStats {
     lists_allocated: usize,
     /// The total number of lists freed.
     lists_freed: usize,
+    /// The total number of structs allocated.
+    structs_allocated: usize,
+    /// The total number of structs freed.
+    structs_freed: usize,
     /// The total number of bytecodes allocated.
     bytecodes_allocated: usize,
     /// The total number of bytecodes freed.
@@ -65,6 +70,7 @@ impl MemoryManager {
             strings: ObjectStore::default(),
             mutable_boxes: ObjectStore::default(),
             lists: ObjectStore::default(),
+            structs: ObjectStore::default(),
             bytecodes: ObjectStore::default(),
             customs: ObjectStore::default(),
             keep_reachable: KeepReachableSet::default(),
@@ -139,6 +145,13 @@ impl MemoryManager {
                     }
                 }
             }
+            UnsafeVal::Struct(id) => {
+                if let Some(strct) = self.structs.set_color(id, self.reachable_color) {
+                    for child_val in strct.values() {
+                        add_child(*child_val);
+                    }
+                }
+            }
             UnsafeVal::ByteCodeFunction(id) => {
                 if let Some(bc) = self.bytecodes.set_color(id, self.reachable_color) {
                     for child_val in bc.values() {
@@ -147,15 +160,9 @@ impl MemoryManager {
                 }
             }
             UnsafeVal::Custom(id) => {
-                if let Some(c) = self.customs.set_color(id, self.reachable_color) {
-                    let c_inner = c.0.try_read().unwrap();
-                    // Unsafe OK: Values are being marked to avoid GC so they should not be garbage
-                    // collected.
-                    for child_val in unsafe { c_inner.gc_val_references() } {
-                        add_child(*child_val);
-                    }
-                }
+                self.customs.set_color(id, self.reachable_color);
             }
+
             v => debug_assert!(!is_garbage_collected(v)),
         }
     }
@@ -166,6 +173,7 @@ impl MemoryManager {
         self.stats.mutable_boxes_freed +=
             self.mutable_boxes.remove_all_with_color(unreachable_color);
         self.stats.lists_freed += self.lists.remove_all_with_color(unreachable_color);
+        self.stats.structs_freed += self.structs.remove_all_with_color(unreachable_color);
         self.stats.bytecodes_freed += self.bytecodes.remove_all_with_color(unreachable_color);
         self.stats.customs_freed += self.customs.remove_all_with_color(unreachable_color);
     }
@@ -235,6 +243,22 @@ impl MemoryManager {
             .insert(self.vm_id, list, self.reachable_color.other())
     }
 
+    /// Get a struct by its id.
+    pub fn get_struct(&self, id: ValId<StructVal>) -> &StructVal {
+        let res = self.structs.get(self.vm_id, id);
+        assert!(res.is_some(), "{id:?} not found.");
+        res.unwrap()
+    }
+
+    /// Insert a struct and get its id.
+    pub fn insert_struct(&mut self, strct: StructVal) -> ValId<StructVal> {
+        self.stats.structs_allocated += 1;
+        // We mark as unreachable to recurse through `list`'s elements during the next GC mark
+        // phase.
+        self.structs
+            .insert(self.vm_id, strct, self.reachable_color.other())
+    }
+
     /// Get a bytecode by its id.
     pub fn get_bytecode(&self, id: ValId<ByteCode>) -> &ByteCode {
         let res = self.bytecodes.get(self.vm_id, id);
@@ -293,6 +317,7 @@ pub fn is_garbage_collected(v: UnsafeVal) -> bool {
         UnsafeVal::String(_) => true,
         UnsafeVal::MutableBox(_) => true,
         UnsafeVal::List(_) => true,
+        UnsafeVal::Struct(_) => true,
         UnsafeVal::ByteCodeFunction(_) => true,
         UnsafeVal::NativeFunction(_) => false,
         UnsafeVal::Custom(_) => true,

@@ -23,7 +23,7 @@ const READ_EVENT_TIMEOUT_DURATION: Duration =
 fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     if !event::poll(READ_EVENT_TIMEOUT_DURATION).unwrap() {
         return Ok(ValBuilder::new(false.into()));
-    };
+    }
     let event = event::read().map_err(|err| VmError::CustomError(err.to_string()))?;
     let mut is_special = true;
     let (mut event_key, modifiers): (CompactString, _) = match event {

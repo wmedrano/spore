@@ -8,9 +8,10 @@ mod native_function;
 mod protected_val;
 mod unsafe_val;
 
-use std::marker::PhantomData;
+use std::{collections::HashMap, marker::PhantomData};
 
 pub use bytecode::{ByteCode, Instruction};
+use compact_str::CompactString;
 pub use custom::{CustomType, CustomVal, CustomValError, CustomValMut, CustomValRef};
 pub use formatter::ValFormatter;
 pub use id::ValId;
@@ -22,6 +23,9 @@ use crate::Vm;
 
 /// A container for a list.
 pub type ListVal = Vec<UnsafeVal>;
+
+/// A container for a struct. A struct is a map from name to value.
+pub type StructVal = HashMap<CompactString, UnsafeVal>;
 
 /// Contains a [Val] from the [Vm].
 #[repr(transparent)]
@@ -108,6 +112,45 @@ impl<'a> Val<'a> {
                 let list = vm.objects.get_list(id);
                 // The VM is borrowed so it is ensured to not garbage collect.
                 Ok(unsafe { Val::from_unsafe_val_slice(list.as_slice()) })
+            }
+            _ => Err(self),
+        }
+    }
+
+    /// Get the underlying struct as an iterator or `Err<Val>` if `self` is not a struct.
+    ///
+    /// The returned iterator produces `(field, value)`. pairs.
+    pub fn try_iter_struct(
+        self,
+        vm: &'a Vm,
+    ) -> Result<impl 'a + Iterator<Item = (&'a str, Val<'a>)>, Val<'a>> {
+        // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
+        let strct = unsafe { self.try_unsafe_struct(vm) }?;
+        let iter = strct
+            .iter()
+            // Unsafe OK: `v` has the same lifetime as the underlying struct.
+            .map(|(k, v)| (k.as_str(), unsafe { Val::from_unsafe_val(*v) }));
+        Ok(iter)
+    }
+
+    /// Get the underlying struct's field named `field` as as a value or `Err<Val>` if `self` is not
+    /// a struct. If `field` is not a memeber of the struct, then `void` is returned.
+    ///
+    /// The returned iterator produces `(field, value)`. pairs.
+    pub fn try_struct_get(self, vm: &'a Vm, field: &str) -> Result<Val<'a>, Val<'a>> {
+        // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
+        let strct = unsafe { self.try_unsafe_struct(vm) }?;
+        let v = unsafe { Val::from_unsafe_val(strct.get(field).copied().unwrap_or_default()) };
+        Ok(v)
+    }
+
+    /// Get the underlying struct or `Err<Val>` if `self` is not a struct.
+    unsafe fn try_unsafe_struct(self, vm: &Vm) -> Result<&StructVal, Val<'a>> {
+        match self.inner {
+            UnsafeVal::Struct(id) => {
+                let strct = vm.objects.get_struct(id);
+                // The VM is borrowed so it is ensured to not garbage collect.
+                Ok(strct)
             }
             _ => Err(self),
         }

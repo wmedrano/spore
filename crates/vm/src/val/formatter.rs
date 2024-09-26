@@ -64,6 +64,14 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 }
                 write!(f, ")")
             }
+            UnsafeVal::Struct(x) => {
+                write!(f, "(struct")?;
+                for (name, val) in self.vm.objects.get_struct(*x).iter() {
+                    let val = val.format_quoted(self.vm);
+                    write!(f, " '{name} {val}")?;
+                }
+                write!(f, ")")
+            }
             UnsafeVal::ByteCodeFunction(bc) => {
                 let bc = self.vm.objects.get_bytecode(*bc);
                 write!(
@@ -140,6 +148,20 @@ mod tests {
         assert_eq!(
             UnsafeVal::from(string_id).formatted(&vm).to_string(),
             "my string"
+        );
+    }
+
+    #[test]
+    fn format_struct_produces_all_key_values() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (struct \"field-1\" 1 \"field-2\" \"2\"))")
+            .unwrap();
+        let res = vm.eval_str("x").unwrap();
+        assert!(
+            res.formatted(res.vm()).to_string() == "(struct 'field-1 1 'field-2 \"2\")"
+                || res.formatted(res.vm()).to_string() == "(struct 'field-2 \"2\" 'field-1 1)",
+            "{}",
+            res.formatted(res.vm()).to_string()
         );
     }
 

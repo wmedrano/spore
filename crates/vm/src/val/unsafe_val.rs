@@ -3,7 +3,8 @@ use compact_str::CompactString;
 use crate::Vm;
 
 use super::{
-    bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, ListVal, NativeFunction, ValId,
+    bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, ListVal, NativeFunction,
+    StructVal, ValId,
 };
 
 /// Contains a Spore value. The value is considered unsafe as it may be garbage collected.
@@ -37,6 +38,8 @@ pub enum UnsafeVal {
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     List(ValId<ListVal>),
+    /// A handle to a struct.
+    Struct(ValId<StructVal>),
     /// A handle to a function implemented in Spore's bytecode.
     ///
     /// # Safety
@@ -68,6 +71,8 @@ impl UnsafeVal {
     pub const MUTABLE_BOX_TYPE_NAME: &'static str = "mutable-box";
     /// The display name for the list type.
     pub const LIST_TYPE_NAME: &'static str = "list";
+    /// The display name for the struct type.
+    pub const STRUCT_TYPE_NAME: &'static str = "struct";
     /// The display name for the custom type.
     pub const CUSTOM_TYPE_NAME: &'static str = "custom";
 
@@ -81,6 +86,7 @@ impl UnsafeVal {
             UnsafeVal::String(_) => UnsafeVal::STRING_TYPE_NAME,
             UnsafeVal::MutableBox(_) => UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             UnsafeVal::List(_) => UnsafeVal::LIST_TYPE_NAME,
+            UnsafeVal::Struct(_) => UnsafeVal::STRUCT_TYPE_NAME,
             UnsafeVal::ByteCodeFunction(_) => UnsafeVal::FUNCTION_TYPE_NAME,
             UnsafeVal::NativeFunction(_) => UnsafeVal::FUNCTION_TYPE_NAME,
             UnsafeVal::Custom(_) => UnsafeVal::CUSTOM_TYPE_NAME,
@@ -121,6 +127,7 @@ to_internal_val_impl!(NativeFunction => NativeFunction);
 to_internal_val_impl!(ValId<CompactString> => String);
 to_internal_val_impl!(ValId<UnsafeVal> => MutableBox);
 to_internal_val_impl!(ValId<ListVal> => List);
+to_internal_val_impl!(ValId<StructVal> => Struct);
 to_internal_val_impl!(ValId<ByteCode> => ByteCodeFunction);
 to_internal_val_impl!(ValId<CustomVal> => Custom);
 
