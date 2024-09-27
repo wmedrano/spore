@@ -77,7 +77,7 @@ impl<'a> ProtectedVal<'a> {
     /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
     /// box.
     pub fn get_mutable_box_ref(&self) -> Result<Val, Val<'a>> {
-        self.val.get_mutable_box_ref(self.vm)
+        self.val.try_mutable_box_ref(self.vm)
     }
 
     /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom

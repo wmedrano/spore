@@ -1,27 +1,48 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Program lifetime.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define *running?*
     (new-box true))
+
+(define (running?) (unbox *running?*))
+(define (quit!) (set-box! *running?* false))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Buffers
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define scratch-buffer
     (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
 (define modal-buffer
     (new-buffer "*modal*" "TODO"))
-(define *windows*
-    (list
-     (struct "buffer" scratch-buffer
-             ;; TODO: Set dimensions based on terminal dimensions.
-             "x" 0
-             "y" 0
-             "width" 1000
-             "height" 1000
-             "draw-cursor?" true)
-     (struct "buffer" modal-buffer
-             ;; TODO: Set dimensions based on terminal dimensions.
-             "x" 20
-             "y" 20
-             "width" 80
-             "height" 10)))
 
-(define (running?) (unbox *running?*))
-(define (quit!) (set-box! *running?* false))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Windows
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(define *main-window*
+    (struct "buffer" scratch-buffer
+            ;; TODO: Set dimensions based on terminal dimensions.
+            "x" 0
+            "y" 0
+            "width" 1000
+            "height" 1000
+            "draw-cursor?" true))
+(define *modal-window*
+    (struct "buffer" modal-buffer
+            ;; TODO: Set dimensions based on terminal dimensions.
+            "x" 20
+            "y" 20
+            "width" 80
+            "height" 10))
+(define *windows*
+    (new-box (list *main-window*)))
+
+(define (toggle-modal!)
+    (if (< (list-length (unbox *windows*)) 2)
+        (set-box! *windows* (list *main-window* *modal-window*))
+        (set-box! *windows* (list *main-window*))))
+(define (windows)
+    (unbox *windows*))
+        
 
 (define (event->insert-str event)
     (if (not (special-event? event)) (return event))
@@ -32,6 +53,7 @@
 
 (define (handle-event-impl! event)
     (if (not event) (return void))
+    (if (= event "<esc>") (return (toggle-modal!)))
     (if (= event "<ctrl-q>") (return (quit!)))
     (if (= event "<left>") (return (buffer-cursor-move! scratch-buffer -1 0)))
     (if (= event "<right>") (return (buffer-cursor-move! scratch-buffer 1 0)))

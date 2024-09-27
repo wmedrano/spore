@@ -53,16 +53,16 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         .unwrap()
         .is_truthy()
     {
+        let windows = vm.eval_function_by_name("windows", std::iter::empty())?;
         terminal.draw(|frame| {
             let area = frame.area();
             frame.buffer_mut().set_style(area, Style::reset());
-            let windows = vm.val_by_name("*windows*").unwrap();
-            for window in windows.try_list(&vm).unwrap() {
-                frame.render_widget(WindowWidget::new(&vm, *window), area);
+            for window in windows.try_list(windows.vm()).unwrap() {
+                frame.render_widget(WindowWidget::new(windows.vm(), *window), area);
             }
         })?;
-        vm.eval_function_by_name("handle-event!", std::iter::empty())
-            .unwrap();
+        drop(windows);
+        vm.eval_function_by_name("handle-event!", std::iter::empty())?;
     }
     info!("Exiting Spore.");
     Ok(())

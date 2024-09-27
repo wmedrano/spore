@@ -166,7 +166,7 @@ impl<'a> Val<'a> {
 
     /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
     /// box.
-    pub fn get_mutable_box_ref(self, vm: &Vm) -> Result<Val, Val<'a>> {
+    pub fn try_mutable_box_ref(self, vm: &Vm) -> Result<Val, Val<'a>> {
         match self.inner {
             UnsafeVal::MutableBox(id) => {
                 let mutable_box = vm.objects.get_mutable_box(id);
