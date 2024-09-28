@@ -742,7 +742,7 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![Instruction::PushConst(
-                    UnsafeVal::NativeFunction(crate::builtins::add).into()
+                    UnsafeVal::NativeFunction(crate::builtins::numbers::add).into()
                 )]
                 .into(),
                 source: None,
@@ -767,7 +767,7 @@ mod tests {
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::EvalNative {
-                        func: crate::builtins::add,
+                        func: crate::builtins::numbers::add,
                         arg_count: 2
                     },
                 ]

@@ -160,7 +160,7 @@ mod tests {
             UnsafeVal::MutableBox(Default::default()),
             UnsafeVal::List(Default::default()),
             UnsafeVal::ByteCodeFunction(Default::default()),
-            UnsafeVal::NativeFunction(crate::builtins::add),
+            UnsafeVal::NativeFunction(crate::builtins::numbers::add),
             UnsafeVal::Custom(ValId {
                 vm_id: 0,
                 obj_id: 0,

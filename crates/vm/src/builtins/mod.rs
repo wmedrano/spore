@@ -1,0 +1,312 @@
+use compact_str::CompactString;
+
+use crate::{
+    error::{VmError, VmResult},
+    val::{NativeFunction, NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+    Vm,
+};
+
+pub mod boxes;
+pub mod lists;
+pub mod numbers;
+pub mod strings;
+pub mod structs;
+
+pub const BUILTINS: &[(&str, NativeFunction)] = &[
+    ("not", not),
+    ("=", equal),
+    ("+", numbers::add),
+    ("-", numbers::subtract),
+    ("<", numbers::less),
+    ("string-length", strings::string_length),
+    ("string-join", strings::string_join),
+    ("list", lists::list),
+    ("list-length", lists::list_length),
+    ("struct", structs::strct),
+    ("struct-get", structs::struct_get),
+    ("struct-set!", structs::struct_set),
+    ("new-box", boxes::new_box),
+    ("set-box!", boxes::set_box),
+    ("unbox", boxes::unbox),
+    ("working-directory", working_directory),
+];
+
+pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    match ctx.args() {
+        [v] => Ok(Val::new_bool(!v.is_truthy()).into()),
+        args => Err(VmError::ArityError {
+            function: "not".into(),
+            expected: 1,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let args = ctx.args();
+    match args {
+        [a, b] => {
+            // Unsafe OK: [equal_imp] holds the a reference to the VM so it can't run garbage
+            // collection.
+            let (a, b) = unsafe { (a.as_unsafe_val(), b.as_unsafe_val()) };
+            Ok(Val::new_bool(equal_impl(ctx.vm(), a, b)).into())
+        }
+        _ => Err(VmError::ArityError {
+            function: "=".into(),
+            expected: 2,
+            actual: args.len(),
+        }),
+    }
+}
+
+pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
+    use crate::val::UnsafeVal::*;
+    match (a, b) {
+        (Void, Void) => true,
+        (Bool(a), Bool(b)) => a == b,
+        (Int(a), Int(b)) => a == b,
+        (Float(a), Float(b)) => a == b,
+        (String(a), String(b)) => vm.objects.get_str(a) == vm.objects.get_str(b),
+        (List(a), List(b)) => {
+            let a = vm.objects.get_list(a);
+            let b = vm.objects.get_list(b);
+            if a == b {
+                return true;
+            }
+            if a.len() != b.len() {
+                return false;
+            }
+            a.iter().zip(b.iter()).all(|(a, b)| equal_impl(vm, *a, *b))
+        }
+        (Struct(a), Struct(b)) => {
+            if a == b {
+                return true;
+            }
+            let a = vm.objects.get_struct(a);
+            let b = vm.objects.get_struct(b);
+            if a.len() != b.len() {
+                return false;
+            }
+            for (k, v) in a.iter() {
+                let other = match b.get(k) {
+                    Some(other) => other,
+                    None => return false,
+                };
+                if !equal_impl(vm, *v, *other) {
+                    return false;
+                }
+            }
+            true
+        }
+        (ByteCodeFunction(a), ByteCodeFunction(b)) => a == b,
+        (NativeFunction(a), NativeFunction(b)) => a == b,
+        _ => false,
+    }
+}
+
+pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let arg_len = ctx.args_len();
+    if arg_len != 0 {
+        return Err(VmError::ArityError {
+            function: "working-directory".into(),
+            expected: 0,
+            actual: arg_len,
+        });
+    }
+    let working_directory: CompactString = match std::env::current_dir() {
+        Ok(path) => path.to_string_lossy().into(),
+        // Untested OK: It is hard to create a working directory error and is not common.
+        Err(err) => return Err(VmError::CustomError(err.to_string())),
+    };
+    Ok(ctx.new_string(working_directory))
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn equal_with_wrong_number_of_args_produces_arity_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(=)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 0,
+            },
+        );
+        assert_eq!(
+            vm.eval_str("(= 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 1,
+            },
+        );
+        assert_eq!(
+            vm.eval_str("(= 1 2 3)").unwrap_err(),
+            VmError::ArityError {
+                function: "=".into(),
+                expected: 2,
+                actual: 3,
+            },
+        );
+    }
+
+    #[test]
+    fn equal_with_equal_items_returns_true() {
+        let mut vm = Vm::default();
+        assert!(vm.eval_str("(= false false)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 1 1)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= 2.0 2.0)").unwrap().try_bool().unwrap());
+        assert!(vm
+            .eval_str("(= \"string\" \"string\")")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(vm
+            .eval_str("(= (list \"list\") (list \"list\"))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(vm
+            .eval_str("(= (struct \"field\" 1) (struct \"field\" 1))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        vm.eval_str("(define (foo) 42)").unwrap();
+        assert!(vm.eval_str("(= foo foo)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= (foo) (foo))").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= + +)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= void void)").unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn equal_with_same_struct_ref_returns_true() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define my-struct (struct \"a\" 1))").unwrap();
+        vm.eval_str("(struct-set! my-struct \"b\" my-struct)")
+            .unwrap();
+        assert!(vm
+            .eval_str("(= my-struct my-struct)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+    }
+
+    #[test]
+    fn equal_with_same_list_ref_returns_true() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define my-list (list 1 2))").unwrap();
+        assert!(vm
+            .eval_str("(= my-list my-list)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+    }
+
+    #[test]
+    fn equal_with_different_items_returns_false() {
+        let mut vm = Vm::default();
+        assert!(!vm.eval_str("(= 1 1.0)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= true false)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= 1 2)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= 1.0 2.0)").unwrap().try_bool().unwrap());
+        assert!(!vm
+            .eval_str("(= \"string\" \"other\")")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(!vm
+            .eval_str("(= (list) (list 0))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(!vm
+            .eval_str("(= (list \"list\" 1) (list \"list\" 2))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(!vm
+            .eval_str("(= (struct \"field\" 1) (struct \"field\" 2))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        vm.eval_str("(define (foo) 42) (define (bar) 42)").unwrap();
+        assert!(!vm.eval_str("(= foo bar)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(= + <)").unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn not_inverts_bool() {
+        let mut vm = Vm::default();
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(not false)").unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn not_with_wrong_not_just_one_arg_produces_arity_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(not)").unwrap_err(),
+            VmError::ArityError {
+                function: "not".into(),
+                expected: 1,
+                actual: 0,
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(not true false)").unwrap_err(),
+            VmError::ArityError {
+                function: "not".into(),
+                expected: 1,
+                actual: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn not_with_void_values_returns_true() {
+        let mut vm = Vm::default();
+        assert!(vm.eval_str("(not void)").unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn not_with_truthy_values_returns_true() {
+        let mut vm = Vm::default();
+        assert!(!vm.eval_str("(not true)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not 1)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not 1.0)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap());
+        assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn working_directory_with_args_produces_arity_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(working-directory 1)").unwrap_err(),
+            VmError::ArityError {
+                function: "working-directory".into(),
+                expected: 0,
+                actual: 1
+            }
+        );
+    }
+
+    #[test]
+    fn working_directory_produces_working_directory_path() {
+        let mut vm = Vm::default();
+        let working_directory = std::env::current_dir()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(working_directory, "");
+        let got = vm.eval_str("(working-directory)").unwrap();
+        assert_eq!(got.try_str().unwrap(), working_directory.as_str());
+    }
+}
