@@ -73,7 +73,7 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 write!(f, ")")
             }
             UnsafeVal::ByteCodeFunction(bc) => {
-                let bc = self.vm.objects.get_bytecode(*bc);
+                let bc = self.vm.objects.get_bytecode(*bc).unwrap();
                 write!(
                     f,
                     "<function {name}>",

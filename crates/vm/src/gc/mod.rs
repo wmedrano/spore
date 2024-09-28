@@ -260,10 +260,12 @@ impl MemoryManager {
     }
 
     /// Get a bytecode by its id.
-    pub fn get_bytecode(&self, id: ValId<ByteCode>) -> &ByteCode {
+    pub fn get_bytecode(&self, id: ValId<ByteCode>) -> Option<&ByteCode> {
         let res = self.bytecodes.get(self.vm_id, id);
-        debug_assert!(res.is_some(), "{id:?} not found");
-        res.unwrap()
+        if res.is_none() {
+            error!("{id:?} not found");
+        }
+        res
     }
 
     /// Get bytecode id for any bytecode that is equal to `bytecode`. If it does not exist, then it

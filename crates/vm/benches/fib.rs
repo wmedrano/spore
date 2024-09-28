@@ -5,6 +5,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function(&format!("fib-{n}"), |b| {
         let mut vm = spore_vm::Vm::new(spore_vm::Settings {
             enable_aggressive_inline: true,
+            ..Default::default()
         });
         vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
             .unwrap();

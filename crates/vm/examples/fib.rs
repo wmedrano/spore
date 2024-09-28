@@ -5,6 +5,7 @@ fn main() {
 
     let mut vm = spore_vm::Vm::new(Settings {
         enable_aggressive_inline: true,
+        enable_source_maps: false,
     });
     vm.eval_str("(define (fib n) (if (< n 2) n (+ (fib (+ n -1)) (fib (+ n -2)))))")
         .unwrap();

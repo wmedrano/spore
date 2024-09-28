@@ -15,19 +15,33 @@ pub enum TokenType {
     Other,
 }
 
+/// Describes the location of a substring within a string.
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct Span {
+    /// The start of the substring.
     pub start: u32,
+    /// The end of the substring.
     pub end: u32,
 }
 
 impl Span {
+    /// Create a new span.
     pub fn new(start: u32, end: u32) -> Span {
         Span { start, end }
     }
 
+    /// Get the underlying string for the span.
     pub fn as_str(self, src: &str) -> &str {
         &src[self.start as usize..self.end as usize]
+    }
+
+    /// Expand the current span to `end`. If `end` is less than the current end, then `self` is
+    /// returned
+    pub fn extend_end(self, end: u32) -> Span {
+        Span {
+            start: self.start,
+            end: self.end.max(end),
+        }
     }
 }
 

@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
 fn new_vm() -> anyhow::Result<Vm> {
     let mut vm = Vm::new(Settings {
         enable_aggressive_inline: false,
+        enable_source_maps: true,
     })
     .with(event::register)
     .with(SporeBuffer::register);

@@ -22,17 +22,17 @@ pub enum Node {
     /// A node containing the start and end points of the identifier.
     Identifier(Span),
     /// A node containing the void literal.
-    Void,
+    Void(Span),
     /// A node containing a boolean literal.
-    Bool(bool),
+    Bool(Span, bool),
     /// A node containing an int literal.
-    Int(i64),
+    Int(Span, i64),
     /// A node containing a float literal.
-    Float(f64),
+    Float(Span, f64),
     /// A node containing a string literal.
     String(Span),
     /// A node containing a sub-tree.
-    Tree(Vec<Node>),
+    Tree(Span, Vec<Node>),
 }
 
 impl Node {
@@ -52,12 +52,27 @@ impl Node {
         Node::parse(src).collect()
     }
 
+    pub fn span(&self) -> Span {
+        match self {
+            Node::Identifier(span) => *span,
+            Node::Void(span) => *span,
+            Node::Bool(span, _) => *span,
+            Node::Int(span, _) => *span,
+            Node::Float(span, _) => *span,
+            Node::String(span) => *span,
+            Node::Tree(span, _) => *span,
+        }
+    }
+
     /// Parse the next Node from `tokenizer`.
     fn parse_next(src: &str, tokenizer: &mut impl Iterator<Item = Token>) -> Option<Result<Node>> {
         while let Some(next_token) = tokenizer.next() {
             match next_token.token_type {
                 TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
-                    Ok(tree) => return Some(Ok(Node::Tree(tree))),
+                    Ok((end, tree)) => {
+                        let span = next_token.span.extend_end(end);
+                        return Some(Ok(Node::Tree(span, tree)));
+                    }
                     Err(err) => return Some(Err(err)),
                 },
                 TokenType::CloseParen => return Some(Err(AstParseError::UnexpectedCloseParen)),
@@ -79,15 +94,18 @@ impl Node {
     fn parse_until_close(
         src: &str,
         tokenizer: &mut impl Iterator<Item = Token>,
-    ) -> Result<Vec<Node>> {
+    ) -> Result<(u32, Vec<Node>)> {
         let mut tree = vec![];
         while let Some(next_token) = tokenizer.next() {
             match next_token.token_type {
                 TokenType::OpenParen => match Node::parse_until_close(src, tokenizer) {
-                    Ok(t) => tree.push(Node::Tree(t)),
+                    Ok((end, t)) => {
+                        let span = next_token.span.extend_end(end);
+                        tree.push(Node::Tree(span, t))
+                    }
                     err @ Err(_) => return err,
                 },
-                TokenType::CloseParen => return Ok(tree),
+                TokenType::CloseParen => return Ok((next_token.span.end, tree)),
                 TokenType::UnterminatedString => {
                     return Err(AstParseError::UnclosedString(next_token.span))
                 }
@@ -155,15 +173,15 @@ impl Node {
                     .unwrap_or(false);
                 if maybe_is_number {
                     if let Ok(int) = contents.parse() {
-                        return Node::Int(int);
+                        return Node::Int(token.span, int);
                     } else if let Ok(float) = contents.parse() {
-                        return Node::Float(float);
+                        return Node::Float(token.span, float);
                     }
                 }
                 match contents {
-                    "void" => Node::Void,
-                    "true" => Node::Bool(true),
-                    "false" => Node::Bool(false),
+                    "void" => Node::Void(token.span),
+                    "true" => Node::Bool(token.span, true),
+                    "false" => Node::Bool(token.span, false),
                     _ => Node::Identifier(token.span),
                 }
             }
@@ -189,12 +207,12 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Node::Int(1),
-                Node::Float(2.0),
+                Node::Int(Span::new(0, 1), 1),
+                Node::Float(Span::new(2, 5), 2.0),
                 Node::Identifier(Span::new(6, 11)),
                 Node::String(Span::new(12, 18)),
-                Node::Bool(true),
-                Node::Bool(false),
+                Node::Bool(Span::new(19, 23), true),
+                Node::Bool(Span::new(24, 29), false),
             ]
         );
     }
@@ -206,20 +224,29 @@ mod tests {
         assert_eq!(
             actual,
             vec![
-                Node::Tree(vec![
-                    Node::Identifier(Span::new(1, 2)),
-                    Node::Int(1),
-                    Node::Tree(vec![
-                        Node::Identifier(Span::new(6, 7)),
-                        Node::Identifier(Span::new(8, 9)),
-                        Node::Identifier(Span::new(10, 11))
-                    ]),
-                    Node::String(Span::new(13, 21)),
-                ]),
-                Node::Tree(vec![
-                    Node::Identifier(Span::new(24, 31)),
-                    Node::String(Span::new(32, 37))
-                ]),
+                Node::Tree(
+                    Span::new(0, 22),
+                    vec![
+                        Node::Identifier(Span::new(1, 2)),
+                        Node::Int(Span::new(3, 4), 1),
+                        Node::Tree(
+                            Span::new(5, 12),
+                            vec![
+                                Node::Identifier(Span::new(6, 7)),
+                                Node::Identifier(Span::new(8, 9)),
+                                Node::Identifier(Span::new(10, 11))
+                            ]
+                        ),
+                        Node::String(Span::new(13, 21)),
+                    ]
+                ),
+                Node::Tree(
+                    Span::new(23, 38),
+                    vec![
+                        Node::Identifier(Span::new(24, 31)),
+                        Node::String(Span::new(32, 37))
+                    ]
+                ),
                 Node::String(Span::new(39, 45)),
             ]
         );

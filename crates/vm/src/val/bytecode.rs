@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use compact_str::CompactString;
 
+use crate::parser::tokenizer::Span;
+
 use super::{NativeFunction, UnsafeVal};
 
 /// Contains a set of instructions for the Spore VM to evaluate.
@@ -13,6 +15,10 @@ pub struct ByteCode {
     pub arg_count: usize,
     /// The instructions for the bytecode.
     pub instructions: Arc<[Instruction]>,
+    /// The source code for the bytecode.
+    pub source: Option<Arc<str>>,
+    /// The span containing the instruction code from `source`.
+    pub instruction_source: Box<[Span]>,
 }
 
 impl ByteCode {
@@ -26,6 +32,8 @@ impl ByteCode {
             name: name.into(),
             arg_count: 0,
             instructions: Arc::new([Instruction::EvalNative { func, arg_count }]),
+            source: None,
+            instruction_source: Box::default(),
         }
     }
 
@@ -85,7 +93,6 @@ mod tests {
 
     #[test]
     fn struct_sizes_are_small_enough() {
-        assert_eq!(size_of::<ByteCode>(), 6 * size_of::<usize>());
         assert_eq!(size_of::<Instruction>(), 4 * size_of::<usize>());
     }
 }

@@ -68,7 +68,7 @@ struct StackFrame {
     /// The instructions that will be taken.
     instructions: Arc<[Instruction]>,
     /// The index of the next instruction within bytecode.
-    bytecode_idx: usize,
+    instruction_idx: usize,
     /// The index of the stack for the first value of this stack frame's local stack.
     stack_start: usize,
 }
@@ -76,7 +76,7 @@ struct StackFrame {
 impl StackFrame {
     /// Get the underlying bytecode object.
     fn bytecode<'a>(&self, vm: &'a Vm) -> &'a ByteCode {
-        vm.objects.get_bytecode(self.bytecode_id)
+        vm.objects.get_bytecode(self.bytecode_id).unwrap()
     }
 }
 
@@ -90,7 +90,7 @@ impl Default for StackFrame {
                 _marker: std::marker::PhantomData,
             },
             instructions: Arc::default(),
-            bytecode_idx: 0,
+            instruction_idx: 0,
             stack_start: 0,
         }
     }
@@ -218,7 +218,10 @@ impl Vm {
         let function_val = *self
             .values
             .get(name)
-            .ok_or_else(|| VmError::SymbolNotDefined(name.to_string()))?;
+            .ok_or_else(|| VmError::SymbolNotDefined {
+                src: None,
+                symbol: name.to_string(),
+            })?;
         let bytecode_id = match function_val {
             UnsafeVal::ByteCodeFunction(bc) => bc,
             UnsafeVal::NativeFunction(f) => self
@@ -248,21 +251,36 @@ impl Vm {
         self.stack.extend(args);
         self.previous_stack_frames.clear();
         let bytecode = self.objects.get_bytecode(bytecode_id).clone();
-        let instructions = bytecode.instructions.clone();
+        let instructions = bytecode.unwrap().instructions.clone();
         self.stack_frame = StackFrame {
             bytecode_id,
             instructions,
-            bytecode_idx: 0,
+            instruction_idx: 0,
             stack_start: 0,
         };
         // Unsafe OK: The environment has just been set up.
         unsafe { self.run_gc() };
         loop {
-            if let Some(v) = self.run_next()? {
+            if let Some(v) = self.run_next().map_err(|err| self.annotate_src(err))? {
                 // Unsafe OK: This is a new valid val and we are adding GC protection to it.
                 let v = unsafe { Val::from_unsafe_val(v) };
                 return Ok(ProtectedVal::new(self, v));
             }
+        }
+    }
+
+    fn annotate_src(&self, error: VmError) -> VmError {
+        let src = || -> Option<String> {
+            let instruction_idx = self.stack_frame.instruction_idx.saturating_sub(1);
+            let bytecode_id = self.stack_frame.bytecode_id;
+            let bytecode = self.objects.get_bytecode(bytecode_id)?;
+            let src = bytecode.source.as_ref()?;
+            let src_span = bytecode.instruction_source.get(instruction_idx)?;
+            Some(src_span.as_str(src).to_string())
+        };
+        match src() {
+            Some(src) => error.with_src(src),
+            None => error,
         }
     }
 
@@ -275,11 +293,13 @@ impl Vm {
             .stack_frame
             .instructions
             .as_ref()
-            .get(self.stack_frame.bytecode_idx);
-        self.stack_frame.bytecode_idx += 1;
+            .get(self.stack_frame.instruction_idx);
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
+        self.stack_frame.instruction_idx += 1;
         match instruction {
-            Instruction::PushConst(c) => self.stack.push(*c),
+            Instruction::PushConst(c) => {
+                self.stack.push(*c);
+            }
             Instruction::PushCurrentFunction => {
                 let f = UnsafeVal::ByteCodeFunction(self.stack_frame.bytecode_id);
                 self.stack.push(f);
@@ -291,7 +311,12 @@ impl Vm {
             Instruction::Deref(symbol) => {
                 let v = match self.values.get(symbol) {
                     Some(v) => *v,
-                    None => return Err(VmError::SymbolNotDefined(symbol.to_string())),
+                    None => {
+                        return Err(VmError::SymbolNotDefined {
+                            src: None,
+                            symbol: symbol.to_string(),
+                        })
+                    }
                 };
                 self.stack.push(v);
             }
@@ -299,17 +324,24 @@ impl Vm {
                 let v = self.stack.pop().ok_or_else(BacktraceError::capture)?;
                 self.values.insert(symbol.clone(), v);
             }
-            Instruction::Eval(n) => self.execute_eval(*n)?,
+            Instruction::Eval(n) => {
+                self.execute_eval(*n)?;
+            }
             Instruction::EvalNative { func, arg_count } => {
-                self.execute_eval_native(*func, *arg_count)?
+                self.execute_eval_native(*func, *arg_count)?;
             }
             Instruction::JumpIf(n) => {
                 if self.stack.pop().unwrap().is_truthy() {
-                    self.stack_frame.bytecode_idx += *n;
+                    self.stack_frame.instruction_idx += *n;
                 }
             }
-            Instruction::Jump(n) => self.stack_frame.bytecode_idx += *n,
-            Instruction::Return => return Ok(self.execute_return()),
+            Instruction::Jump(n) => {
+                self.stack_frame.instruction_idx += *n;
+            }
+            Instruction::Return => {
+                let res = self.execute_return();
+                return Ok(res);
+            }
         }
         Ok(None)
     }
@@ -356,7 +388,7 @@ impl Vm {
             }
             UnsafeVal::ByteCodeFunction(bytecode_id) => {
                 let instructions = {
-                    let bytecode = self.objects.get_bytecode(bytecode_id);
+                    let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
                     let arg_count = n - 1;
                     if bytecode.arg_count != arg_count {
                         return Err(VmError::ArityError {
@@ -373,7 +405,7 @@ impl Vm {
                 let new_stack_frame = StackFrame {
                     bytecode_id,
                     instructions,
-                    bytecode_idx: 0,
+                    instruction_idx: 0,
                     stack_start,
                 };
                 let previous_stack_frame =
@@ -399,7 +431,7 @@ impl Vm {
                 .rev()
                 .map(|sf| sf.bytecode(self).name.clone()),
         );
-        VmError::MaximumRecursionDepth {
+        VmError::MaximumFunctionCallDepth {
             call_stack,
             max_depth: self.previous_stack_frames.len(),
         }
@@ -697,7 +729,10 @@ mod tests {
         assert_eq!(
             vm.eval_function_by_name("bar", std::iter::empty())
                 .unwrap_err(),
-            VmError::SymbolNotDefined("bar".into())
+            VmError::SymbolNotDefined {
+                src: None,
+                symbol: "bar".into()
+            },
         );
     }
 
@@ -739,7 +774,7 @@ mod tests {
             .is_void());
         assert_eq!(
             vm.eval_str("(recurse)").unwrap_err(),
-            VmError::MaximumRecursionDepth {
+            VmError::MaximumFunctionCallDepth {
                 max_depth: 64,
                 call_stack: std::iter::repeat("recurse")
                     .take(64)
@@ -754,9 +789,11 @@ mod tests {
     fn aggressive_inline_produces_same_results_when_there_are_no_redefinitions() {
         let mut aggressive_inline_vm = Vm::new(Settings {
             enable_aggressive_inline: true,
+            enable_source_maps: false,
         });
         let mut default_vm = Vm::new(Settings {
             enable_aggressive_inline: false,
+            enable_source_maps: true,
         });
         let srcs = ["(define x 12)", "x", "(+ x x)"];
         for src in srcs {

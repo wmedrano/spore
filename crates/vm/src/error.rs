@@ -8,38 +8,155 @@ use crate::{parser::ast::AstParseError, val::custom::CustomValError};
 pub type VmResult<T> = Result<T, VmError>;
 
 /// Describes an error encountered when running the Vm.
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum VmError {
-    #[error("{context} expected type {expected} but found type {actual}: {value}")]
     TypeError {
         context: &'static str,
         expected: &'static str,
         actual: &'static str,
         value: String,
     },
-    #[error("wrong arity, function {function} expected {expected} args but found {actual} args")]
     ArityError {
         function: CompactString,
         expected: usize,
         actual: usize,
     },
-    #[error("compile error ocurred: {0}")]
-    CompileError(#[from] CompileError),
-    #[error("invalid vm state, this is likely a bug: {0}")]
-    InvalidVmState(#[from] BacktraceError),
-    #[error("{0} is not defined")]
-    SymbolNotDefined(String),
-    #[error(
-        "maximum function recursion depth of {max_depth} reached, call stack is {call_stack:?}"
-    )]
-    MaximumRecursionDepth {
+    CompileError(CompileError),
+    InvalidVmState(BacktraceError),
+    SymbolNotDefined {
+        src: Option<String>,
+        symbol: String,
+    },
+    MaximumFunctionCallDepth {
         max_depth: usize,
         call_stack: Vec<CompactString>,
     },
-    #[error("{0}")]
-    CustomValError(#[from] CustomValError),
-    #[error("{0}")]
+    CustomValError(CustomValError),
     CustomError(String),
+}
+
+impl VmError {
+    /// Return the error with the given source context added.
+    pub fn with_src(self, src: String) -> VmError {
+        match self {
+            VmError::TypeError {
+                context,
+                expected,
+                actual,
+                value,
+            } => VmError::TypeError {
+                context,
+                expected,
+                actual,
+                value,
+            },
+            VmError::ArityError {
+                function,
+                expected,
+                actual,
+            } => VmError::ArityError {
+                function,
+                expected,
+                actual,
+            },
+            VmError::CompileError(e) => VmError::CompileError(e),
+            VmError::InvalidVmState(e) => VmError::InvalidVmState(e),
+            VmError::SymbolNotDefined { symbol, .. } => VmError::SymbolNotDefined {
+                src: Some(src),
+                symbol,
+            },
+            VmError::MaximumFunctionCallDepth {
+                max_depth,
+                call_stack,
+            } => VmError::MaximumFunctionCallDepth {
+                max_depth,
+                call_stack,
+            },
+            VmError::CustomValError(e) => VmError::CustomValError(e),
+            VmError::CustomError(e) => VmError::CustomError(e),
+        }
+    }
+}
+
+impl std::fmt::Display for VmError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmError::TypeError {
+                context,
+                expected,
+                actual,
+                value,
+            } => write!(
+                f,
+                "{context} expected type {expected} but got {actual}: {value}"
+            ),
+            VmError::ArityError {
+                function,
+                expected,
+                actual,
+            } => write!(f, "{function} expected {expected} args but got {actual}."),
+            VmError::CompileError(e) => write!(f, "{e}"),
+            VmError::InvalidVmState(bt) => write!(f, "VM reached invalid state.\n{bt}"),
+            VmError::SymbolNotDefined {
+                symbol,
+                src: context,
+            } => {
+                write!(f, "Value {symbol} is not defined.")?;
+                if let Some(context) = context {
+                    write!(f, "\n{context}")?;
+                }
+                Ok(())
+            }
+            VmError::MaximumFunctionCallDepth {
+                max_depth,
+                call_stack,
+            } => write!(
+                f,
+                "Maximum function call depth of {max_depth} reached: {call_stack:#?}"
+            ),
+            VmError::CustomValError(e) => write!(f, "{e}"),
+            VmError::CustomError(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for VmError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            VmError::TypeError { .. }
+            | VmError::ArityError { .. }
+            | VmError::SymbolNotDefined { .. }
+            | VmError::MaximumFunctionCallDepth { .. }
+            | VmError::CustomError(_) => None,
+            VmError::CompileError(e) => Some(e),
+            VmError::InvalidVmState(e) => Some(e),
+            VmError::CustomValError(e) => Some(e),
+        }
+    }
+}
+
+impl From<String> for VmError {
+    fn from(v: String) -> VmError {
+        VmError::CustomError(v)
+    }
+}
+
+impl From<BacktraceError> for VmError {
+    fn from(v: BacktraceError) -> VmError {
+        VmError::InvalidVmState(v)
+    }
+}
+
+impl From<CompileError> for VmError {
+    fn from(v: CompileError) -> VmError {
+        VmError::CompileError(v)
+    }
+}
+
+impl From<CustomValError> for VmError {
+    fn from(v: CustomValError) -> VmError {
+        VmError::CustomValError(v)
+    }
 }
 
 /// Describes a generic error along with its stacktrace.

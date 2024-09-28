@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc};
 
 use bumpalo::Bump;
 use compact_str::CompactString;
@@ -7,7 +7,7 @@ type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
 use crate::{
     error::CompileError,
-    parser::ast::Node,
+    parser::{ast::Node, tokenizer::Span},
     val::{ByteCode, Instruction, UnsafeVal},
     Settings, Vm,
 };
@@ -17,10 +17,12 @@ type Result<T> = std::result::Result<T, CompileError>;
 pub struct Compiler<'a> {
     vm: &'a mut Vm,
     arena: &'a Bump,
+    source: Option<Arc<str>>,
     settings: Settings,
     function_name: Option<CompactString>,
     arguments: BumpVec<'a, CompactString>,
     instructions: BumpVec<'a, Instruction>,
+    instruction_source: BumpVec<'a, Span>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -32,19 +34,24 @@ enum CompilerContext {
 impl<'a> Compiler<'a> {
     pub fn compile(vm: &'a mut Vm, input_source: &str, arena: &Bump) -> Result<ByteCode> {
         let settings = vm.settings;
+        let source = settings.enable_source_maps.then(|| input_source.into());
         let mut compiler = Compiler {
             vm,
             arena,
+            source: source.clone(),
             settings,
             function_name: None,
             arguments: BumpVec::new_in(arena),
             instructions: BumpVec::new_in(arena),
+            instruction_source: BumpVec::new_in(arena),
         };
         compiler.compile_impl(input_source, CompilerContext::Module)?;
         Ok(ByteCode {
             name: "".into(),
             arg_count: 0,
             instructions: compiler.instructions.into_bump_slice().into(),
+            source,
+            instruction_source: compiler.instruction_source.into_bump_slice().into(),
         })
     }
 
@@ -68,7 +75,7 @@ impl<'a> Compiler<'a> {
 
     fn compile_one(&mut self, ir: &Ir, ctx: CompilerContext) -> Result<()> {
         match ir {
-            Ir::Constant(const_val) => {
+            Ir::Constant(span, const_val) => {
                 let instruction = match const_val {
                     Constant::Void => Instruction::PushConst(().into()),
                     Constant::Bool(x) => Instruction::PushConst((*x).into()),
@@ -78,16 +85,21 @@ impl<'a> Compiler<'a> {
                         self.vm.objects.insert_string(x.clone()),
                     )),
                 };
+                self.instruction_source.push(*span);
                 self.instructions.push(instruction);
             }
-            Ir::Deref(ident) => match self.arg_idx(ident) {
-                Some(idx) => self.instructions.push(Instruction::GetArg(idx)),
+            Ir::Deref(span, ident) => match self.arg_idx(ident) {
+                Some(idx) => {
+                    self.instruction_source.push(*span);
+                    self.instructions.push(Instruction::GetArg(idx))
+                }
                 None if self
                     .function_name
                     .as_ref()
                     .map(|s| s.as_str() == *ident)
                     .unwrap_or(false) =>
                 {
+                    self.instruction_source.push(*span);
                     self.instructions.push(Instruction::PushCurrentFunction)
                 }
                 None => {
@@ -99,10 +111,15 @@ impl<'a> Compiler<'a> {
                         .map(|c| Instruction::PushConst(*c));
                     let instruction =
                         maybe_inlined_val.unwrap_or(Instruction::Deref((*ident).into()));
+                    self.instruction_source.push(*span);
                     self.instructions.push(instruction)
                 }
             },
-            Ir::FunctionCall { function, args } => {
+            Ir::FunctionCall {
+                span,
+                function,
+                args,
+            } => {
                 if function.return_type() == IrReturnType::None {
                     return Err(CompileError::ExpectedExpression {
                         context: "function call",
@@ -112,7 +129,7 @@ impl<'a> Compiler<'a> {
                     .settings
                     .enable_aggressive_inline
                     .then(|| match function {
-                        Ir::Deref(ident) => match self.vm.values.get(*ident) {
+                        Ir::Deref(_, ident) => match self.vm.values.get(*ident) {
                             Some(UnsafeVal::NativeFunction(func)) => Some(*func),
                             _ => None,
                         },
@@ -131,14 +148,24 @@ impl<'a> Compiler<'a> {
                     self.compile_one(arg, CompilerContext::Subexpression)?;
                 }
                 match maybe_native_function {
-                    Some(func) => self.instructions.push(Instruction::EvalNative {
-                        func,
-                        arg_count: args.len(),
-                    }),
-                    None => self.instructions.push(Instruction::Eval(args.len() + 1)),
+                    Some(func) => {
+                        self.instruction_source.push(*span);
+                        self.instructions.push(Instruction::EvalNative {
+                            func,
+                            arg_count: args.len(),
+                        })
+                    }
+                    None => {
+                        self.instruction_source.push(*span);
+                        self.instructions.push(Instruction::Eval(args.len() + 1))
+                    }
                 }
             }
-            Ir::Define { identifier, expr } => {
+            Ir::Define {
+                span,
+                identifier,
+                expr,
+            } => {
                 if ctx != CompilerContext::Module {
                     return Err(CompileError::DefineNotAllowedInSubexpression);
                 }
@@ -146,10 +173,12 @@ impl<'a> Compiler<'a> {
                     return Err(CompileError::ExpectedExpression { context: "define" });
                 }
                 self.compile_one(expr, CompilerContext::Subexpression)?;
+                self.instruction_source.push(*span);
                 self.instructions
                     .push(Instruction::Define((*identifier).into()));
             }
             Ir::If {
+                span,
                 predicate,
                 true_expr,
                 false_expr,
@@ -160,7 +189,9 @@ impl<'a> Compiler<'a> {
                     });
                 }
                 self.compile_one(predicate, CompilerContext::Subexpression)?;
+                // Placeholder for jump instruction.
                 let true_jump_idx = self.instructions.len();
+                self.instruction_source.push(*span);
                 self.instructions.push(Instruction::PushConst(().into()));
                 match false_expr {
                     Some(expr) => {
@@ -171,9 +202,13 @@ impl<'a> Compiler<'a> {
                         }
                         self.compile_one(expr, CompilerContext::Subexpression)?
                     }
-                    None => self.instructions.push(Instruction::PushConst(().into())),
+                    None => {
+                        self.instruction_source.push(Span::new(0, 0));
+                        self.instructions.push(Instruction::PushConst(().into()))
+                    }
                 }
                 let false_jump_idx = self.instructions.len();
+                self.instruction_source.push(*span);
                 self.instructions.push(Instruction::PushConst(().into()));
                 if true_expr.return_type() == IrReturnType::None {
                     return Err(CompileError::ExpectedExpression {
@@ -183,6 +218,7 @@ impl<'a> Compiler<'a> {
                 self.compile_one(true_expr, CompilerContext::Subexpression)?;
                 self.instructions[true_jump_idx] =
                     Instruction::JumpIf(false_jump_idx - true_jump_idx);
+                self.instruction_source[false_jump_idx] = *span;
                 self.instructions[false_jump_idx] =
                     Instruction::Jump(self.instructions.len() - false_jump_idx - 1);
             }
@@ -203,10 +239,12 @@ impl<'a> Compiler<'a> {
                 let mut lambda_compiler = Compiler {
                     vm: self.vm,
                     arena: self.arena,
+                    source: self.source.clone(),
                     settings: self.settings,
                     function_name: name.map(CompactString::new),
                     arguments: arguments_vec,
                     instructions: BumpVec::new_in(self.arena),
+                    instruction_source: BumpVec::new_in(self.arena),
                 };
                 if let Some(dupe) = find_duplicate(&lambda_compiler.arguments) {
                     return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
@@ -214,13 +252,18 @@ impl<'a> Compiler<'a> {
                 for expr in expressions.iter() {
                     lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                let lambda_val = UnsafeVal::ByteCodeFunction(
-                    lambda_compiler.vm.objects.insert_bytecode(ByteCode {
-                        name: name.unwrap_or("").into(),
-                        arg_count: args.len(),
-                        instructions: lambda_compiler.instructions.into_bump_slice().into(),
-                    }),
-                );
+                let lambda_val =
+                    UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(
+                        ByteCode {
+                            name: name.unwrap_or("").into(),
+                            arg_count: args.len(),
+                            instructions: lambda_compiler.instructions.into_bump_slice().into(),
+                            source: lambda_compiler.source,
+                            instruction_source:
+                                lambda_compiler.instruction_source.into_bump_slice().into(),
+                        },
+                    ));
+                self.instruction_source.push(Span::new(0, 0));
                 self.instructions.push(Instruction::PushConst(lambda_val));
             }
             Ir::Return { expr } => {
@@ -230,6 +273,7 @@ impl<'a> Compiler<'a> {
                     });
                 }
                 self.compile_one(expr, CompilerContext::Subexpression)?;
+                self.instruction_source.push(Span::new(0, 0));
                 self.instructions.push(Instruction::Return);
             }
         };
@@ -262,7 +306,7 @@ fn find_duplicate(vec: &[CompactString]) -> Option<CompactString> {
 /// Contains a constant.
 ///
 /// All values should require no additional cleanup for best use with [Ir]'s arena.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum Constant {
     /// Just void, nothing.
     Void,
@@ -285,13 +329,16 @@ enum Constant {
 /// Value's are usually arena allocated so `drop` will not be called for a conventional
 /// cleanup. This means all values must either be normal values, references, or arena allocated
 /// references. To detect possible memory leaks, try running valgrind on the test suite.
+#[derive(Debug)]
 enum Ir<'a> {
     /// A constant literal.
-    Constant(Constant),
+    Constant(Span, Constant),
     /// Dereference a symbol.
-    Deref(&'a str),
+    Deref(Span, &'a str),
     /// A function call expression of the form: (<function> <args>...)
     FunctionCall {
+        /// The source code where this function call is defined.
+        span: Span,
         /// The function to call.
         function: &'a Self,
         /// The arguments to the function.
@@ -299,6 +346,8 @@ enum Ir<'a> {
     },
     /// A define expression of the form: (define <name> <expr>)
     Define {
+        /// The source code where this function call is defined.
+        span: Span,
         /// The identifier to define.
         identifier: &'a str,
         /// The value of the definition.
@@ -306,6 +355,7 @@ enum Ir<'a> {
     },
     /// A if expression.
     If {
+        span: Span,
         predicate: &'a Self,
         true_expr: &'a Self,
         false_expr: Option<&'a Self>,
@@ -323,22 +373,26 @@ enum Ir<'a> {
 impl<'a> Ir<'a> {
     fn new(arena: &'a Bump, src: &'a str, node: &'a Node) -> Result<Ir<'a>> {
         let ir = match node {
-            Node::Void => Ir::Constant(Constant::Void),
-            Node::Bool(b) => Ir::Constant(Constant::Bool(*b)),
-            Node::Int(int) => Ir::Constant(Constant::Int(*int)),
-            Node::Float(float) => Ir::Constant(Constant::Float(*float)),
-            Node::String(_) => Ir::Constant(Constant::String(node.to_string_literal(src).unwrap())),
-            Node::Identifier(ident) => Ir::Deref(ident.as_str(src)),
-            Node::Tree(tree) => match tree.as_slice() {
+            Node::Void(span) => Ir::Constant(*span, Constant::Void),
+            Node::Bool(span, b) => Ir::Constant(*span, Constant::Bool(*b)),
+            Node::Int(span, int) => Ir::Constant(*span, Constant::Int(*int)),
+            Node::Float(span, float) => Ir::Constant(*span, Constant::Float(*float)),
+            Node::String(span) => Ir::Constant(
+                *span,
+                Constant::String(node.to_string_literal(src).unwrap()),
+            ),
+            Node::Identifier(ident_span) => Ir::Deref(*ident_span, ident_span.as_str(src)),
+            Node::Tree(span, tree) => match tree.as_slice() {
                 [Node::Identifier(maybe_define), define_args @ ..]
                     if maybe_define.as_str(src) == "define" =>
                 {
                     match define_args {
                         [Node::Identifier(identifier_span), expr] => Ir::Define {
+                            span: *span,
                             identifier: identifier_span.as_str(src),
                             expr: arena.alloc(Ir::new(arena, src, expr)?),
                         },
-                        [Node::Tree(lambda_signature), exprs @ ..] => {
+                        [Node::Tree(_, lambda_signature), exprs @ ..] => {
                             match lambda_signature.as_slice() {
                                 [Node::Identifier(identifier_span), args @ ..] => {
                                     let mut args_vec = BumpVec::new_in(arena);
@@ -352,6 +406,7 @@ impl<'a> Ir<'a> {
                                         exprs_vec.push(expr_ir);
                                     }
                                     Ir::Define {
+                                        span: *identifier_span,
                                         identifier: identifier_span.as_str(src),
                                         expr: arena.alloc(Ir::Lambda {
                                             name: Some(identifier_span.as_str(src)),
@@ -380,11 +435,13 @@ impl<'a> Ir<'a> {
                 [Node::Identifier(maybe_if), args @ ..] if maybe_if.as_str(src) == "if" => {
                     match args {
                         [predicate, true_expr] => Ir::If {
+                            span: *span,
                             predicate: arena.alloc(Ir::new(arena, src, predicate)?),
                             true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
                             false_expr: None,
                         },
                         [predicate, true_expr, false_expr] => Ir::If {
+                            span: *span,
                             predicate: arena.alloc(Ir::new(arena, src, predicate)?),
                             true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
                             false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
@@ -402,7 +459,7 @@ impl<'a> Ir<'a> {
                     if maybe_lambda.as_str(src) == "lambda" =>
                 {
                     let lambda_args = match lambda_args {
-                        Node::Tree(t) => t,
+                        Node::Tree(_, t) => t,
                         _ => {
                             return Err(CompileError::ExpectedIdentifierList {
                                 context: "lambda/function definition",
@@ -444,11 +501,13 @@ impl<'a> Ir<'a> {
                 [f, args @ ..] => match f {
                     Node::Identifier(maybe_if) if maybe_if.as_str(src) == "if" => match args {
                         [predicate, true_expr] => Ir::If {
+                            span: *maybe_if,
                             predicate: arena.alloc(Ir::new(arena, src, predicate)?),
                             true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
                             false_expr: None,
                         },
                         [predicate, true_expr, false_expr] => Ir::If {
+                            span: *maybe_if,
                             predicate: arena.alloc(Ir::new(arena, src, predicate)?),
                             true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
                             false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
@@ -468,6 +527,7 @@ impl<'a> Ir<'a> {
                             args_vec.push(arg_ir);
                         }
                         Ir::FunctionCall {
+                            span: *span,
                             function: arena.alloc(Ir::new(arena, src, ident)?),
                             args: args_vec,
                         }
@@ -483,8 +543,8 @@ impl<'a> Ir<'a> {
     /// do not.
     fn return_type(&self) -> IrReturnType {
         match self {
-            Ir::Constant(_) => IrReturnType::Value,
-            Ir::Deref(_) => IrReturnType::Value,
+            Ir::Constant(_, _) => IrReturnType::Value,
+            Ir::Deref(_, _) => IrReturnType::Value,
             Ir::FunctionCall { .. } => IrReturnType::Value,
             Ir::Define { .. } => IrReturnType::None,
             Ir::If { .. } => IrReturnType::Value,
@@ -529,6 +589,8 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 instructions: vec![].into(),
+                source: Some("".into()),
+                instruction_source: vec![].into(),
             }
         );
     }
@@ -554,7 +616,9 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(true.into())].into()
+                instructions: vec![Instruction::PushConst(true.into())].into(),
+                source: Some("true".into()),
+                instruction_source: vec![Span::new(0, 4)].into(),
             }
         );
         assert_eq!(
@@ -562,7 +626,9 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(1.into())].into()
+                instructions: vec![Instruction::PushConst(1.into())].into(),
+                source: Some("1".into()),
+                instruction_source: vec![Span::new(0, 1)].into(),
             }
         );
         assert_eq!(
@@ -570,7 +636,9 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::PushConst(1.0.into())].into()
+                instructions: vec![Instruction::PushConst(1.0.into())].into(),
+                source: Some("1.0".into()),
+                instruction_source: vec![Span::new(0, 3)].into(),
             }
         );
         let got = Compiler::compile(&mut vm, "\"string\"", &Bump::new()).unwrap();
@@ -581,7 +649,9 @@ mod tests {
                 arg_count: 0,
                 // Warning: Checking for 0 is brittle as it involves knowing the internal details of
                 // the id system.
-                instructions: vec![got.instructions[0].clone()].into()
+                instructions: vec![got.instructions[0].clone()].into(),
+                source: Some("\"string\"".into()),
+                instruction_source: vec![Span::new(0, 8)].into(),
             }
         );
         assert_eq!(
@@ -607,7 +677,9 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::Deref("my-variable".into())].into()
+                instructions: vec![Instruction::Deref("my-variable".into())].into(),
+                source: Some("my-variable".into()),
+                instruction_source: vec![Span::new(0, 11)].into(),
             }
         );
     }
@@ -616,6 +688,7 @@ mod tests {
     fn single_identifier_with_aggressive_inline_is_push_const() {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
+            enable_source_maps: false,
         });
         let actual = Compiler::compile(&mut vm, "+", &Bump::new()).unwrap();
         assert_eq!(
@@ -626,7 +699,9 @@ mod tests {
                 instructions: vec![Instruction::PushConst(
                     UnsafeVal::NativeFunction(crate::builtins::add).into()
                 )]
-                .into()
+                .into(),
+                source: None,
+                instruction_source: vec![Span::new(0, 1)].into(),
             }
         );
     }
@@ -635,6 +710,7 @@ mod tests {
     fn aggressive_inline_with_builtin_function_inlines_function_value() {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
+            enable_source_maps: false,
         });
         let actual = Compiler::compile(&mut vm, "(+ 1 2)", &Bump::new()).unwrap();
         assert_eq!(
@@ -650,6 +726,13 @@ mod tests {
                         arg_count: 2
                     },
                 ]
+                .into(),
+                source: None,
+                instruction_source: vec![
+                    Span { start: 3, end: 4 },
+                    Span { start: 5, end: 6 },
+                    Span { start: 0, end: 7 }
+                ]
                 .into()
             }
         );
@@ -659,6 +742,7 @@ mod tests {
     fn aggressive_inline_with_nonexistant_function_falls_back_to_deref() {
         let mut vm = Vm::new(Settings {
             enable_aggressive_inline: true,
+            enable_source_maps: false,
         });
         let actual = Compiler::compile(&mut vm, "(does-not-exist 1 2)", &Bump::new()).unwrap();
         assert_eq!(
@@ -671,6 +755,14 @@ mod tests {
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
+                ]
+                .into(),
+                source: None,
+                instruction_source: vec![
+                    Span { start: 1, end: 15 },
+                    Span { start: 16, end: 17 },
+                    Span { start: 18, end: 19 },
+                    Span { start: 0, end: 20 }
                 ]
                 .into()
             }
@@ -687,6 +779,15 @@ mod tests {
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
+                ]
+                .into(),
+                source: None,
+                instruction_source: vec![
+                    Span { start: 2, end: 8 },
+                    Span { start: 1, end: 9 },
+                    Span { start: 10, end: 11 },
+                    Span { start: 12, end: 13 },
+                    Span { start: 0, end: 14 },
                 ]
                 .into()
             }
@@ -706,7 +807,10 @@ mod tests {
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
-                instructions: vec![Instruction::Deref("+".into()), Instruction::Eval(1)].into()
+                instructions: vec![Instruction::Deref("+".into()), Instruction::Eval(1)].into(),
+                source: Some("(+)".into()),
+                instruction_source: vec![Span { start: 1, end: 2 }, Span { start: 0, end: 3 }]
+                    .into(),
             }
         );
     }
@@ -726,6 +830,14 @@ mod tests {
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                 ]
+                .into(),
+                source: Some("(+ 1 2)".into()),
+                instruction_source: [
+                    Span { start: 1, end: 2 },
+                    Span { start: 3, end: 4 },
+                    Span { start: 5, end: 6 },
+                    Span { start: 0, end: 7 }
+                ]
                 .into()
             }
         );
@@ -734,7 +846,8 @@ mod tests {
     #[test]
     fn multiple_expressions_are_evaluated_in_order() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(+ 1 2) (+ 3 4)", &Bump::new()).unwrap();
+        let src = "(+ 1 2) (+ 3 4)";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -750,7 +863,19 @@ mod tests {
                     Instruction::PushConst(4.into()),
                     Instruction::Eval(3),
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 1, end: 2 },
+                    Span { start: 3, end: 4 },
+                    Span { start: 5, end: 6 },
+                    Span { start: 0, end: 7 },
+                    Span { start: 9, end: 10 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 13, end: 14 },
+                    Span { start: 8, end: 15 }
+                ]
+                .into(),
             }
         );
     }
@@ -758,7 +883,8 @@ mod tests {
     #[test]
     fn nested_expressions_are_evaluated() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(+ 1 2 (+ 3 4))", &Bump::new()).unwrap();
+        let src = "(+ 1 2 (+ 3 4))";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -774,7 +900,19 @@ mod tests {
                     Instruction::Eval(3),
                     Instruction::Eval(4),
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 1, end: 2 },
+                    Span { start: 3, end: 4 },
+                    Span { start: 5, end: 6 },
+                    Span { start: 8, end: 9 },
+                    Span { start: 10, end: 11 },
+                    Span { start: 12, end: 13 },
+                    Span { start: 7, end: 14 },
+                    Span { start: 0, end: 15 }
+                ]
+                .into(),
             }
         );
     }
@@ -820,16 +958,31 @@ mod tests {
                     Instruction::PushConst(12.into()),
                     Instruction::Define("x".into()),
                 ]
-                .into()
+                .into(),
+                source: Some("(define x 12)".into()),
+                instruction_source: vec![Span { start: 10, end: 12 }, Span { start: 0, end: 13 }]
+                    .into(),
             }
         );
+    }
+
+    fn instruction_push_const_to_bytecode<'a>(
+        instruction: &Instruction,
+        vm: &'a Vm,
+    ) -> Option<&'a ByteCode> {
+        match instruction {
+            Instruction::PushConst(UnsafeVal::ByteCodeFunction(id)) => {
+                Some(vm.objects.get_bytecode(*id).unwrap())
+            }
+            _ => None,
+        }
     }
 
     #[test]
     fn define_with_list_identifier_produces_lambda() {
         let mut vm = Vm::default();
-        let actual =
-            Compiler::compile(&mut vm, "(define (foo a b) (+ a b))", &Bump::new()).unwrap();
+        let src = "(define (foo a b) (+ a b))";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -848,14 +1001,27 @@ mod tests {
                                     Instruction::Eval(3),
                                 ]
                                 .into(),
+                                source: Some(src.into()),
+                                instruction_source: vec![
+                                    Span { start: 19, end: 20 },
+                                    Span { start: 21, end: 22 },
+                                    Span { start: 23, end: 24 },
+                                    Span { start: 18, end: 25 }
+                                ]
+                                .into(),
                             })
                         )
                         .into()
                     ),
                     Instruction::Define("foo".into()),
                 ]
-                .into()
-            }
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![Span { start: 0, end: 0 }, Span { start: 9, end: 12 }]
+                    .into(),
+            },
+            "Inner bytecode is: {:?}",
+            instruction_push_const_to_bytecode(&actual.instructions[0], &vm)
         );
     }
 
@@ -874,6 +1040,15 @@ mod tests {
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                     Instruction::Define("x".into()),
+                ]
+                .into(),
+                source: Some("(define x (+ 1 2))".into()),
+                instruction_source: [
+                    Span { start: 11, end: 12 },
+                    Span { start: 13, end: 14 },
+                    Span { start: 15, end: 16 },
+                    Span { start: 10, end: 17 },
+                    Span { start: 0, end: 18 }
                 ]
                 .into()
             }
@@ -898,8 +1073,9 @@ mod tests {
     #[test]
     fn if_expression_produces_branching_instructions() {
         let mut vm = Vm::default();
+        let src = "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))";
         assert_eq!(
-            Compiler::compile(&mut vm, "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))", &Bump::new()).unwrap(),
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -922,7 +1098,28 @@ mod tests {
                     Instruction::PushConst(5.into()),
                     Instruction::Eval(4),
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 5, end: 6 },
+                    Span { start: 7, end: 8 },
+                    Span { start: 9, end: 10 },
+                    Span { start: 4, end: 11 },
+                    Span { start: 0, end: 34 },
+                    Span { start: 23, end: 24 },
+                    Span { start: 25, end: 26 },
+                    Span { start: 27, end: 28 },
+                    Span { start: 29, end: 30 },
+                    Span { start: 31, end: 32 },
+                    Span { start: 22, end: 33 },
+                    Span { start: 0, end: 34 },
+                    Span { start: 13, end: 14 },
+                    Span { start: 15, end: 16 },
+                    Span { start: 17, end: 18 },
+                    Span { start: 19, end: 20 },
+                    Span { start: 12, end: 21 }
+                ]
+                .into(),
             }
         );
     }
@@ -930,8 +1127,9 @@ mod tests {
     #[test]
     fn if_expression_with_empty_false_branch_defaults_to_void() {
         let mut vm = Vm::default();
+        let src = "(if (< 1 2) (+ 4 5 6))";
         assert_eq!(
-            Compiler::compile(&mut vm, "(if (< 1 2) (+ 4 5 6))", &Bump::new()).unwrap(),
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -949,6 +1147,22 @@ mod tests {
                     Instruction::PushConst(6.into()),
                     Instruction::Eval(4)
                 ]
+                .into(),
+                source: Some(src.into()),
+                instruction_source: [
+                    Span { start: 5, end: 6 },
+                    Span { start: 7, end: 8 },
+                    Span { start: 9, end: 10 },
+                    Span { start: 4, end: 11 },
+                    Span { start: 0, end: 22 },
+                    Span { start: 0, end: 0 },
+                    Span { start: 0, end: 22 },
+                    Span { start: 13, end: 14 },
+                    Span { start: 15, end: 16 },
+                    Span { start: 17, end: 18 },
+                    Span { start: 19, end: 20 },
+                    Span { start: 12, end: 21 }
+                ]
                 .into()
             }
         );
@@ -957,8 +1171,9 @@ mod tests {
     #[test]
     fn if_expression_allows_early_return_on_branches() {
         let mut vm = Vm::default();
+        let src = "(if true (return 1) (return 2))";
         assert_eq!(
-            Compiler::compile(&mut vm, "(if true (return 1) (return 2))", &Bump::new()).unwrap(),
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -971,7 +1186,18 @@ mod tests {
                     Instruction::PushConst(1.into()),
                     Instruction::Return
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 4, end: 8 },
+                    Span { start: 0, end: 31 },
+                    Span { start: 28, end: 29 },
+                    Span { start: 0, end: 0 },
+                    Span { start: 0, end: 31 },
+                    Span { start: 17, end: 18 },
+                    Span { start: 0, end: 0 }
+                ]
+                .into(),
             }
         );
     }
@@ -1038,7 +1264,8 @@ mod tests {
     #[test]
     fn lambda_produces_lambda_expr() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(lambda () 1)", &Bump::new()).unwrap();
+        let src = "(lambda () 1)";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -1049,23 +1276,25 @@ mod tests {
                         name: "".into(),
                         arg_count: 0,
                         instructions: vec![Instruction::PushConst(1.into())].into(),
+                        source: Some(src.into()),
+                        instruction_source: [Span { start: 11, end: 12 }].into(),
                     }))
                     .into()
                 )]
-                .into()
-            }
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![Span::new(0, 0)].into(),
+            },
+            "Inner bytecode is: {:?}",
+            instruction_push_const_to_bytecode(&actual.instructions[0], &vm),
         );
     }
 
     #[test]
     fn lambda_can_reference_args() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(
-            &mut vm,
-            "(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))",
-            &Bump::new(),
-        )
-        .unwrap();
+        let src = "(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -1083,19 +1312,32 @@ mod tests {
                                 Instruction::Eval(3)
                             ]
                             .into(),
+                            source: Some("(lambda (arg0 arg1 arg2) (arg1 arg0 arg2))".into()),
+                            instruction_source: [
+                                Span { start: 26, end: 30 },
+                                Span { start: 31, end: 35 },
+                                Span { start: 36, end: 40 },
+                                Span { start: 25, end: 41 }
+                            ]
+                            .into()
                         })
                     )
                     .into()
                 )]
-                .into()
-            }
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![Span::new(0, 0)].into(),
+            },
+            "Inner bytecode is: {:?}",
+            instruction_push_const_to_bytecode(&actual.instructions[0], &vm),
         );
     }
 
     #[test]
     fn lambda_that_calls_self_with_push_current_function_instruction() {
         let mut vm = Vm::default();
-        let actual = Compiler::compile(&mut vm, "(define (foo n) (foo n))", &Bump::new()).unwrap();
+        let src = "(define (foo n) (foo n))";
+        let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
         assert_eq!(
             actual,
             ByteCode {
@@ -1113,14 +1355,26 @@ mod tests {
                                     Instruction::Eval(2)
                                 ]
                                 .into(),
+                                source: Some(src.into()),
+                                instruction_source: vec![
+                                    Span { start: 17, end: 20 },
+                                    Span { start: 21, end: 22 },
+                                    Span { start: 16, end: 23 }
+                                ]
+                                .into(),
                             })
                         )
                         .into()
                     ),
                     Instruction::Define("foo".into()),
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![Span { start: 0, end: 0 }, Span { start: 9, end: 12 }]
+                    .into(),
             },
+            "Inner bytecode is {:?}",
+            instruction_push_const_to_bytecode(&actual.instructions[0], &vm),
         );
     }
 
@@ -1183,8 +1437,9 @@ mod tests {
     #[test]
     fn return_produces_return_instruction() {
         let mut vm = Vm::default();
+        let src = "(return (if true 1 2))";
         assert_eq!(
-            Compiler::compile(&mut vm, "(return (if true 1 2))", &Bump::new()).unwrap(),
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
             ByteCode {
                 name: "".into(),
                 arg_count: 0,
@@ -1196,7 +1451,17 @@ mod tests {
                     Instruction::PushConst(1.into()),
                     Instruction::Return,
                 ]
-                .into()
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 12, end: 16 },
+                    Span { start: 8, end: 21 },
+                    Span { start: 19, end: 20 },
+                    Span { start: 8, end: 21 },
+                    Span { start: 17, end: 18 },
+                    Span { start: 0, end: 0 }
+                ]
+                .into(),
             }
         );
     }
