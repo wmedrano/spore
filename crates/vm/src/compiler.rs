@@ -75,208 +75,243 @@ impl<'a> Compiler<'a> {
 
     fn compile_one(&mut self, ir: &Ir, ctx: CompilerContext) -> Result<()> {
         match ir {
-            Ir::Constant(span, const_val) => {
-                let instruction = match const_val {
-                    Constant::Void => Instruction::PushConst(().into()),
-                    Constant::Bool(x) => Instruction::PushConst((*x).into()),
-                    Constant::Int(x) => Instruction::PushConst((*x).into()),
-                    Constant::Float(x) => Instruction::PushConst((*x).into()),
-                    Constant::String(x) => Instruction::PushConst(UnsafeVal::String(
-                        self.vm.objects.insert_string(x.clone()),
-                    )),
-                };
-                self.instruction_source.push(*span);
-                self.instructions.push(instruction);
-            }
-            Ir::Deref(span, ident) => match self.arg_idx(ident) {
-                Some(idx) => {
-                    self.instruction_source.push(*span);
-                    self.instructions.push(Instruction::GetArg(idx))
-                }
-                None if self
-                    .function_name
-                    .as_ref()
-                    .map(|s| s.as_str() == *ident)
-                    .unwrap_or(false) =>
-                {
-                    self.instruction_source.push(*span);
-                    self.instructions.push(Instruction::PushCurrentFunction)
-                }
-                None => {
-                    let maybe_inlined_val = self
-                        .settings
-                        .enable_aggressive_inline
-                        .then(|| self.vm.values.get(*ident))
-                        .flatten()
-                        .map(|c| Instruction::PushConst(*c));
-                    let instruction =
-                        maybe_inlined_val.unwrap_or(Instruction::Deref((*ident).into()));
-                    self.instruction_source.push(*span);
-                    self.instructions.push(instruction)
-                }
-            },
+            Ir::Constant(span, const_val) => self.compile_one_constant(*span, const_val)?,
+            Ir::Deref(span, ident) => self.compile_one_deref(*span, ident)?,
             Ir::FunctionCall {
                 span,
                 function,
                 args,
-            } => {
-                if function.return_type() == IrReturnType::None {
-                    return Err(CompileError::ExpectedExpression {
-                        context: "function call",
-                    });
-                }
-                let maybe_native_function = self
-                    .settings
-                    .enable_aggressive_inline
-                    .then(|| match function {
-                        Ir::Deref(_, ident) => match self.vm.values.get(*ident) {
-                            Some(UnsafeVal::NativeFunction(func)) => Some(*func),
-                            _ => None,
-                        },
-                        _ => None,
-                    })
-                    .flatten();
-                if maybe_native_function.is_none() {
-                    self.compile_one(function, CompilerContext::Subexpression)?;
-                }
-                for arg in args {
-                    if arg.return_type() != IrReturnType::Value {
-                        return Err(CompileError::ExpectedExpression {
-                            context: "function call argument",
-                        });
-                    }
-                    self.compile_one(arg, CompilerContext::Subexpression)?;
-                }
-                match maybe_native_function {
-                    Some(func) => {
-                        self.instruction_source.push(*span);
-                        self.instructions.push(Instruction::EvalNative {
-                            func,
-                            arg_count: args.len(),
-                        })
-                    }
-                    None => {
-                        self.instruction_source.push(*span);
-                        self.instructions.push(Instruction::Eval(args.len() + 1))
-                    }
-                }
-            }
+            } => self.compile_one_function_call(*span, function, args)?,
             Ir::Define {
                 span,
                 identifier,
                 expr,
-            } => {
-                if ctx != CompilerContext::Module {
-                    return Err(CompileError::DefineNotAllowedInSubexpression);
-                }
-                if expr.return_type() != IrReturnType::Value {
-                    return Err(CompileError::ExpectedExpression { context: "define" });
-                }
-                self.compile_one(expr, CompilerContext::Subexpression)?;
-                self.instruction_source.push(*span);
-                self.instructions
-                    .push(Instruction::Define((*identifier).into()));
-            }
+            } => self.compile_one_define(ctx, *span, identifier, expr)?,
             Ir::If {
                 span,
                 predicate,
                 true_expr,
                 false_expr,
-            } => {
-                if predicate.return_type() != IrReturnType::Value {
-                    return Err(CompileError::ExpectedExpression {
-                        context: "if predicate",
-                    });
-                }
-                self.compile_one(predicate, CompilerContext::Subexpression)?;
-                // Placeholder for jump instruction.
-                let true_jump_idx = self.instructions.len();
-                self.instruction_source.push(*span);
-                self.instructions.push(Instruction::PushConst(().into()));
-                match false_expr {
-                    Some(expr) => {
-                        if expr.return_type() == IrReturnType::None {
-                            return Err(CompileError::ExpectedExpression {
-                                context: "if expression, false branch",
-                            });
-                        }
-                        self.compile_one(expr, CompilerContext::Subexpression)?
-                    }
-                    None => {
-                        self.instruction_source.push(Span::new(0, 0));
-                        self.instructions.push(Instruction::PushConst(().into()))
-                    }
-                }
-                let false_jump_idx = self.instructions.len();
-                self.instruction_source.push(*span);
-                self.instructions.push(Instruction::PushConst(().into()));
-                if true_expr.return_type() == IrReturnType::None {
-                    return Err(CompileError::ExpectedExpression {
-                        context: "if expression, true branch",
-                    });
-                }
-                self.compile_one(true_expr, CompilerContext::Subexpression)?;
-                self.instructions[true_jump_idx] =
-                    Instruction::JumpIf(false_jump_idx - true_jump_idx);
-                self.instruction_source[false_jump_idx] = *span;
-                self.instructions[false_jump_idx] =
-                    Instruction::Jump(self.instructions.len() - false_jump_idx - 1);
-            }
+            } => self.compile_one_if(*span, predicate, true_expr, *false_expr)?,
             Ir::Lambda {
                 name,
                 args,
                 expressions,
-            } => {
-                if expressions.is_empty() {
-                    return Err(CompileError::ExpectedExpression {
-                        context: "lambda definition expressions",
-                    });
-                }
-                let mut arguments_vec = BumpVec::new_in(self.arena);
-                for arg in args.iter() {
-                    arguments_vec.push(CompactString::new(arg));
-                }
-                let mut lambda_compiler = Compiler {
-                    vm: self.vm,
-                    arena: self.arena,
-                    source: self.source.clone(),
-                    settings: self.settings,
-                    function_name: name.map(CompactString::new),
-                    arguments: arguments_vec,
-                    instructions: BumpVec::new_in(self.arena),
-                    instruction_source: BumpVec::new_in(self.arena),
-                };
-                if let Some(dupe) = find_duplicate(&lambda_compiler.arguments) {
-                    return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
-                }
-                for expr in expressions.iter() {
-                    lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
-                }
-                let lambda_val =
-                    UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(
-                        ByteCode {
-                            name: name.unwrap_or("").into(),
-                            arg_count: args.len(),
-                            instructions: lambda_compiler.instructions.into_bump_slice().into(),
-                            source: lambda_compiler.source,
-                            instruction_source:
-                                lambda_compiler.instruction_source.into_bump_slice().into(),
-                        },
-                    ));
-                self.instruction_source.push(Span::new(0, 0));
-                self.instructions.push(Instruction::PushConst(lambda_val));
-            }
-            Ir::Return { expr } => {
-                if expr.return_type() == IrReturnType::None {
-                    return Err(CompileError::ExpectedExpression {
-                        context: "return statement expected expression",
-                    });
-                }
-                self.compile_one(expr, CompilerContext::Subexpression)?;
-                self.instruction_source.push(Span::new(0, 0));
-                self.instructions.push(Instruction::Return);
+            } => self.compile_one_lambda(*name, args, expressions)?,
+            Ir::Return { expr } => self.compile_one_return(expr)?,
+        };
+        Ok(())
+    }
+
+    fn compile_one_constant(&mut self, span: Span, val: &Constant) -> Result<()> {
+        let instruction = match val {
+            Constant::Void => Instruction::PushConst(().into()),
+            Constant::Bool(x) => Instruction::PushConst((*x).into()),
+            Constant::Int(x) => Instruction::PushConst((*x).into()),
+            Constant::Float(x) => Instruction::PushConst((*x).into()),
+            Constant::String(x) => {
+                Instruction::PushConst(UnsafeVal::String(self.vm.objects.insert_string(x.clone())))
             }
         };
+        self.instruction_source.push(span);
+        self.instructions.push(instruction);
+        Ok(())
+    }
+
+    fn compile_one_deref(&mut self, span: Span, ident: &str) -> Result<()> {
+        match self.arg_idx(ident) {
+            Some(idx) => {
+                self.instruction_source.push(span);
+                self.instructions.push(Instruction::GetArg(idx))
+            }
+            None if self
+                .function_name
+                .as_ref()
+                .map(|s| s.as_str() == ident)
+                .unwrap_or(false) =>
+            {
+                self.instruction_source.push(span);
+                self.instructions.push(Instruction::PushCurrentFunction)
+            }
+            None => {
+                let maybe_inlined_val = self
+                    .settings
+                    .enable_aggressive_inline
+                    .then(|| self.vm.values.get(ident))
+                    .flatten()
+                    .map(|c| Instruction::PushConst(*c));
+                let instruction = maybe_inlined_val.unwrap_or(Instruction::Deref((*ident).into()));
+                self.instruction_source.push(span);
+                self.instructions.push(instruction)
+            }
+        };
+        Ok(())
+    }
+
+    fn compile_one_function_call(&mut self, span: Span, function: &Ir, args: &[Ir]) -> Result<()> {
+        if function.return_type() == IrReturnType::None {
+            return Err(CompileError::ExpectedExpression {
+                context: "function call",
+            });
+        }
+        let maybe_native_function = self
+            .settings
+            .enable_aggressive_inline
+            .then(|| match function {
+                Ir::Deref(_, ident) => match self.vm.values.get(*ident) {
+                    Some(UnsafeVal::NativeFunction(func)) => Some(*func),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .flatten();
+        if maybe_native_function.is_none() {
+            self.compile_one(function, CompilerContext::Subexpression)?;
+        }
+        for arg in args {
+            if arg.return_type() != IrReturnType::Value {
+                return Err(CompileError::ExpectedExpression {
+                    context: "function call argument",
+                });
+            }
+            self.compile_one(arg, CompilerContext::Subexpression)?;
+        }
+        match maybe_native_function {
+            Some(func) => {
+                self.instruction_source.push(span);
+                self.instructions.push(Instruction::EvalNative {
+                    func,
+                    arg_count: args.len(),
+                })
+            }
+            None => {
+                self.instruction_source.push(span);
+                self.instructions.push(Instruction::Eval(args.len() + 1))
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_one_define(
+        &mut self,
+        ctx: CompilerContext,
+        span: Span,
+        identifier: &str,
+        expr: &Ir,
+    ) -> Result<()> {
+        if ctx != CompilerContext::Module {
+            return Err(CompileError::DefineNotAllowedInSubexpression);
+        }
+        if expr.return_type() != IrReturnType::Value {
+            return Err(CompileError::ExpectedExpression { context: "define" });
+        }
+        self.compile_one(expr, CompilerContext::Subexpression)?;
+        self.instruction_source.push(span);
+        self.instructions
+            .push(Instruction::Define((*identifier).into()));
+        Ok(())
+    }
+
+    fn compile_one_if(
+        &mut self,
+        span: Span,
+        predicate: &Ir,
+        true_expr: &Ir,
+        false_expr: Option<&Ir>,
+    ) -> Result<()> {
+        if predicate.return_type() != IrReturnType::Value {
+            return Err(CompileError::ExpectedExpression {
+                context: "if predicate",
+            });
+        }
+        self.compile_one(predicate, CompilerContext::Subexpression)?;
+        // Placeholder for jump instruction.
+        let true_jump_idx = self.instructions.len();
+        self.instruction_source.push(span);
+        self.instructions.push(Instruction::PushConst(().into()));
+        match false_expr {
+            Some(expr) => {
+                if expr.return_type() == IrReturnType::None {
+                    return Err(CompileError::ExpectedExpression {
+                        context: "if expression, false branch",
+                    });
+                }
+                self.compile_one(expr, CompilerContext::Subexpression)?
+            }
+            None => {
+                self.instruction_source.push(Span::new(0, 0));
+                self.instructions.push(Instruction::PushConst(().into()))
+            }
+        }
+        let false_jump_idx = self.instructions.len();
+        self.instruction_source.push(span);
+        self.instructions.push(Instruction::PushConst(().into()));
+        if true_expr.return_type() == IrReturnType::None {
+            return Err(CompileError::ExpectedExpression {
+                context: "if expression, true branch",
+            });
+        }
+        self.compile_one(true_expr, CompilerContext::Subexpression)?;
+        self.instructions[true_jump_idx] = Instruction::JumpIf(false_jump_idx - true_jump_idx);
+        self.instruction_source[false_jump_idx] = span;
+        self.instructions[false_jump_idx] =
+            Instruction::Jump(self.instructions.len() - false_jump_idx - 1);
+        Ok(())
+    }
+
+    fn compile_one_lambda(
+        &mut self,
+        name: Option<&str>,
+        args: &[&str],
+        expressions: &[Ir],
+    ) -> Result<()> {
+        if expressions.is_empty() {
+            return Err(CompileError::ExpectedExpression {
+                context: "lambda definition expressions",
+            });
+        }
+        let mut arguments_vec = BumpVec::new_in(self.arena);
+        for arg in args.iter() {
+            arguments_vec.push(CompactString::new(arg));
+        }
+        let mut lambda_compiler = Compiler {
+            vm: self.vm,
+            arena: self.arena,
+            source: self.source.clone(),
+            settings: self.settings,
+            function_name: name.map(CompactString::new),
+            arguments: arguments_vec,
+            instructions: BumpVec::new_in(self.arena),
+            instruction_source: BumpVec::new_in(self.arena),
+        };
+        if let Some(dupe) = find_duplicate(&lambda_compiler.arguments) {
+            return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
+        }
+        for expr in expressions.iter() {
+            lambda_compiler.compile_one(expr, CompilerContext::Subexpression)?;
+        }
+        let lambda_val =
+            UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(ByteCode {
+                name: name.unwrap_or("").into(),
+                arg_count: args.len(),
+                instructions: lambda_compiler.instructions.into_bump_slice().into(),
+                source: lambda_compiler.source,
+                instruction_source: lambda_compiler.instruction_source.into_bump_slice().into(),
+            }));
+        self.instruction_source.push(Span::new(0, 0));
+        self.instructions.push(Instruction::PushConst(lambda_val));
+        Ok(())
+    }
+
+    fn compile_one_return(&mut self, expr: &Ir) -> Result<()> {
+        if expr.return_type() == IrReturnType::None {
+            return Err(CompileError::ExpectedExpression {
+                context: "return statement expected expression",
+            });
+        }
+        self.compile_one(expr, CompilerContext::Subexpression)?;
+        self.instruction_source.push(Span::new(0, 0));
+        self.instructions.push(Instruction::Return);
         Ok(())
     }
 }
@@ -382,92 +417,27 @@ impl<'a> Ir<'a> {
                 Constant::String(node.to_string_literal(src).unwrap()),
             ),
             Node::Identifier(ident_span) => Ir::Deref(*ident_span, ident_span.as_str(src)),
-            Node::Tree(span, tree) => match tree.as_slice() {
-                [Node::Identifier(maybe_define), define_args @ ..]
-                    if maybe_define.as_str(src) == "define" =>
-                {
-                    match define_args {
-                        [Node::Identifier(identifier_span), expr] => Ir::Define {
-                            span: *span,
-                            identifier: identifier_span.as_str(src),
-                            expr: arena.alloc(Ir::new(arena, src, expr)?),
-                        },
-                        [Node::Tree(_, lambda_signature), exprs @ ..] => {
-                            match lambda_signature.as_slice() {
-                                [Node::Identifier(identifier_span), args @ ..] => {
-                                    let mut args_vec = BumpVec::new_in(arena);
-                                    for arg in args.iter() {
-                                        let ident = node_to_ident(src, arg)?;
-                                        args_vec.push(ident);
-                                    }
-                                    let mut exprs_vec = BumpVec::new_in(arena);
-                                    for expr in exprs.iter() {
-                                        let expr_ir = Ir::new(arena, src, expr)?;
-                                        exprs_vec.push(expr_ir);
-                                    }
-                                    Ir::Define {
-                                        span: *identifier_span,
-                                        identifier: identifier_span.as_str(src),
-                                        expr: arena.alloc(Ir::Lambda {
-                                            name: Some(identifier_span.as_str(src)),
-                                            args: args_vec,
-                                            expressions: exprs_vec,
-                                        }),
-                                    }
-                                }
-                                _ => {
-                                    return Err(CompileError::ExpectedIdentifierList {
-                                        context: "function definition",
-                                    })
-                                }
-                            }
-                        }
-                        [_, _] => return Err(CompileError::ExpectedIdentifier),
-                        _ => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "define",
-                                expected: 2,
-                                actual: define_args.len(),
-                            })
-                        }
-                    }
-                }
-                [Node::Identifier(maybe_if), args @ ..] if maybe_if.as_str(src) == "if" => {
-                    match args {
-                        [predicate, true_expr] => Ir::If {
-                            span: *span,
-                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                            false_expr: None,
-                        },
-                        [predicate, true_expr, false_expr] => Ir::If {
-                            span: *span,
-                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                            false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
-                        },
-                        _ => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "if",
-                                expected: if args.len() > 3 { 3 } else { 2 },
-                                actual: args.len(),
-                            })
-                        }
-                    }
-                }
-                [Node::Identifier(maybe_lambda), lambda_args, exprs @ ..]
-                    if maybe_lambda.as_str(src) == "lambda" =>
-                {
-                    let lambda_args = match lambda_args {
-                        Node::Tree(_, t) => t,
-                        _ => {
-                            return Err(CompileError::ExpectedIdentifierList {
-                                context: "lambda/function definition",
-                            })
-                        }
-                    };
+            Node::Tree(span, tree) => Self::new_tree(arena, src, *span, tree)?,
+        };
+        Ok(ir)
+    }
+
+    fn new_define(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        define_args: &'a [Node],
+    ) -> Result<Ir<'a>> {
+        let ir = match define_args {
+            [Node::Identifier(identifier_span), expr] => Ir::Define {
+                span,
+                identifier: identifier_span.as_str(src),
+                expr: arena.alloc(Ir::new(arena, src, expr)?),
+            },
+            [Node::Tree(_, lambda_signature), exprs @ ..] => match lambda_signature.as_slice() {
+                [Node::Identifier(identifier_span), args @ ..] => {
                     let mut args_vec = BumpVec::new_in(arena);
-                    for arg in lambda_args.iter() {
+                    for arg in args.iter() {
                         let ident = node_to_ident(src, arg)?;
                         args_vec.push(ident);
                     }
@@ -476,65 +446,140 @@ impl<'a> Ir<'a> {
                         let expr_ir = Ir::new(arena, src, expr)?;
                         exprs_vec.push(expr_ir);
                     }
-                    Ir::Lambda {
-                        name: None,
-                        args: args_vec,
-                        expressions: exprs_vec,
-                    }
-                }
-                [Node::Identifier(maybe_return), return_args @ ..]
-                    if maybe_return.as_str(src) == "return" =>
-                {
-                    match return_args {
-                        [expr] => Ir::Return {
-                            expr: arena.alloc(Ir::new(arena, src, expr)?),
-                        },
-                        _ => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "return",
-                                expected: 1,
-                                actual: return_args.len(),
-                            })
-                        }
-                    }
-                }
-                [f, args @ ..] => match f {
-                    Node::Identifier(maybe_if) if maybe_if.as_str(src) == "if" => match args {
-                        [predicate, true_expr] => Ir::If {
-                            span: *maybe_if,
-                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                            false_expr: None,
-                        },
-                        [predicate, true_expr, false_expr] => Ir::If {
-                            span: *maybe_if,
-                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                            false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
-                        },
-                        _ => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "if",
-                                expected: if args.len() > 3 { 3 } else { 2 },
-                                actual: args.len(),
-                            })
-                        }
-                    },
-                    ident => {
-                        let mut args_vec = BumpVec::new_in(arena);
-                        for arg in args.iter() {
-                            let arg_ir = Ir::new(arena, src, arg)?;
-                            args_vec.push(arg_ir);
-                        }
-                        Ir::FunctionCall {
-                            span: *span,
-                            function: arena.alloc(Ir::new(arena, src, ident)?),
+                    Ir::Define {
+                        span: *identifier_span,
+                        identifier: identifier_span.as_str(src),
+                        expr: arena.alloc(Ir::Lambda {
+                            name: Some(identifier_span.as_str(src)),
                             args: args_vec,
-                        }
+                            expressions: exprs_vec,
+                        }),
+                    }
+                }
+                _ => {
+                    return Err(CompileError::ExpectedIdentifierList {
+                        context: "function definition",
+                    })
+                }
+            },
+            [_, _] => return Err(CompileError::ExpectedIdentifier),
+            _ => {
+                return Err(CompileError::ExpressionHasWrongArgs {
+                    expression: "define",
+                    expected: 2,
+                    actual: define_args.len(),
+                })
+            }
+        };
+        Ok(ir)
+    }
+    fn new_tree(arena: &'a Bump, src: &'a str, span: Span, tree: &'a [Node]) -> Result<Ir<'a>> {
+        let ir = match tree {
+            [Node::Identifier(maybe_define), define_args @ ..]
+                if maybe_define.as_str(src) == "define" =>
+            {
+                Self::new_define(arena, src, span, define_args)?
+            }
+            [Node::Identifier(maybe_if), args @ ..] if maybe_if.as_str(src) == "if" => match args {
+                [predicate, true_expr] => Ir::If {
+                    span,
+                    predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                    true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                    false_expr: None,
+                },
+                [predicate, true_expr, false_expr] => Ir::If {
+                    span,
+                    predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                    true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                    false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
+                },
+                _ => {
+                    return Err(CompileError::ExpressionHasWrongArgs {
+                        expression: "if",
+                        expected: if args.len() > 3 { 3 } else { 2 },
+                        actual: args.len(),
+                    })
+                }
+            },
+            [Node::Identifier(maybe_lambda), lambda_args, exprs @ ..]
+                if maybe_lambda.as_str(src) == "lambda" =>
+            {
+                let lambda_args = match lambda_args {
+                    Node::Tree(_, t) => t,
+                    _ => {
+                        return Err(CompileError::ExpectedIdentifierList {
+                            context: "lambda/function definition",
+                        })
+                    }
+                };
+                let mut args_vec = BumpVec::new_in(arena);
+                for arg in lambda_args.iter() {
+                    let ident = node_to_ident(src, arg)?;
+                    args_vec.push(ident);
+                }
+                let mut exprs_vec = BumpVec::new_in(arena);
+                for expr in exprs.iter() {
+                    let expr_ir = Ir::new(arena, src, expr)?;
+                    exprs_vec.push(expr_ir);
+                }
+                Ir::Lambda {
+                    name: None,
+                    args: args_vec,
+                    expressions: exprs_vec,
+                }
+            }
+            [Node::Identifier(maybe_return), return_args @ ..]
+                if maybe_return.as_str(src) == "return" =>
+            {
+                match return_args {
+                    [expr] => Ir::Return {
+                        expr: arena.alloc(Ir::new(arena, src, expr)?),
+                    },
+                    _ => {
+                        return Err(CompileError::ExpressionHasWrongArgs {
+                            expression: "return",
+                            expected: 1,
+                            actual: return_args.len(),
+                        })
+                    }
+                }
+            }
+            [f, args @ ..] => match f {
+                Node::Identifier(maybe_if) if maybe_if.as_str(src) == "if" => match args {
+                    [predicate, true_expr] => Ir::If {
+                        span: *maybe_if,
+                        predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                        true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                        false_expr: None,
+                    },
+                    [predicate, true_expr, false_expr] => Ir::If {
+                        span: *maybe_if,
+                        predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                        true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                        false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
+                    },
+                    _ => {
+                        return Err(CompileError::ExpressionHasWrongArgs {
+                            expression: "if",
+                            expected: if args.len() > 3 { 3 } else { 2 },
+                            actual: args.len(),
+                        })
                     }
                 },
-                [] => return Err(CompileError::EmptyExpression),
+                ident => {
+                    let mut args_vec = BumpVec::new_in(arena);
+                    for arg in args.iter() {
+                        let arg_ir = Ir::new(arena, src, arg)?;
+                        args_vec.push(arg_ir);
+                    }
+                    Ir::FunctionCall {
+                        span,
+                        function: arena.alloc(Ir::new(arena, src, ident)?),
+                        args: args_vec,
+                    }
+                }
             },
+            [] => return Err(CompileError::EmptyExpression),
         };
         Ok(ir)
     }

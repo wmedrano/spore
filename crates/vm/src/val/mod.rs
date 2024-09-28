@@ -164,6 +164,20 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Get the underlying struct or `Err<Val>` if `self` is not a struct.
+    ///
+    /// # Safety
+    /// Provides raw access to the struct val.
+    pub unsafe fn try_unsafe_struct_mut(self, vm: &mut Vm) -> Result<&mut StructVal, Val<'a>> {
+        match self.inner {
+            UnsafeVal::Struct(id) => {
+                let strct = vm.objects.get_struct_mut(id);
+                Ok(strct)
+            }
+            _ => Err(self),
+        }
+    }
+
     /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
     /// box.
     pub fn try_mutable_box_ref(self, vm: &Vm) -> Result<Val, Val<'a>> {

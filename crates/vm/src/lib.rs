@@ -250,7 +250,7 @@ impl Vm {
         self.stack.clear();
         self.stack.extend(args);
         self.previous_stack_frames.clear();
-        let bytecode = self.objects.get_bytecode(bytecode_id).clone();
+        let bytecode = self.objects.get_bytecode(bytecode_id);
         let instructions = bytecode.unwrap().instructions.clone();
         self.stack_frame = StackFrame {
             bytecode_id,
@@ -557,7 +557,7 @@ mod tests {
             actual,
             VmError::TypeError {
                 context: "+",
-                expected: UnsafeVal::INT_TYPE_NAME,
+                expected: "int or float",
                 actual: UnsafeVal::BOOL_TYPE_NAME,
                 value: "true".to_string(),
             }

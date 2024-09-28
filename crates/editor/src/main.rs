@@ -7,8 +7,11 @@ use std::{
 use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
-use ratatui::{style::Style, DefaultTerminal};
-use spore_vm::{Settings, Vm};
+use ratatui::{
+    style::{Color, Style},
+    DefaultTerminal,
+};
+use spore_vm::{val::Val, Settings, Vm};
 use widgets::WindowWidget;
 
 mod buffer;
@@ -49,6 +52,16 @@ fn new_vm() -> anyhow::Result<Vm> {
 }
 
 fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+    let mut terminal_size = terminal.size()?;
+    let mut terminal_size_changed = false;
+    vm.eval_function_by_name(
+        "handle-size-change!",
+        [
+            Val::new_int(terminal_size.width.into()),
+            Val::new_int(terminal_size.height.into()),
+        ]
+        .into_iter(),
+    )?;
     while vm
         .eval_function_by_name("running?", std::iter::empty())
         .unwrap()
@@ -58,11 +71,30 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         terminal.draw(|frame| {
             let area = frame.area();
             frame.buffer_mut().set_style(area, Style::reset());
+            let mut colors = [Color::LightBlue, Color::LightRed].into_iter().cycle();
             for window in windows.try_list(windows.vm()).unwrap() {
-                frame.render_widget(WindowWidget::new(windows.vm(), *window), area);
+                frame.render_widget(
+                    WindowWidget::new(windows.vm(), *window, colors.next().unwrap()),
+                    area,
+                );
+            }
+            let frame_size = area.as_size();
+            if frame_size != terminal_size {
+                terminal_size = frame_size;
+                terminal_size_changed = true;
             }
         })?;
         drop(windows);
+        if terminal_size_changed {
+            vm.eval_function_by_name(
+                "handle-size-change!",
+                [
+                    Val::new_int(terminal_size.width.into()),
+                    Val::new_int(terminal_size.height.into()),
+                ]
+                .into_iter(),
+            )?;
+        }
         vm.eval_function_by_name("handle-event!", std::iter::empty())?;
     }
     info!("Exiting Spore.");

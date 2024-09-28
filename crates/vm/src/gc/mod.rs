@@ -250,6 +250,13 @@ impl MemoryManager {
         res.unwrap()
     }
 
+    /// Get a struct by its id.
+    pub fn get_struct_mut(&mut self, id: ValId<StructVal>) -> &mut StructVal {
+        let res = self.structs.get_mut(self.vm_id, id);
+        assert!(res.is_some(), "{id:?} not found.");
+        res.unwrap()
+    }
+
     /// Insert a struct and get its id.
     pub fn insert_struct(&mut self, strct: StructVal) -> ValId<StructVal> {
         self.stats.structs_allocated += 1;

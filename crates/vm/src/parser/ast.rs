@@ -52,18 +52,6 @@ impl Node {
         Node::parse(src).collect()
     }
 
-    pub fn span(&self) -> Span {
-        match self {
-            Node::Identifier(span) => *span,
-            Node::Void(span) => *span,
-            Node::Bool(span, _) => *span,
-            Node::Int(span, _) => *span,
-            Node::Float(span, _) => *span,
-            Node::String(span) => *span,
-            Node::Tree(span, _) => *span,
-        }
-    }
-
     /// Parse the next Node from `tokenizer`.
     fn parse_next(src: &str, tokenizer: &mut impl Iterator<Item = Token>) -> Option<Result<Node>> {
         while let Some(next_token) = tokenizer.next() {
@@ -261,9 +249,10 @@ mod tests {
 
     #[test]
     fn backslash_with_n_produces_newline() {
-        let src = "\"\\nn\\n\"";
+        let src = r#""\nn\n""#;
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
+        assert_eq!(actual[0].to_string_literal(src).unwrap(), "\nn\n");
     }
 
     #[test]
@@ -271,6 +260,15 @@ mod tests {
         let src = "\"\\tt\\t\"";
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
+        assert_eq!(actual[0].to_string_literal(src).unwrap(), "\tt\t");
+    }
+
+    #[test]
+    fn backslash_with_backslash_produces_backslash() {
+        let src = r#""\\""#;
+        let actual = Node::parse_to_vec(src).unwrap();
+        assert_eq!(actual, vec![Node::String(Span::new(0, 4))]);
+        assert_eq!(actual[0].to_string_literal(src).unwrap(), "\\");
     }
 
     #[test]

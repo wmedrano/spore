@@ -11,6 +11,7 @@ use crate::{
 pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("=", equal),
     ("+", add),
+    ("-", subtract),
     ("<", less),
     ("not", not),
     ("string-length", string_length),
@@ -19,6 +20,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("list-length", list_length),
     ("struct", strct),
     ("struct-get", struct_get),
+    ("struct-set!", struct_set),
     ("new-box", new_box),
     ("set-box!", set_box),
     ("unbox", unbox),
@@ -87,11 +89,25 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
     }
 }
 
-pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+enum Number {
+    Int(i64),
+    Float(f64),
+}
+
+impl From<Number> for Val<'static> {
+    fn from(v: Number) -> Val<'static> {
+        match v {
+            Number::Int(x) => Val::new_int(x),
+            Number::Float(x) => Val::new_float(x),
+        }
+    }
+}
+
+fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
     let mut has_float = false;
-    for arg in ctx.args() {
+    for arg in args {
         // Unsafe OK: Using field values right away without any garbage collection.
         // TODO: Consider getting the number through [Val] directly.
         match unsafe { arg.as_unsafe_val() } {
@@ -102,18 +118,56 @@ pub fn add<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
             }
             _ => {
                 return Err(VmError::TypeError {
-                    context: "+",
-                    expected: UnsafeVal::INT_TYPE_NAME,
+                    context,
+                    expected: "int or float",
                     actual: arg.type_name(),
-                    value: arg.format_quoted(ctx.vm()).to_string(),
+                    value: arg.format_quoted(vm).to_string(),
                 })
             }
         }
     }
     if has_float {
-        Ok(Val::new_float(float_sum + int_sum as f64).into())
+        Ok(Number::Float(float_sum + int_sum as f64))
     } else {
-        Ok(Val::new_int(int_sum).into())
+        Ok(Number::Int(int_sum))
+    }
+}
+
+pub fn add(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (ctx, args) = ctx.split_args();
+    let res = add_impl(ctx.vm(), "+", args)?;
+    Ok(ValBuilder::new(res.into()))
+}
+
+fn negate(vm: &Vm, context: &'static str, v: Val) -> VmResult<Number> {
+    match unsafe { v.as_unsafe_val() } {
+        UnsafeVal::Int(x) => Ok(Number::Int(-x)),
+        UnsafeVal::Float(x) => Ok(Number::Float(-x)),
+        _ => Err(VmError::TypeError {
+            context,
+            expected: "int or float",
+            actual: v.type_name(),
+            value: v.format_quoted(vm).to_string(),
+        }),
+    }
+}
+
+pub fn subtract<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    let (ctx, args) = ctx.split_args();
+    let vm = ctx.vm();
+    match args {
+        [v] => negate(vm, "-", *v).map(|x| ValBuilder::new(x.into())),
+        [v, rest @ ..] => {
+            let rest_sum = add_impl(vm, "-", rest)?;
+            let negated_rest = negate(vm, "-", rest_sum.into())?;
+            let ans = add_impl(vm, "-", &[*v, negated_rest.into()])?;
+            Ok(ValBuilder::new(ans.into()))
+        }
+        [] => Err(VmError::ArityError {
+            function: "-".into(),
+            expected: 1,
+            actual: 0,
+        }),
     }
 }
 
@@ -324,6 +378,42 @@ pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
+pub fn struct_set(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+    let (mut ctx, args) = ctx.split_args();
+    match args {
+        [maybe_struct, maybe_string, val] => {
+            let field = maybe_string
+                .try_str(ctx.vm())
+                .map_err(|v| VmError::TypeError {
+                    context: "struct-set! arg(idx=1)",
+                    expected: UnsafeVal::STRING_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?
+                .to_compact_string();
+            // Unsafe OK: The returned val is a reference to a valid value.
+            let strct = match unsafe { maybe_struct.try_unsafe_struct_mut(ctx.vm_mut()) } {
+                Ok(v) => v,
+                Err(v) => {
+                    return Err(VmError::TypeError {
+                        context: "struct-set! arg(idx=0)",
+                        expected: UnsafeVal::STRUCT_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    });
+                }
+            };
+            strct.insert(field, unsafe { val.as_unsafe_val() });
+            Ok(ValBuilder::new(().into()))
+        }
+        args => Err(VmError::ArityError {
+            function: "struct-set!".into(),
+            expected: 3,
+            actual: args.len(),
+        }),
+    }
+}
+
 pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     let arg_len = ctx.args_len();
     if arg_len != 0 {
@@ -463,10 +553,31 @@ mod tests {
         assert!(vm.eval_str("(= foo foo)").unwrap().try_bool().unwrap());
         assert!(vm.eval_str("(= (foo) (foo))").unwrap().try_bool().unwrap());
         assert!(vm.eval_str("(= + +)").unwrap().try_bool().unwrap());
+        assert!(vm.eval_str("(= void void)").unwrap().try_bool().unwrap());
+    }
 
-        vm.values.insert("void1".into(), ().into());
-        vm.values.insert("void2".into(), ().into());
-        assert!(vm.eval_str("(= void1 void2)").unwrap().try_bool().unwrap());
+    #[test]
+    fn equal_with_same_struct_ref_returns_true() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define my-struct (struct \"a\" 1))").unwrap();
+        vm.eval_str("(struct-set! my-struct \"b\" my-struct)")
+            .unwrap();
+        assert!(vm
+            .eval_str("(= my-struct my-struct)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+    }
+
+    #[test]
+    fn equal_with_same_list_ref_returns_true() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define my-list (list 1 2))").unwrap();
+        assert!(vm
+            .eval_str("(= my-list my-list)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
     }
 
     #[test]
@@ -517,7 +628,7 @@ mod tests {
             got,
             VmError::TypeError {
                 context: "+",
-                expected: UnsafeVal::INT_TYPE_NAME,
+                expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"fish\"".to_string(),
             }
@@ -546,6 +657,63 @@ mod tests {
         let got = vm.eval_str("(+ 1 2.0 3)").unwrap();
         assert_eq!(got.try_float().unwrap(), 6.0);
         assert!(got.try_int().is_err());
+    }
+
+    #[test]
+    fn subtract_with_no_args_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(-)").unwrap_err(),
+            VmError::ArityError {
+                function: "-".into(),
+                expected: 1,
+                actual: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn subtract_with_wrong_args_produces_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(- \"string\")").unwrap_err(),
+            VmError::TypeError {
+                context: "-",
+                expected: "int or float",
+                actual: UnsafeVal::STRING_TYPE_NAME,
+                value: "\"string\"".into(),
+            }
+        );
+        assert_eq!(
+            vm.eval_str("(- 0 (list))").unwrap_err(),
+            VmError::TypeError {
+                context: "-",
+                expected: "int or float",
+                actual: UnsafeVal::LIST_TYPE_NAME,
+                value: "()".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn subtract_with_single_number_negates() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(- 1)").unwrap().try_int().unwrap(), -1);
+        assert_eq!(vm.eval_str("(- 1.0)").unwrap().try_float().unwrap(), -1.0);
+    }
+
+    #[test]
+    fn subtract_with_multiple_number_subtracts_from_first_arg() {
+        let mut vm = Vm::default();
+        assert_eq!(vm.eval_str("(- 1 2 3)").unwrap().try_int().unwrap(), -4);
+        assert_eq!(
+            vm.eval_str("(- 1 2.0 3)").unwrap().try_float().unwrap(),
+            -4.0
+        );
+        assert_eq!(
+            vm.eval_str("(- 1.0 2 3)").unwrap().try_float().unwrap(),
+            -4.0
+        );
     }
 
     #[test]
@@ -751,6 +919,15 @@ mod tests {
             },
         );
         assert_eq!(
+            vm.eval_str("(string-join 3 \",\")").unwrap_err(),
+            VmError::TypeError {
+                context: "string-join arg(idx=0)",
+                expected: UnsafeVal::LIST_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
+                value: "3".to_string(),
+            },
+        );
+        assert_eq!(
             vm.eval_str("(string-join (list \"ok string\" 42))")
                 .unwrap_err(),
             VmError::TypeError {
@@ -857,6 +1034,84 @@ mod tests {
             .eval_str("(struct-get (struct \"field\" 1) \"not-field\")")
             .unwrap();
         assert!(got.is_void());
+    }
+
+    #[test]
+    fn struct_set_sets_existing_field() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (struct \"field\" \"original\"))")
+            .unwrap();
+        assert_eq!(
+            vm.eval_str("(struct-get x \"field\")")
+                .unwrap()
+                .try_str()
+                .unwrap(),
+            "original"
+        );
+        vm.eval_str("(struct-set! x \"field\" \"new\")").unwrap();
+        assert_eq!(
+            vm.eval_str("(struct-get x \"field\")")
+                .unwrap()
+                .try_str()
+                .unwrap(),
+            "new"
+        );
+    }
+
+    #[test]
+    fn struct_set_sets_new_field() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (struct \"field\" \"original\"))")
+            .unwrap();
+        vm.eval_str("(struct-set! x \"field2\" \"new\")").unwrap();
+        assert!(vm
+            .eval_str("(= x (struct \"field\" \"original\" \"field2\" \"new\"))")
+            .unwrap()
+            .try_bool()
+            .unwrap(),);
+    }
+
+    #[test]
+    fn struct_set_with_non_struct_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(struct-set! 1 \"field\" 3)").unwrap_err(),
+            VmError::TypeError {
+                context: "struct-set! arg(idx=0)",
+                expected: UnsafeVal::STRUCT_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
+                value: "1".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn struct_set_with_non_string_field_returns_error() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (struct))").unwrap();
+        assert_eq!(
+            vm.eval_str("(struct-set! x 2 3)").unwrap_err(),
+            VmError::TypeError {
+                context: "struct-set! arg(idx=1)",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: UnsafeVal::INT_TYPE_NAME,
+                value: "2".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn struct_set_with_too_many_args_returns_error() {
+        let mut vm = Vm::default();
+        vm.eval_str("(define x (struct))").unwrap();
+        assert_eq!(
+            vm.eval_str("(struct-set! x \"field\" 2 3)").unwrap_err(),
+            VmError::ArityError {
+                function: "struct-set!".into(),
+                expected: 3,
+                actual: 4
+            },
+        );
     }
 
     #[test]
