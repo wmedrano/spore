@@ -2,11 +2,11 @@ use compact_str::CompactString;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
 };
 
-pub fn string_length(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    match ctx.args() {
+pub fn string_length<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
+    match args {
         [v] => v
             .try_str(ctx.vm())
             .map_err(|v| VmError::TypeError {
@@ -19,13 +19,13 @@ pub fn string_length(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
         _ => Err(VmError::ArityError {
             function: "string-length".into(),
             expected: 1,
-            actual: ctx.args_len(),
+            actual: args.len(),
         }),
     }
 }
 
-pub fn string_join(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (list, separator) = match ctx.args() {
+pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+    let (list, separator) = match args {
         [maybe_list] => {
             let list = maybe_list
                 .try_list(ctx.vm())

@@ -83,91 +83,89 @@ impl SporeBuffer {
     }
 }
 
-fn new_buffer(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let args_len = ctx.args_len();
-    if args_len > 2 {
-        return Err(VmError::ArityError {
-            function: "new-buffer".into(),
-            expected: 2,
-            actual: args_len,
-        });
-    }
+fn new_buffer<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     let mut buffer = SporeBuffer::default();
-    if args_len >= 1 {
-        let v = ctx.arg(0);
-        match v.unwrap().try_str(ctx.vm()) {
-            Ok(s) => buffer.name = s.into(),
-            Err(v) => {
-                return Err(VmError::TypeError {
-                    context: "new-buffer",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })
+    match args {
+        [] => {}
+        [buffer_name, rest @ ..] => {
+            match buffer_name.try_str(ctx.vm()) {
+                Ok(s) => buffer.name = s.into(),
+                Err(v) => {
+                    return Err(VmError::TypeError {
+                        context: "new-buffer",
+                        expected: UnsafeVal::STRING_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    })
+                }
+            };
+            match rest {
+                [rope_contents] => match rope_contents.try_str(ctx.vm()) {
+                    Ok(s) => {
+                        buffer.insert(s);
+                    }
+                    Err(v) => {
+                        return Err(VmError::TypeError {
+                            context: "new-buffer",
+                            expected: UnsafeVal::STRING_TYPE_NAME,
+                            actual: v.type_name(),
+                            value: v.format_quoted(ctx.vm()).to_string(),
+                        })
+                    }
+                },
+                _ => {
+                    return Err(VmError::ArityError {
+                        function: "new-buffer".into(),
+                        expected: 2,
+                        actual: args.len(),
+                    });
+                }
             }
         }
-    }
-    if args_len >= 2 {
-        let v = ctx.arg(1);
-        match v.unwrap().try_str(ctx.vm()) {
-            Ok(s) => {
-                buffer.insert(s);
-            }
-            Err(v) => {
-                return Err(VmError::TypeError {
-                    context: "new-buffer",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })
-            }
-        }
-    }
+    };
     Ok(ctx.new_custom(buffer))
 }
 
-fn buffer_insert(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    if ctx.args_len() != 2 {
+fn buffer_insert<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
+    if args.len() != 2 {
         return Err(VmError::ArityError {
             function: "buffer-insert!".into(),
             expected: 2,
-            actual: ctx.args_len(),
+            actual: args.len(),
         });
     }
-    let insert_string = ctx
-        .arg(1)
-        .unwrap()
-        .try_str(ctx.vm())
-        .map_err(|v| VmError::TypeError {
-            context: "buffer-insert!",
-            expected: UnsafeVal::STRING_TYPE_NAME,
-            actual: v.type_name(),
-            value: v.format_quoted(ctx.vm()).to_string(),
-        })?;
+    let insert_string = args[1].try_str(ctx.vm()).map_err(|v| VmError::TypeError {
+        context: "buffer-insert!",
+        expected: UnsafeVal::STRING_TYPE_NAME,
+        actual: v.type_name(),
+        value: v.format_quoted(ctx.vm()).to_string(),
+    })?;
     if !insert_string.is_empty() {
-        let buffer_val = ctx.arg(0).unwrap();
+        let buffer_val = args[0];
         let mut buffer = buffer_val.try_custom_mut::<SporeBuffer>(ctx.vm())?;
         buffer.insert(insert_string);
     }
     Ok(Val::new_void().into())
 }
 
-fn buffer_delete(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    if ctx.args_len() != 1 {
+fn buffer_delete<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
+    if args.len() != 1 {
         return Err(VmError::ArityError {
             function: "buffer-delete!".into(),
             expected: 1,
-            actual: ctx.args_len(),
+            actual: args.len(),
         });
     }
-    let buffer_val = ctx.arg(0).unwrap();
+    let buffer_val = args[0];
     let mut buffer = buffer_val.try_custom_mut::<SporeBuffer>(ctx.vm())?;
     buffer.delete();
     Ok(Val::new_void().into())
 }
 
-fn buffer_cursor_move(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+fn buffer_cursor_move<'a>(
+    ctx: NativeFunctionContext<'a>,
+    args: &[Val<'a>],
+) -> VmResult<ValBuilder<'a>> {
     match args {
         [buffer, xs, ys] => {
             let mut buffer = buffer.try_custom_mut::<SporeBuffer>(ctx.vm())?;

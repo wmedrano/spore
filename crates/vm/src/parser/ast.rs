@@ -175,6 +175,18 @@ impl Node {
             }
         }
     }
+
+    pub fn span(&self) -> Span {
+        match self {
+            Node::Identifier(s) => *s,
+            Node::Void(s) => *s,
+            Node::Bool(s, _) => *s,
+            Node::Int(s, _) => *s,
+            Node::Float(s, _) => *s,
+            Node::String(s) => *s,
+            Node::Tree(s, _) => *s,
+        }
+    }
 }
 
 #[cfg(test)]

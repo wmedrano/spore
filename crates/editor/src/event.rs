@@ -5,7 +5,7 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use log::*;
 use spore_vm::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
     Vm,
 };
 
@@ -20,7 +20,7 @@ const MINIMUM_FRAMES_PER_SECOND: u64 = 60;
 const READ_EVENT_TIMEOUT_DURATION: Duration =
     Duration::from_nanos(1_000_000_000 / MINIMUM_FRAMES_PER_SECOND);
 
-fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
+fn read_event<'a>(ctx: NativeFunctionContext<'a>, _: &[Val]) -> VmResult<ValBuilder<'a>> {
     if !event::poll(READ_EVENT_TIMEOUT_DURATION).unwrap() {
         return Ok(ValBuilder::new(false.into()));
     }
@@ -94,8 +94,7 @@ fn read_event(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     Ok(ctx.new_string(event_key))
 }
 
-fn special_event_p(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+fn special_event_p<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     match args {
         [event] => {
             let event = event.try_str(ctx.vm()).map_err(|v| VmError::TypeError {

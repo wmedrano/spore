@@ -48,8 +48,7 @@ fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
     }
 }
 
-pub fn add(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+pub fn add<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
     let res = add_impl(ctx.vm(), "+", args)?;
     Ok(ValBuilder::new(res.into()))
 }
@@ -67,8 +66,7 @@ fn negate(vm: &Vm, context: &'static str, v: Val) -> VmResult<Number> {
     }
 }
 
-pub fn subtract<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
-    let (ctx, args) = ctx.split_args();
+pub fn subtract<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     let vm = ctx.vm();
     match args {
         [v] => negate(vm, "-", *v).map(|x| ValBuilder::new(x.into())),
@@ -120,8 +118,8 @@ pub fn less_impl(vm: &Vm, args: &[Val]) -> VmResult<bool> {
     }
 }
 
-pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
-    let res = less_impl(ctx.vm(), ctx.args())?;
+pub fn less<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+    let res = less_impl(ctx.vm(), args)?;
     Ok(Val::new_bool(res).into())
 }
 

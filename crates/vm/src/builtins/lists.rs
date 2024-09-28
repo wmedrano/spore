@@ -1,15 +1,13 @@
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
 };
 
-pub fn list(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+pub fn list<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     Ok(unsafe { ctx.new_list(args) })
 }
 
-pub fn list_length(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+pub fn list_length<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     match args {
         [arg] => match arg.try_list(ctx.vm()) {
             Ok(list) => Ok(ValBuilder::new((list.len() as i64).into())),

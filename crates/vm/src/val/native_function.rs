@@ -18,7 +18,8 @@ use super::{custom::CustomVal, CustomType, StructVal, UnsafeVal, Val};
 /// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
 ///     Ok(ctx.new_string("42".into()))
 /// }
-pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
+pub type NativeFunction =
+    for<'a> fn(NativeFunctionContext<'a>, &[Val<'a>]) -> VmResult<ValBuilder<'a>>;
 
 /// Builds a value for the VM to consume.
 ///
@@ -67,15 +68,13 @@ pub struct NativeFunctionContext<'a> {
     /// # Safety
     /// Do not run anything that may remove references or call the garbage collector.
     vm: &'a mut Vm,
-    /// Where the stack starts for the current function call.
-    stack_start: usize,
 }
 
 impl<'a> NativeFunctionContext<'a> {
     /// # Safety
     /// - Stack start must be less than or equal to the Vm's stack length.
-    pub(crate) fn new(vm: &mut Vm, stack_start: usize) -> NativeFunctionContext {
-        NativeFunctionContext { vm, stack_start }
+    pub(crate) fn new(vm: &mut Vm) -> NativeFunctionContext {
+        NativeFunctionContext { vm }
     }
 
     /// Get the underlying VM.
@@ -89,48 +88,6 @@ impl<'a> NativeFunctionContext<'a> {
     /// Any operations that triger GC or evaluation will cause undefined behavior.
     pub unsafe fn vm_mut(&mut self) -> &mut Vm {
         self.vm
-    }
-
-    /// Get the argument as a [crate::Val]. If the argument is out of range, then [None] is
-    /// returned.
-    pub fn arg(&self, idx: usize) -> Option<Val<'a>> {
-        let v = self.vm.stack.get(self.stack_start + idx)?;
-        // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
-        Some(unsafe { Val::from_unsafe_val(*v) })
-    }
-
-    /// Get the arguments to the function call.
-    pub fn args(&self) -> &[Val] {
-        // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
-        unsafe { Val::from_unsafe_val_slice(self.raw_args()) }
-    }
-
-    /// Get the arguments to the function call.
-    ///
-    /// This is like [Self::args], but returns self as well.
-    pub fn split_args(self) -> (Self, &'a [Val<'a>]) {
-        // Unsafe OK: Args are from the VM's stack so they are not garbage collected.
-        let args = unsafe {
-            let args = self.args();
-            std::slice::from_raw_parts(args.as_ptr().cast::<Val<'static>>(), args.len())
-        };
-        (self, args)
-    }
-
-    /// Get the arguments to the function call.
-    ///
-    /// All values returned are guaranteed to live for the rest of the scope and not be garbage
-    /// collected.
-    ///
-    /// # Safety
-    /// Prefer using [Self::args] which provides values with valid lifetimes.
-    pub unsafe fn raw_args(&self) -> &[UnsafeVal] {
-        &self.vm.stack[self.stack_start..]
-    }
-
-    /// Get the number of arguments passed in to the function call.
-    pub fn args_len(&self) -> usize {
-        self.vm.stack.len() - self.stack_start
     }
 }
 

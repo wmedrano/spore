@@ -7,10 +7,7 @@ use std::{
 use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
-use ratatui::{
-    style::{Color, Style},
-    DefaultTerminal,
-};
+use ratatui::{style::Style, DefaultTerminal};
 use spore_vm::{val::Val, Settings, Vm};
 use widgets::WindowWidget;
 
@@ -67,16 +64,24 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         .unwrap()
         .is_truthy()
     {
-        let windows = vm.eval_function_by_name("windows", std::iter::empty())?;
+        let mut windows = vm.eval_function_by_name("windows", std::iter::empty())?;
+        let (vm, windows) = windows.split();
         terminal.draw(|frame| {
             let area = frame.area();
+            if terminal_size != area.as_size() {
+                let function_args = [
+                    Val::new_int(area.width as _),
+                    Val::new_int(area.height as _),
+                ];
+                let res =
+                    vm.eval_function_by_name("handle-size-change!", function_args.into_iter());
+                if let Err(err) = res {
+                    error!("Terminal resize with handle-size-changed! failed: {err}")
+                }
+            }
             frame.buffer_mut().set_style(area, Style::reset());
-            let mut colors = [Color::LightBlue, Color::LightRed].into_iter().cycle();
-            for window in windows.try_list(windows.vm()).unwrap() {
-                frame.render_widget(
-                    WindowWidget::new(windows.vm(), *window, colors.next().unwrap()),
-                    area,
-                );
+            for window in windows.try_list(vm).unwrap() {
+                frame.render_widget(WindowWidget::new(vm, *window), area);
             }
             let frame_size = area.as_size();
             if frame_size != terminal_size {
@@ -84,17 +89,6 @@ fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
                 terminal_size_changed = true;
             }
         })?;
-        drop(windows);
-        if terminal_size_changed {
-            vm.eval_function_by_name(
-                "handle-size-change!",
-                [
-                    Val::new_int(terminal_size.width.into()),
-                    Val::new_int(terminal_size.height.into()),
-                ]
-                .into_iter(),
-            )?;
-        }
         vm.eval_function_by_name("handle-event!", std::iter::empty())?;
     }
     info!("Exiting Spore.");

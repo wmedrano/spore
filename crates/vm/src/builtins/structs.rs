@@ -7,8 +7,7 @@ use crate::{
     val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
 };
 
-pub fn strct(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
     let mut args_iter = args.iter();
     let mut strct = HashMap::with_capacity(args.len() / 2);
     while let Some(field) = args_iter.next() {
@@ -19,8 +18,7 @@ pub fn strct(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     Ok(unsafe { ctx.new_struct(strct) })
 }
 
-pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (ctx, args) = ctx.split_args();
+pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     match args {
         [maybe_struct, maybe_string] => {
             let field = maybe_string
@@ -54,8 +52,10 @@ pub fn struct_get(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
     }
 }
 
-pub fn struct_set(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let (mut ctx, args) = ctx.split_args();
+pub fn struct_set<'a>(
+    mut ctx: NativeFunctionContext<'a>,
+    args: &[Val<'a>],
+) -> VmResult<ValBuilder<'a>> {
     match args {
         [maybe_struct, maybe_string, val] => {
             let field = maybe_string

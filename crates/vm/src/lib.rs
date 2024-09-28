@@ -348,7 +348,11 @@ impl Vm {
 
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
         let stack_start = self.stack.len() - arg_count;
-        let builder = func(NativeFunctionContext::new(self, stack_start))?;
+        let args = unsafe {
+            let slice = std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), arg_count);
+            Val::from_unsafe_val_slice(slice)
+        };
+        let builder = func(NativeFunctionContext::new(self), args)?;
         // Unsafe OK: Value is inserted into VM immediately.
         let v = unsafe { builder.build() };
         match arg_count {
@@ -379,7 +383,12 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             UnsafeVal::NativeFunction(func) => {
-                let builder = func(NativeFunctionContext::new(self, stack_start))?;
+                let args = unsafe {
+                    let slice =
+                        std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), n - 1);
+                    Val::from_unsafe_val_slice(slice)
+                };
+                let builder = func(NativeFunctionContext::new(self), args)?;
                 // Unsafe OK: Value is inserted into VM immediately.
                 let v = unsafe { builder.build() };
                 self.stack[function_idx] = v;

@@ -15,16 +15,11 @@ use crate::buffer::SporeBuffer;
 pub struct WindowWidget<'a> {
     vm: &'a Vm,
     val: Val<'a>,
-    border_color: Color,
 }
 
 impl<'a> WindowWidget<'a> {
-    pub fn new(vm: &'a Vm, window: Val<'a>, border_color: Color) -> WindowWidget<'a> {
-        WindowWidget {
-            vm,
-            val: window,
-            border_color,
-        }
+    pub fn new(vm: &'a Vm, window: Val<'a>) -> WindowWidget<'a> {
+        WindowWidget { vm, val: window }
     }
 }
 
@@ -87,7 +82,7 @@ impl<'a> Widget for WindowWidget<'a> {
                 .unwrap()
                 .map(|v| v.is_truthy())
                 .unwrap_or(false);
-            BufferWidget::new(&buffer, self.border_color, draw_cursor).render(area, buf);
+            BufferWidget::new(&buffer, draw_cursor).render(area, buf);
             Some(())
         };
         let _ = render_impl();
@@ -96,15 +91,13 @@ impl<'a> Widget for WindowWidget<'a> {
 
 pub struct BufferWidget<'a> {
     buffer: &'a SporeBuffer,
-    border_color: Color,
     draw_cursor: bool,
 }
 
 impl<'a> BufferWidget<'a> {
-    pub fn new(buffer: &'a SporeBuffer, border_color: Color, draw_cursor: bool) -> Self {
+    pub fn new(buffer: &'a SporeBuffer, draw_cursor: bool) -> Self {
         BufferWidget {
             buffer,
-            border_color,
             draw_cursor,
         }
     }
@@ -122,7 +115,7 @@ impl<'a> BufferWidget<'a> {
         Clear.render(area, buf);
         let b = Block::default()
             .title(self.buffer.name.as_str())
-            .border_style(Style::default().fg(self.border_color))
+            .border_style(Style::default().fg(Color::White))
             .border_type(BorderType::Rounded)
             .borders(Borders::ALL);
         let inner_area = b.inner(area);

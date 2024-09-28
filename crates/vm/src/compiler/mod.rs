@@ -2,8 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use bumpalo::Bump;
 use compact_str::CompactString;
-
-type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
+use ir::{Constant, Ir, IrReturnType};
 
 use crate::{
     error::CompileError,
@@ -12,6 +11,9 @@ use crate::{
     Settings, Vm,
 };
 
+mod ir;
+
+type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 type Result<T> = std::result::Result<T, CompileError>;
 
 pub struct Compiler<'a> {
@@ -94,10 +96,11 @@ impl<'a> Compiler<'a> {
                 false_expr,
             } => self.compile_one_if(*span, predicate, true_expr, *false_expr)?,
             Ir::Lambda {
+                span,
                 name,
                 args,
                 expressions,
-            } => self.compile_one_lambda(*name, args, expressions)?,
+            } => self.compile_one_lambda(*span, *name, args, expressions)?,
             Ir::Return { expr } => self.compile_one_return(expr)?,
         };
         Ok(())
@@ -261,6 +264,7 @@ impl<'a> Compiler<'a> {
 
     fn compile_one_lambda(
         &mut self,
+        span: Span,
         name: Option<&str>,
         args: &[&str],
         expressions: &[Ir],
@@ -298,7 +302,7 @@ impl<'a> Compiler<'a> {
                 source: lambda_compiler.source,
                 instruction_source: lambda_compiler.instruction_source.into_bump_slice().into(),
             }));
-        self.instruction_source.push(Span::new(0, 0));
+        self.instruction_source.push(span);
         self.instructions.push(Instruction::PushConst(lambda_val));
         Ok(())
     }
@@ -336,286 +340,6 @@ fn find_duplicate(vec: &[CompactString]) -> Option<CompactString> {
         found.insert(s);
     }
     None
-}
-
-/// Contains a constant.
-///
-/// All values should require no additional cleanup for best use with [Ir]'s arena.
-#[derive(Clone, Debug)]
-enum Constant {
-    /// Just void, nothing.
-    Void,
-    /// A boolean consant.
-    Bool(bool),
-    /// An integer constant.
-    Int(i64),
-    /// A float constant.
-    Float(f64),
-    /// A string constant. The string is escaped.
-    /// For example, "what \"is\" a string" is parsed as:
-    ///     what "is" a string
-    String(CompactString),
-}
-
-/// Contains the intermediate representation. This is a slightly more processed AST that is usefull
-/// for compiling.
-///
-/// # Memory Leak
-/// Value's are usually arena allocated so `drop` will not be called for a conventional
-/// cleanup. This means all values must either be normal values, references, or arena allocated
-/// references. To detect possible memory leaks, try running valgrind on the test suite.
-#[derive(Debug)]
-enum Ir<'a> {
-    /// A constant literal.
-    Constant(Span, Constant),
-    /// Dereference a symbol.
-    Deref(Span, &'a str),
-    /// A function call expression of the form: (<function> <args>...)
-    FunctionCall {
-        /// The source code where this function call is defined.
-        span: Span,
-        /// The function to call.
-        function: &'a Self,
-        /// The arguments to the function.
-        args: BumpVec<'a, Self>,
-    },
-    /// A define expression of the form: (define <name> <expr>)
-    Define {
-        /// The source code where this function call is defined.
-        span: Span,
-        /// The identifier to define.
-        identifier: &'a str,
-        /// The value of the definition.
-        expr: &'a Self,
-    },
-    /// A if expression.
-    If {
-        span: Span,
-        predicate: &'a Self,
-        true_expr: &'a Self,
-        false_expr: Option<&'a Self>,
-    },
-    /// A lambda.
-    Lambda {
-        name: Option<&'a str>,
-        args: BumpVec<'a, &'a str>,
-        expressions: BumpVec<'a, Self>,
-    },
-    /// Return the result of the given expression.
-    Return { expr: &'a Self },
-}
-
-impl<'a> Ir<'a> {
-    fn new(arena: &'a Bump, src: &'a str, node: &'a Node) -> Result<Ir<'a>> {
-        let ir = match node {
-            Node::Void(span) => Ir::Constant(*span, Constant::Void),
-            Node::Bool(span, b) => Ir::Constant(*span, Constant::Bool(*b)),
-            Node::Int(span, int) => Ir::Constant(*span, Constant::Int(*int)),
-            Node::Float(span, float) => Ir::Constant(*span, Constant::Float(*float)),
-            Node::String(span) => Ir::Constant(
-                *span,
-                Constant::String(node.to_string_literal(src).unwrap()),
-            ),
-            Node::Identifier(ident_span) => Ir::Deref(*ident_span, ident_span.as_str(src)),
-            Node::Tree(span, tree) => Self::new_tree(arena, src, *span, tree)?,
-        };
-        Ok(ir)
-    }
-
-    fn new_define(
-        arena: &'a Bump,
-        src: &'a str,
-        span: Span,
-        define_args: &'a [Node],
-    ) -> Result<Ir<'a>> {
-        let ir = match define_args {
-            [Node::Identifier(identifier_span), expr] => Ir::Define {
-                span,
-                identifier: identifier_span.as_str(src),
-                expr: arena.alloc(Ir::new(arena, src, expr)?),
-            },
-            [Node::Tree(_, lambda_signature), exprs @ ..] => match lambda_signature.as_slice() {
-                [Node::Identifier(identifier_span), args @ ..] => {
-                    let mut args_vec = BumpVec::new_in(arena);
-                    for arg in args.iter() {
-                        let ident = node_to_ident(src, arg)?;
-                        args_vec.push(ident);
-                    }
-                    let mut exprs_vec = BumpVec::new_in(arena);
-                    for expr in exprs.iter() {
-                        let expr_ir = Ir::new(arena, src, expr)?;
-                        exprs_vec.push(expr_ir);
-                    }
-                    Ir::Define {
-                        span: *identifier_span,
-                        identifier: identifier_span.as_str(src),
-                        expr: arena.alloc(Ir::Lambda {
-                            name: Some(identifier_span.as_str(src)),
-                            args: args_vec,
-                            expressions: exprs_vec,
-                        }),
-                    }
-                }
-                _ => {
-                    return Err(CompileError::ExpectedIdentifierList {
-                        context: "function definition",
-                    })
-                }
-            },
-            [_, _] => return Err(CompileError::ExpectedIdentifier),
-            _ => {
-                return Err(CompileError::ExpressionHasWrongArgs {
-                    expression: "define",
-                    expected: 2,
-                    actual: define_args.len(),
-                })
-            }
-        };
-        Ok(ir)
-    }
-    fn new_tree(arena: &'a Bump, src: &'a str, span: Span, tree: &'a [Node]) -> Result<Ir<'a>> {
-        let ir = match tree {
-            [Node::Identifier(maybe_define), define_args @ ..]
-                if maybe_define.as_str(src) == "define" =>
-            {
-                Self::new_define(arena, src, span, define_args)?
-            }
-            [Node::Identifier(maybe_if), args @ ..] if maybe_if.as_str(src) == "if" => match args {
-                [predicate, true_expr] => Ir::If {
-                    span,
-                    predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                    true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                    false_expr: None,
-                },
-                [predicate, true_expr, false_expr] => Ir::If {
-                    span,
-                    predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                    true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                    false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
-                },
-                _ => {
-                    return Err(CompileError::ExpressionHasWrongArgs {
-                        expression: "if",
-                        expected: if args.len() > 3 { 3 } else { 2 },
-                        actual: args.len(),
-                    })
-                }
-            },
-            [Node::Identifier(maybe_lambda), lambda_args, exprs @ ..]
-                if maybe_lambda.as_str(src) == "lambda" =>
-            {
-                let lambda_args = match lambda_args {
-                    Node::Tree(_, t) => t,
-                    _ => {
-                        return Err(CompileError::ExpectedIdentifierList {
-                            context: "lambda/function definition",
-                        })
-                    }
-                };
-                let mut args_vec = BumpVec::new_in(arena);
-                for arg in lambda_args.iter() {
-                    let ident = node_to_ident(src, arg)?;
-                    args_vec.push(ident);
-                }
-                let mut exprs_vec = BumpVec::new_in(arena);
-                for expr in exprs.iter() {
-                    let expr_ir = Ir::new(arena, src, expr)?;
-                    exprs_vec.push(expr_ir);
-                }
-                Ir::Lambda {
-                    name: None,
-                    args: args_vec,
-                    expressions: exprs_vec,
-                }
-            }
-            [Node::Identifier(maybe_return), return_args @ ..]
-                if maybe_return.as_str(src) == "return" =>
-            {
-                match return_args {
-                    [expr] => Ir::Return {
-                        expr: arena.alloc(Ir::new(arena, src, expr)?),
-                    },
-                    _ => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "return",
-                            expected: 1,
-                            actual: return_args.len(),
-                        })
-                    }
-                }
-            }
-            [f, args @ ..] => match f {
-                Node::Identifier(maybe_if) if maybe_if.as_str(src) == "if" => match args {
-                    [predicate, true_expr] => Ir::If {
-                        span: *maybe_if,
-                        predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                        true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                        false_expr: None,
-                    },
-                    [predicate, true_expr, false_expr] => Ir::If {
-                        span: *maybe_if,
-                        predicate: arena.alloc(Ir::new(arena, src, predicate)?),
-                        true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
-                        false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
-                    },
-                    _ => {
-                        return Err(CompileError::ExpressionHasWrongArgs {
-                            expression: "if",
-                            expected: if args.len() > 3 { 3 } else { 2 },
-                            actual: args.len(),
-                        })
-                    }
-                },
-                ident => {
-                    let mut args_vec = BumpVec::new_in(arena);
-                    for arg in args.iter() {
-                        let arg_ir = Ir::new(arena, src, arg)?;
-                        args_vec.push(arg_ir);
-                    }
-                    Ir::FunctionCall {
-                        span,
-                        function: arena.alloc(Ir::new(arena, src, ident)?),
-                        args: args_vec,
-                    }
-                }
-            },
-            [] => return Err(CompileError::EmptyExpression),
-        };
-        Ok(ir)
-    }
-
-    /// Returns `true` if the IR contains an expression. Expressions return values while statements
-    /// do not.
-    fn return_type(&self) -> IrReturnType {
-        match self {
-            Ir::Constant(_, _) => IrReturnType::Value,
-            Ir::Deref(_, _) => IrReturnType::Value,
-            Ir::FunctionCall { .. } => IrReturnType::Value,
-            Ir::Define { .. } => IrReturnType::None,
-            Ir::If { .. } => IrReturnType::Value,
-            Ir::Lambda { .. } => IrReturnType::Value,
-            Ir::Return { .. } => IrReturnType::EarlyReturn,
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum IrReturnType {
-    /// The IR does not return anything. This means nothing is pushed to the stack.
-    None,
-    /// A value is pushed to the top of the stack.
-    Value,
-    /// The current function is returned, exiting the current function call frame.
-    EarlyReturn,
-}
-
-fn node_to_ident<'a>(src: &'a str, node: &Node) -> Result<&'a str> {
-    match node {
-        Node::Identifier(ident) => Ok(ident.as_str(src)),
-        _ => Err(CompileError::ExpectedIdentifierList {
-            context: "lambda/function definition",
-        }),
-    }
 }
 
 #[cfg(test)]
@@ -1062,7 +786,7 @@ mod tests {
                 ]
                 .into(),
                 source: Some(src.into()),
-                instruction_source: vec![Span { start: 0, end: 0 }, Span { start: 9, end: 12 }]
+                instruction_source: vec![Span { start: 8, end: 25 }, Span { start: 9, end: 12 }]
                     .into(),
             },
             "Inner bytecode is: {:?}",
@@ -1328,7 +1052,7 @@ mod tests {
                 )]
                 .into(),
                 source: Some(src.into()),
-                instruction_source: vec![Span::new(0, 0)].into(),
+                instruction_source: vec![Span::new(0, 13)].into(),
             },
             "Inner bytecode is: {:?}",
             instruction_push_const_to_bytecode(&actual.instructions[0], &vm),
@@ -1371,7 +1095,7 @@ mod tests {
                 )]
                 .into(),
                 source: Some(src.into()),
-                instruction_source: vec![Span::new(0, 0)].into(),
+                instruction_source: vec![Span::new(0, 42)].into(),
             },
             "Inner bytecode is: {:?}",
             instruction_push_const_to_bytecode(&actual.instructions[0], &vm),
@@ -1415,7 +1139,7 @@ mod tests {
                 ]
                 .into(),
                 source: Some(src.into()),
-                instruction_source: vec![Span { start: 0, end: 0 }, Span { start: 9, end: 12 }]
+                instruction_source: vec![Span { start: 8, end: 23 }, Span { start: 9, end: 12 }]
                     .into(),
             },
             "Inner bytecode is {:?}",

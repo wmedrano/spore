@@ -1,0 +1,306 @@
+use bumpalo::Bump;
+use compact_str::CompactString;
+
+use crate::{
+    error::CompileError,
+    parser::{ast::Node, tokenizer::Span},
+};
+
+type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
+type Result<T> = std::result::Result<T, CompileError>;
+
+/// Contains a constant.
+///
+/// All values should require no additional cleanup for best use with [Ir]'s arena.
+#[derive(Clone, Debug)]
+pub enum Constant {
+    /// Just void, nothing.
+    Void,
+    /// A boolean consant.
+    Bool(bool),
+    /// An integer constant.
+    Int(i64),
+    /// A float constant.
+    Float(f64),
+    /// A string constant. The string is escaped.
+    /// For example, "what \"is\" a string" is parsed as:
+    ///     what "is" a string
+    String(CompactString),
+}
+
+/// Contains the intermediate representation. This is a slightly more processed AST that is usefull
+/// for compiling.
+///
+/// # Memory Leak
+/// Value's are usually arena allocated so `drop` will not be called for a conventional
+/// cleanup. This means all values must either be normal values, references, or arena allocated
+/// references. To detect possible memory leaks, try running valgrind on the test suite.
+#[derive(Debug)]
+pub enum Ir<'a> {
+    /// A constant literal.
+    Constant(Span, Constant),
+    /// Dereference a symbol.
+    Deref(Span, &'a str),
+    /// A function call expression of the form: (<function> <args>...)
+    FunctionCall {
+        /// The source code where this function call is defined.
+        span: Span,
+        /// The function to call.
+        function: &'a Self,
+        /// The arguments to the function.
+        args: BumpVec<'a, Self>,
+    },
+    /// A define expression of the form: (define <name> <expr>)
+    Define {
+        /// The source code where this function call is defined.
+        span: Span,
+        /// The identifier to define.
+        identifier: &'a str,
+        /// The value of the definition.
+        expr: &'a Self,
+    },
+    /// A if expression.
+    If {
+        span: Span,
+        predicate: &'a Self,
+        true_expr: &'a Self,
+        false_expr: Option<&'a Self>,
+    },
+    /// A lambda.
+    Lambda {
+        span: Span,
+        name: Option<&'a str>,
+        args: BumpVec<'a, &'a str>,
+        expressions: BumpVec<'a, Self>,
+    },
+    /// Return the result of the given expression.
+    Return { expr: &'a Self },
+}
+
+impl<'a> Ir<'a> {
+    pub fn new(arena: &'a Bump, src: &'a str, node: &Node) -> Result<Ir<'a>> {
+        let ir = match node {
+            Node::Void(span) => Ir::Constant(*span, Constant::Void),
+            Node::Bool(span, b) => Ir::Constant(*span, Constant::Bool(*b)),
+            Node::Int(span, int) => Ir::Constant(*span, Constant::Int(*int)),
+            Node::Float(span, float) => Ir::Constant(*span, Constant::Float(*float)),
+            Node::String(span) => Ir::Constant(
+                *span,
+                Constant::String(node.to_string_literal(src).unwrap()),
+            ),
+            Node::Identifier(ident_span) => Ir::Deref(*ident_span, ident_span.as_str(src)),
+            Node::Tree(span, tree) => Self::new_tree(arena, src, *span, tree)?,
+        };
+        Ok(ir)
+    }
+
+    /// Returns `true` if the IR contains an expression. Expressions return values while statements
+    /// do not.
+    pub fn return_type(&self) -> IrReturnType {
+        match self {
+            Ir::Constant(_, _) => IrReturnType::Value,
+            Ir::Deref(_, _) => IrReturnType::Value,
+            Ir::FunctionCall { .. } => IrReturnType::Value,
+            Ir::Define { .. } => IrReturnType::None,
+            Ir::If { .. } => IrReturnType::Value,
+            Ir::Lambda { .. } => IrReturnType::Value,
+            Ir::Return { .. } => IrReturnType::EarlyReturn,
+        }
+    }
+
+    fn new_tree(arena: &'a Bump, src: &'a str, span: Span, tree: &[Node]) -> Result<Ir<'a>> {
+        let ir = match tree {
+            [leading_node @ Node::Identifier(leading_ident), rest @ ..] => {
+                match leading_ident.as_str(src) {
+                    "define" => Self::new_define(arena, src, span, rest)?,
+                    "if" => match rest {
+                        [predicate, true_expr] => Ir::If {
+                            span,
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                            false_expr: None,
+                        },
+                        [predicate, true_expr, false_expr] => Ir::If {
+                            span,
+                            predicate: arena.alloc(Ir::new(arena, src, predicate)?),
+                            true_expr: arena.alloc(Ir::new(arena, src, true_expr)?),
+                            false_expr: Some(arena.alloc(Ir::new(arena, src, false_expr)?)),
+                        },
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "if",
+                                expected: if rest.len() > 3 { 3 } else { 2 },
+                                actual: rest.len(),
+                            })
+                        }
+                    },
+                    "lambda" => match rest {
+                        [lambda_args, exprs @ ..] => {
+                            let lambda_args = match lambda_args {
+                                Node::Tree(_, t) => t,
+                                _ => {
+                                    return Err(CompileError::ExpectedIdentifierList {
+                                        context: "lambda/function definition",
+                                    })
+                                }
+                            };
+                            Self::new_lambda(arena, src, span, None, lambda_args, exprs)?
+                        }
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "lambda",
+                                expected: 2,
+                                actual: rest.len(),
+                            })
+                        }
+                    },
+                    "return" => match rest {
+                        [expr] => Ir::Return {
+                            expr: arena.alloc(Ir::new(arena, src, expr)?),
+                        },
+                        _ => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "return",
+                                expected: 1,
+                                actual: rest.len(),
+                            })
+                        }
+                    },
+                    _function => Self::new_function_call(arena, src, span, leading_node, rest)?,
+                }
+            }
+            [function @ Node::Tree(_, _), rest @ ..] => {
+                Self::new_function_call(arena, src, span, function, rest)?
+            }
+            [Node::Void(_)
+            | Node::Bool(_, _)
+            | Node::Int(_, _)
+            | Node::Float(_, _)
+            | Node::String(_), ..] => {
+                return Err(CompileError::ConstantNotCallable(
+                    span.as_str(src).to_string(),
+                ))
+            }
+            [] => return Err(CompileError::EmptyExpression),
+        };
+        Ok(ir)
+    }
+
+    fn new_function_call(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        function: &Node,
+        args: &[Node],
+    ) -> Result<Ir<'a>> {
+        let mut args_vec = BumpVec::with_capacity_in(args.len(), arena);
+        for arg in args.iter() {
+            let arg_ir = Ir::new(arena, src, arg)?;
+            args_vec.push(arg_ir);
+        }
+        Ok(Ir::FunctionCall {
+            span,
+            function: arena.alloc(Ir::new(arena, src, function)?),
+            args: args_vec,
+        })
+    }
+
+    fn new_define(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        define_args: &[Node],
+    ) -> Result<Ir<'a>> {
+        let ir = match define_args {
+            [Node::Identifier(identifier_span), expr] => Ir::Define {
+                span,
+                identifier: identifier_span.as_str(src),
+                expr: arena.alloc(Ir::new(arena, src, expr)?),
+            },
+            [Node::Tree(lambda_signature_span, lambda_signature), exprs @ ..] => {
+                let lambda_span = if let Some(expr) = exprs.last() {
+                    lambda_signature_span.extend_end(expr.span().end)
+                } else {
+                    *lambda_signature_span
+                };
+                match lambda_signature.as_slice() {
+                    [Node::Identifier(identifier_span), lambda_args @ ..] => {
+                        let name = identifier_span.as_str(src);
+                        let lambda_ir = Ir::new_lambda(
+                            arena,
+                            src,
+                            lambda_span,
+                            Some(name),
+                            lambda_args,
+                            exprs,
+                        )?;
+                        Ir::Define {
+                            span: *identifier_span,
+                            identifier: identifier_span.as_str(src),
+                            expr: arena.alloc(lambda_ir),
+                        }
+                    }
+                    _ => {
+                        return Err(CompileError::ExpectedIdentifierList {
+                            context: "function definition",
+                        })
+                    }
+                }
+            }
+            [_, _] => return Err(CompileError::ExpectedIdentifier),
+            _ => {
+                return Err(CompileError::ExpressionHasWrongArgs {
+                    expression: "define",
+                    expected: 2,
+                    actual: define_args.len(),
+                })
+            }
+        };
+        Ok(ir)
+    }
+
+    fn new_lambda(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        name: Option<&'a str>,
+        lambda_args: &[Node],
+        exprs: &[Node],
+    ) -> Result<Ir<'a>> {
+        let mut args_vec = BumpVec::with_capacity_in(lambda_args.len(), arena);
+        for arg in lambda_args.iter() {
+            let ident = node_to_ident(src, arg)?;
+            args_vec.push(ident);
+        }
+        let mut exprs_vec = BumpVec::with_capacity_in(exprs.len(), arena);
+        for expr in exprs.iter() {
+            let expr_ir = Ir::new(arena, src, expr)?;
+            exprs_vec.push(expr_ir);
+        }
+        Ok(Ir::Lambda {
+            span,
+            name,
+            args: args_vec,
+            expressions: exprs_vec,
+        })
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum IrReturnType {
+    /// The IR does not return anything. This means nothing is pushed to the stack.
+    None,
+    /// A value is pushed to the top of the stack.
+    Value,
+    /// The current function is returned, exiting the current function call frame.
+    EarlyReturn,
+}
+
+fn node_to_ident<'a>(src: &'a str, node: &Node) -> Result<&'a str> {
+    match node {
+        Node::Identifier(ident) => Ok(ident.as_str(src)),
+        _ => Err(CompileError::ExpectedIdentifierList {
+            context: "lambda/function definition",
+        }),
+    }
+}

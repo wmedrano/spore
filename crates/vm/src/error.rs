@@ -198,6 +198,8 @@ pub enum CompileError {
     AstError(#[from] AstParseError),
     #[error("found unexpected empty expression")]
     EmptyExpression,
+    #[error("constant {0} is not callable")]
+    ConstantNotCallable(String),
     #[error("expression {expression} expected {expected} arguments but found {actual}")]
     ExpressionHasWrongArgs {
         expression: &'static str,

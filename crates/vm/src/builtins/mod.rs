@@ -31,8 +31,8 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("working-directory", working_directory),
 ];
 
-pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
-    match ctx.args() {
+pub fn not<'a>(_: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+    match args {
         [v] => Ok(Val::new_bool(!v.is_truthy()).into()),
         args => Err(VmError::ArityError {
             function: "not".into(),
@@ -42,8 +42,7 @@ pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     }
 }
 
-pub fn equal(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let args = ctx.args();
+pub fn equal<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
     match args {
         [a, b] => {
             // Unsafe OK: [equal_imp] holds the a reference to the VM so it can't run garbage
@@ -104,21 +103,25 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
     }
 }
 
-pub fn working_directory(ctx: NativeFunctionContext) -> VmResult<ValBuilder> {
-    let arg_len = ctx.args_len();
-    if arg_len != 0 {
-        return Err(VmError::ArityError {
+pub fn working_directory<'a>(
+    ctx: NativeFunctionContext<'a>,
+    args: &[Val<'a>],
+) -> VmResult<ValBuilder<'a>> {
+    match args {
+        [] => {
+            let working_directory: CompactString = match std::env::current_dir() {
+                Ok(path) => path.to_string_lossy().into(),
+                // Untested OK: It is hard to create a working directory error and is not common.
+                Err(err) => return Err(VmError::CustomError(err.to_string())),
+            };
+            Ok(ctx.new_string(working_directory))
+        }
+        _ => Err(VmError::ArityError {
             function: "working-directory".into(),
             expected: 0,
-            actual: arg_len,
-        });
+            actual: args.len(),
+        }),
     }
-    let working_directory: CompactString = match std::env::current_dir() {
-        Ok(path) => path.to_string_lossy().into(),
-        // Untested OK: It is hard to create a working directory error and is not common.
-        Err(err) => return Err(VmError::CustomError(err.to_string())),
-    };
-    Ok(ctx.new_string(working_directory))
 }
 
 #[cfg(test)]
