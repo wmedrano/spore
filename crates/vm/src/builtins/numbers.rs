@@ -35,6 +35,7 @@ fn add_impl<'a>(
             }
             _ => {
                 return Err(VmError::TypeError {
+                    src: None,
                     context,
                     expected: "int or float",
                     actual: arg.type_name(),
@@ -60,6 +61,7 @@ fn negate(vm: &Vm, context: &'static str, v: Val) -> VmResult<Number> {
         UnsafeVal::Int(x) => Ok(Number::Int(-x)),
         UnsafeVal::Float(x) => Ok(Number::Float(-x)),
         _ => Err(VmError::TypeError {
+            src: None,
             context,
             expected: "int or float",
             actual: v.type_name(),
@@ -95,12 +97,14 @@ fn less_two_impl(vm: &Vm, a: Val, b: Val) -> VmResult<bool> {
         (UnsafeVal::Float(a), UnsafeVal::Int(b)) => Ok(a < (b as f64)),
         (UnsafeVal::Int(a), UnsafeVal::Float(b)) => Ok((a as f64) < b),
         (_, UnsafeVal::Int(_)) | (_, UnsafeVal::Float(_)) => Err(VmError::TypeError {
+            src: None,
             context: "<",
             expected: "int or float",
             actual: a.type_name(),
             value: a.format_quoted(vm).to_string(),
         }),
         (_, _) => Err(VmError::TypeError {
+            src: None,
             context: "<",
             expected: "int or float",
             actual: b.type_name(),
@@ -127,6 +131,8 @@ pub fn less<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder
 
 #[cfg(test)]
 mod tests {
+    use crate::parser::span::Span;
+
     use super::*;
 
     #[test]
@@ -140,10 +146,12 @@ mod tests {
     #[test]
     fn add_with_nonnumber_is_type_error() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(+ 1 2 \"fish\")").unwrap_err();
+        let src = "(+ 1 2 \"fish\")";
+        let got = vm.eval_str(src).unwrap_err();
         assert_eq!(
             got,
             VmError::TypeError {
+                src: Some(Span::new(0, 14).with_src(src.into())),
                 context: "+",
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
@@ -192,18 +200,22 @@ mod tests {
     #[test]
     fn subtract_with_wrong_args_produces_error() {
         let mut vm = Vm::default();
+        let src = "(- \"string\")";
         assert_eq!(
-            vm.eval_str("(- \"string\")").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 12).with_src(src.into())),
                 context: "-",
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"string\"".into(),
             }
         );
+        let src = "(- 0 (list))";
         assert_eq!(
-            vm.eval_str("(- 0 (list))").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 12).with_src(src.into())),
                 context: "-",
                 expected: "int or float",
                 actual: UnsafeVal::LIST_TYPE_NAME,
@@ -264,30 +276,33 @@ mod tests {
     #[test]
     fn less_with_nonumber_args_is_type_error() {
         let mut vm = Vm::default();
-        let got = vm.eval_str("(< \"blue\" 2)").unwrap_err();
+        let src = "(< \"blue\" 2)";
         assert_eq!(
-            got,
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 12).with_src(src.into())),
                 context: "<",
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"blue\"".to_string(),
             }
         );
-        let got = vm.eval_str("(< \"blue\" 2.0)").unwrap_err();
+        let src = "(< \"blue\" 2.0)";
         assert_eq!(
-            got,
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 14).with_src(src.into())),
                 context: "<",
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,
                 value: "\"blue\"".to_string(),
             }
         );
-        let got = vm.eval_str("(< -1 \"fish\" 2)").unwrap_err();
+        let src = "(< -1 \"fish\" 2)";
         assert_eq!(
-            got,
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 15).with_src(src.into())),
                 context: "<",
                 expected: "int or float",
                 actual: UnsafeVal::STRING_TYPE_NAME,

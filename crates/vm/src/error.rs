@@ -1,8 +1,13 @@
 //! Contains errors definitions for the Spore VM.
+use std::sync::Arc;
+
 use compact_str::CompactString;
 use thiserror::Error;
 
-use crate::{parser::ast::AstParseError, val::custom::CustomValError};
+use crate::{
+    parser::{ast::AstParseError, span::SpanWithSource},
+    val::custom::CustomValError,
+};
 
 /// A `Result` with `VmError` as the error branch.
 pub type VmResult<T> = Result<T, VmError>;
@@ -11,6 +16,7 @@ pub type VmResult<T> = Result<T, VmError>;
 #[derive(Debug, PartialEq)]
 pub enum VmError {
     TypeError {
+        src: Option<SpanWithSource<Arc<str>>>,
         context: &'static str,
         expected: &'static str,
         actual: &'static str,
@@ -24,7 +30,7 @@ pub enum VmError {
     CompileError(CompileError),
     InvalidVmState(BacktraceError),
     SymbolNotDefined {
-        src: Option<String>,
+        src: Option<SpanWithSource<Arc<str>>>,
         symbol: String,
     },
     MaximumFunctionCallDepth {
@@ -37,14 +43,16 @@ pub enum VmError {
 
 impl VmError {
     /// Return the error with the given source context added.
-    pub fn with_src(self, src: String) -> VmError {
+    pub fn with_src(self, src: SpanWithSource<Arc<str>>) -> VmError {
         match self {
             VmError::TypeError {
+                src: _src,
                 context,
                 expected,
                 actual,
                 value,
             } => VmError::TypeError {
+                src: Some(src),
                 context,
                 expected,
                 actual,
@@ -80,16 +88,27 @@ impl VmError {
 
 impl std::fmt::Display for VmError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let format_src = |f: &mut std::fmt::Formatter<'_>,
+                          src: &Option<SpanWithSource<Arc<str>>>| {
+            if let Some(src) = src {
+                write!(f, "\n{}", src.contextual_formatter())?;
+            }
+            Ok(())
+        };
         match self {
             VmError::TypeError {
+                src,
                 context,
                 expected,
                 actual,
                 value,
-            } => write!(
-                f,
-                "{context} expected type {expected} but got {actual}: {value}"
-            ),
+            } => {
+                write!(
+                    f,
+                    "{context} expected type {expected} but got {actual}: {value}"
+                )?;
+                format_src(f, src)
+            }
             VmError::ArityError {
                 function,
                 expected,
@@ -97,15 +116,9 @@ impl std::fmt::Display for VmError {
             } => write!(f, "{function} expected {expected} args but got {actual}."),
             VmError::CompileError(e) => write!(f, "{e}"),
             VmError::InvalidVmState(bt) => write!(f, "VM reached invalid state.\n{bt}"),
-            VmError::SymbolNotDefined {
-                symbol,
-                src: context,
-            } => {
+            VmError::SymbolNotDefined { symbol, src } => {
                 write!(f, "Value {symbol} is not defined.")?;
-                if let Some(context) = context {
-                    write!(f, "\n{context}")?;
-                }
-                Ok(())
+                format_src(f, src)
             }
             VmError::MaximumFunctionCallDepth {
                 max_depth,

@@ -1,7 +1,10 @@
 use compact_str::CompactString;
 use thiserror::Error;
 
-use super::tokenizer::{Span, Token, TokenType};
+use super::{
+    span::Span,
+    tokenizer::{Token, TokenType},
+};
 
 type Result<T> = std::result::Result<T, AstParseError>;
 
@@ -110,7 +113,7 @@ impl Node {
     /// [Node::String].
     pub fn to_string_literal(&self, src: &str) -> Option<CompactString> {
         let contents = match self {
-            Node::String(span) => span.as_str(src),
+            Node::String(span) => span.with_src(src).as_str(),
             _ => return None,
         };
         let mut res = CompactString::with_capacity(contents.len().saturating_sub(2));

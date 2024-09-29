@@ -10,6 +10,7 @@ pub fn string_length<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResu
         [v] => v
             .try_str(ctx.vm())
             .map_err(|v| VmError::TypeError {
+                src: None,
                 context: "string-length",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: v.type_name(),
@@ -30,6 +31,7 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
             let list = maybe_list
                 .try_list(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "string-join arg(idx=0)",
                     expected: UnsafeVal::LIST_TYPE_NAME,
                     actual: v.type_name(),
@@ -41,6 +43,7 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
             let list = maybe_list
                 .try_list(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "string-join arg(idx=0)",
                     expected: UnsafeVal::LIST_TYPE_NAME,
                     actual: v.type_name(),
@@ -49,6 +52,7 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
             let separator = maybe_separator
                 .try_str(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "string-join arg(idx=1)",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
@@ -80,6 +84,7 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
             list_element
                 .try_str(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "string-join arg(idx=0) list subelement",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
@@ -92,7 +97,7 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
 
 #[cfg(test)]
 mod tests {
-    use crate::Vm;
+    use crate::{parser::span::Span, Vm};
 
     use super::*;
 
@@ -139,9 +144,11 @@ mod tests {
                 actual: 2
             }
         );
+        let src = "(string-length 0)";
         assert_eq!(
-            vm.eval_str("(string-length 0)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 17).with_src(src.into())),
                 context: "string-length",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -181,37 +188,44 @@ mod tests {
     #[test]
     fn string_join_with_wrong_type_args_is_type_error() {
         let mut vm = Vm::default();
+        let src = "(string-join 2)";
         assert_eq!(
-            vm.eval_str("(string-join 2)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 15).with_src(src.into())),
                 context: "string-join arg(idx=0)",
                 expected: UnsafeVal::LIST_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "2".to_string(),
             },
         );
+        let src = "(string-join 3 \",\")";
         assert_eq!(
-            vm.eval_str("(string-join 3 \",\")").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 19).with_src(src.into())),
                 context: "string-join arg(idx=0)",
                 expected: UnsafeVal::LIST_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "3".to_string(),
             },
         );
+        let src = "(string-join (list \"ok string\" 42))";
         assert_eq!(
-            vm.eval_str("(string-join (list \"ok string\" 42))")
-                .unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 35).with_src(src.into())),
                 context: "string-join arg(idx=0) list subelement",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "42".to_string(),
             },
         );
+        let src = "(string-join (list) 3)";
         assert_eq!(
-            vm.eval_str("(string-join (list) 3)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 22).with_src(src.into())),
                 context: "string-join arg(idx=1)",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,

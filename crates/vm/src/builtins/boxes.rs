@@ -30,6 +30,7 @@ pub fn set_box<'a>(mut ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
             Ok(unsafe { ctx.with_unsafe_val(old_val) })
         }
         [arg, _] => Err(VmError::TypeError {
+            src: None,
             context: "set-box!",
             expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             actual: arg.type_name(),
@@ -53,6 +54,7 @@ pub fn unbox<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBu
             Ok(unsafe { ctx.with_unsafe_val(boxed_val) })
         }
         [arg] => Err(VmError::TypeError {
+            src: None,
             context: "unbox",
             expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             actual: arg.type_name(),
@@ -68,7 +70,7 @@ pub fn unbox<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBu
 
 #[cfg(test)]
 mod tests {
-    use crate::Vm;
+    use crate::{parser::span::Span, Vm};
 
     use super::*;
 
@@ -129,9 +131,11 @@ mod tests {
                 actual: 2
             }
         );
+        let src = "(unbox 0)";
         assert_eq!(
-            vm.eval_str("(unbox 0)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 9).with_src(src.into())),
                 context: "unbox",
                 expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -176,9 +180,11 @@ mod tests {
                 actual: 1
             }
         );
+        let src = "(set-box! 0 (new-box 0))";
         assert_eq!(
-            vm.eval_str("(set-box! 0 (new-box 0))").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 24).with_src(src.into())),
                 context: "set-box!",
                 expected: UnsafeVal::MUTABLE_BOX_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,

@@ -10,6 +10,7 @@ use log::*;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
+use parser::span::SpanWithSource;
 pub use settings::Settings;
 use val::{
     custom::CustomVal, ByteCode, CustomType, Instruction, NativeFunction, NativeFunctionContext,
@@ -229,6 +230,7 @@ impl Vm {
                 .insert_bytecode(ByteCode::new_native_function_call(name, f, args.len())),
             v => {
                 return Err(VmError::TypeError {
+                    src: None,
                     context: "eval-function-by-name",
                     expected: UnsafeVal::FUNCTION_TYPE_NAME,
                     actual: v.type_name(),
@@ -271,13 +273,13 @@ impl Vm {
     }
 
     fn annotate_src(&self, error: VmError) -> VmError {
-        let src = || -> Option<String> {
+        let src = || -> Option<SpanWithSource<Arc<str>>> {
             let instruction_idx = self.stack_frame.instruction_idx.saturating_sub(1);
             let bytecode_id = self.stack_frame.bytecode_id;
             let bytecode = self.objects.get_bytecode(bytecode_id)?;
             let src = bytecode.source.as_ref()?;
-            let src_span = bytecode.instruction_source.get(instruction_idx)?;
-            Some(src_span.as_str(src).to_string())
+            let span = bytecode.instruction_source.get(instruction_idx)?;
+            Some(span.with_src(src.clone()))
         };
         match src() {
             Some(src) => error.with_src(src),
@@ -434,6 +436,7 @@ impl Vm {
                 Ok(())
             }
             _ => Err(VmError::TypeError {
+                src: None,
                 context: "function invocation",
                 expected: UnsafeVal::FUNCTION_TYPE_NAME,
                 actual: func_val.type_name(),
@@ -542,6 +545,7 @@ impl Drop for Vm {
 #[cfg(test)]
 mod tests {
     use error::CompileError;
+    use parser::span::Span;
 
     use super::*;
 
@@ -569,10 +573,12 @@ mod tests {
     #[test]
     fn vm_error_is_reported() {
         let mut vm = Vm::default();
-        let actual = vm.eval_str("(+ true false)").unwrap_err();
+        let src = "(+ true false)";
+        let actual = vm.eval_str(src).unwrap_err();
         assert_eq!(
             actual,
             VmError::TypeError {
+                src: Some(Span::new(0, 14).with_src(src.into())),
                 context: "+",
                 expected: "int or float",
                 actual: UnsafeVal::BOOL_TYPE_NAME,
@@ -759,6 +765,7 @@ mod tests {
             vm.eval_function_by_name("foo", std::iter::empty())
                 .unwrap_err(),
             VmError::TypeError {
+                src: None,
                 context: "eval-function-by-name",
                 expected: UnsafeVal::FUNCTION_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,

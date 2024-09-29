@@ -92,6 +92,7 @@ fn new_buffer<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValB
                 Ok(s) => buffer.name = s.into(),
                 Err(v) => {
                     return Err(VmError::TypeError {
+                        src: None,
                         context: "new-buffer",
                         expected: UnsafeVal::STRING_TYPE_NAME,
                         actual: v.type_name(),
@@ -106,6 +107,7 @@ fn new_buffer<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValB
                     }
                     Err(v) => {
                         return Err(VmError::TypeError {
+                            src: None,
                             context: "new-buffer",
                             expected: UnsafeVal::STRING_TYPE_NAME,
                             actual: v.type_name(),
@@ -135,6 +137,7 @@ fn buffer_insert<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResu
         });
     }
     let insert_string = args[1].try_str(ctx.vm()).map_err(|v| VmError::TypeError {
+        src: None,
         context: "buffer-insert!",
         expected: UnsafeVal::STRING_TYPE_NAME,
         actual: v.type_name(),
@@ -170,12 +173,14 @@ fn buffer_cursor_move<'a>(
         [buffer, xs, ys] => {
             let mut buffer = buffer.try_custom_mut::<SporeBuffer>(ctx.vm())?;
             let xs = xs.try_int().map_err(|v| VmError::TypeError {
+                src: None,
                 context: "buffer-cursor-move! (arg-idx=1)",
                 expected: UnsafeVal::INT_TYPE_NAME,
                 actual: v.type_name(),
                 value: v.format_quoted(ctx.vm()).to_string(),
             })?;
             let ys = ys.try_int().map_err(|v| VmError::TypeError {
+                src: None,
                 context: "buffer-cursor-move! (arg-idx=2)",
                 expected: UnsafeVal::INT_TYPE_NAME,
                 actual: v.type_name(),

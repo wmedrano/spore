@@ -3,7 +3,7 @@ use compact_str::CompactString;
 
 use crate::{
     error::CompileError,
-    parser::{ast::Node, tokenizer::Span},
+    parser::{ast::Node, span::Span},
 };
 
 type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
@@ -94,7 +94,9 @@ impl<'a> Ir<'a> {
                 *span,
                 Constant::String(node.to_string_literal(src).unwrap()),
             ),
-            Node::Identifier(ident_span) => Ir::Deref(*ident_span, ident_span.as_str(src)),
+            Node::Identifier(ident_span) => {
+                Ir::Deref(*ident_span, ident_span.with_src(src).as_str())
+            }
             Node::Tree(span, tree) => Self::new_tree(arena, src, *span, tree)?,
         };
         Ok(ir)
@@ -126,7 +128,7 @@ impl<'a> Ir<'a> {
     fn new_tree(arena: &'a Bump, src: &'a str, span: Span, tree: &[Node]) -> Result<Ir<'a>> {
         let ir = match tree {
             [leading_node @ Node::Identifier(leading_ident), rest @ ..] => {
-                match leading_ident.as_str(src) {
+                match leading_ident.with_src(src).as_str() {
                     "define" => Self::new_define(arena, src, span, rest)?,
                     "if" => match rest {
                         [predicate, true_expr] => Ir::If {
@@ -203,7 +205,7 @@ impl<'a> Ir<'a> {
             | Node::Float(_, _)
             | Node::String(_), ..] => {
                 return Err(CompileError::ConstantNotCallable(
-                    span.as_str(src).to_string(),
+                    span.with_src(src).to_string(),
                 ))
             }
             [] => return Err(CompileError::EmptyExpression),
@@ -235,7 +237,7 @@ impl<'a> Ir<'a> {
         let ir = match define_args {
             [Node::Identifier(identifier_span), expr] => Ir::Define {
                 span,
-                identifier: identifier_span.as_str(src),
+                identifier: identifier_span.with_src(src).as_str(),
                 expr: arena.alloc(Ir::new(arena, src, expr)?),
             },
             [Node::Tree(lambda_signature_span, lambda_signature), exprs @ ..] => {
@@ -246,7 +248,7 @@ impl<'a> Ir<'a> {
                 };
                 match lambda_signature.as_slice() {
                     [Node::Identifier(identifier_span), lambda_args @ ..] => {
-                        let name = identifier_span.as_str(src);
+                        let name = identifier_span.with_src(src).as_str();
                         let lambda_ir = Ir::new_lambda(
                             arena,
                             src,
@@ -257,7 +259,7 @@ impl<'a> Ir<'a> {
                         )?;
                         Ir::Define {
                             span: *identifier_span,
-                            identifier: identifier_span.as_str(src),
+                            identifier: identifier_span.with_src(src).as_str(),
                             expr: arena.alloc(lambda_ir),
                         }
                     }
@@ -332,7 +334,7 @@ impl<'a> Ir<'a> {
             match node {
                 Node::Tree(_, tree) => match tree.as_slice() {
                     [Node::Identifier(ident), expr] => {
-                        ret.push((ident.as_str(src), Self::new(arena, src, expr)?));
+                        ret.push((ident.with_src(src).as_str(), Self::new(arena, src, expr)?));
                     }
                     _ => return Err(CompileError::BadLetBindings),
                 },
@@ -353,7 +355,7 @@ pub enum IrReturnType {
 
 fn node_to_ident<'a>(src: &'a str, node: &Node) -> Result<&'a str> {
     match node {
-        Node::Identifier(ident) => Ok(ident.as_str(src)),
+        Node::Identifier(ident) => Ok(ident.with_src(src).as_str()),
         _ => Err(CompileError::ExpectedIdentifierList {
             context: "lambda/function definition",
         }),

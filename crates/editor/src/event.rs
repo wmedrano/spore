@@ -98,6 +98,7 @@ fn special_event_p<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
     match args {
         [event] => {
             let event = event.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
+                src: None,
                 context: "special-event?",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: v.type_name(),

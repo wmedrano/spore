@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use compact_str::CompactString;
 
-use crate::parser::tokenizer::Span;
+use crate::parser::span::Span;
 
 use super::{NativeFunction, UnsafeVal};
 

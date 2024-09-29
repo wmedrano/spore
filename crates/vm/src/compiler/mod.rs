@@ -6,7 +6,7 @@ use ir::{Constant, Ir, IrReturnType};
 
 use crate::{
     error::CompileError,
-    parser::{ast::Node, tokenizer::Span},
+    parser::{ast::Node, span::Span},
     val::{ByteCode, Instruction, UnsafeVal},
     Settings, Vm,
 };

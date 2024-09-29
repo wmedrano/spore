@@ -12,6 +12,7 @@ pub fn list_length<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
         [arg] => match arg.try_list(ctx.vm()) {
             Ok(list) => Ok(ValBuilder::new((list.len() as i64).into())),
             Err(v) => Err(VmError::TypeError {
+                src: None,
                 context: "list-length",
                 expected: UnsafeVal::LIST_TYPE_NAME,
                 actual: v.type_name(),
@@ -28,7 +29,7 @@ pub fn list_length<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
 
 #[cfg(test)]
 mod tests {
-    use crate::Vm;
+    use crate::{parser::span::Span, Vm};
 
     use super::*;
 
@@ -51,9 +52,11 @@ mod tests {
                 actual: 2
             }
         );
+        let src = "(list-length 0)";
         assert_eq!(
-            vm.eval_str("(list-length 0)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 15).with_src(src.into())),
                 context: "list-length",
                 expected: "list",
                 actual: "int",

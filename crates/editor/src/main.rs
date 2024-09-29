@@ -15,7 +15,16 @@ mod buffer;
 mod event;
 mod widgets;
 
-fn main() -> anyhow::Result<()> {
+fn main() {
+    main_wrapper()
+        .inspect_err(|err| {
+            let _ = print_logs();
+            eprintln!("{err}");
+        })
+        .ok();
+}
+
+fn main_wrapper() -> anyhow::Result<()> {
     init_logger();
     let vm = new_vm("main.spore")?;
     let mut terminal = ratatui::init();
@@ -42,7 +51,7 @@ fn new_vm(main_src_file: &str) -> anyhow::Result<Vm> {
         duration = start_t.elapsed()
     );
     let start_t = Instant::now();
-    vm.eval_str(&main_src).unwrap();
+    vm.eval_str(&main_src)?;
     info!("Evaluated main in {:?}.", start_t.elapsed());
     Ok(vm)
 }

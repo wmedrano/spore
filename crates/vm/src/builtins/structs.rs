@@ -31,6 +31,7 @@ pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<
             let field = maybe_string
                 .try_str(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "struct-get arg(idx=1)",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
@@ -41,6 +42,7 @@ pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<
                 maybe_struct
                     .try_struct_get(ctx.vm(), field)
                     .map_err(|v| VmError::TypeError {
+                        src: None,
                         context: "struct-get arg(idx=0)",
                         expected: UnsafeVal::STRUCT_TYPE_NAME,
                         actual: v.type_name(),
@@ -68,6 +70,7 @@ pub fn struct_set<'a>(
             let field = maybe_string
                 .try_str(ctx.vm())
                 .map_err(|v| VmError::TypeError {
+                    src: None,
                     context: "struct-set! arg(idx=1)",
                     expected: UnsafeVal::STRING_TYPE_NAME,
                     actual: v.type_name(),
@@ -79,6 +82,7 @@ pub fn struct_set<'a>(
                 Ok(v) => v,
                 Err(v) => {
                     return Err(VmError::TypeError {
+                        src: None,
                         context: "struct-set! arg(idx=0)",
                         expected: UnsafeVal::STRUCT_TYPE_NAME,
                         actual: v.type_name(),
@@ -99,7 +103,7 @@ pub fn struct_set<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::Vm;
+    use crate::{parser::span::Span, Vm};
 
     use super::*;
 
@@ -160,9 +164,11 @@ mod tests {
     #[test]
     fn struct_get_with_non_struct_returns_error() {
         let mut vm = Vm::default();
+        let src = "(struct-get 1 \"field\")";
         assert_eq!(
-            vm.eval_str("(struct-get 1 \"field\")").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 22).with_src(src.into())),
                 context: "struct-get arg(idx=0)",
                 expected: UnsafeVal::STRUCT_TYPE_NAME,
                 actual: "int",
@@ -174,9 +180,11 @@ mod tests {
     #[test]
     fn struct_get_with_non_string_returns_error() {
         let mut vm = Vm::default();
+        let src = "(struct-get (struct) 1)";
         assert_eq!(
-            vm.eval_str("(struct-get (struct) 1)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 23).with_src(src.into())),
                 context: "struct-get arg(idx=1)",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: "int",
@@ -223,9 +231,11 @@ mod tests {
     #[test]
     fn struct_set_with_non_struct_returns_error() {
         let mut vm = Vm::default();
+        let src = "(struct-set! 1 \"field\" 3)";
         assert_eq!(
-            vm.eval_str("(struct-set! 1 \"field\" 3)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 25).with_src(src.into())),
                 context: "struct-set! arg(idx=0)",
                 expected: UnsafeVal::STRUCT_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -238,9 +248,11 @@ mod tests {
     fn struct_set_with_non_string_field_returns_error() {
         let mut vm = Vm::default();
         vm.eval_str("(define x (struct))").unwrap();
+        let src = "(struct-set! x 2 3)";
         assert_eq!(
-            vm.eval_str("(struct-set! x 2 3)").unwrap_err(),
+            vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
+                src: Some(Span::new(0, 19).with_src(src.into())),
                 context: "struct-set! arg(idx=1)",
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
