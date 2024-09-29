@@ -34,12 +34,6 @@ impl<T> Default for ObjectStore<T> {
 }
 
 impl<T: std::fmt::Debug> ObjectStore<T> {
-    /// The size of metadata structures in bytes.
-    pub fn metadata_size(&self) -> usize {
-        std::mem::size_of::<ValWithColor<T>>() * self.objects.capacity()
-            + std::mem::size_of::<ValId<T>>() * self.free_object_idx.capacity()
-    }
-
     /// Returns the object if its color was changed.
     pub fn set_color(&mut self, id: ValId<T>, new_color: Color) -> Option<&T> {
         match self.objects.get_mut(id.as_usize()) {
@@ -58,17 +52,13 @@ impl<T: std::fmt::Debug> ObjectStore<T> {
     /// Remove all objects with the given `color`. Note, any objects that activated
     /// [Self::mark_always_reachable] will not be cleaned up unless undone with
     /// [Self::unmark_always_reachable].
-    ///
-    /// Returns the number of objects that were removed.
-    pub fn remove_all_with_color(&mut self, color: Color) -> usize {
-        let start_free = self.free_object_idx.len();
+    pub fn remove_all_with_color(&mut self, color: Color) {
         for (idx, obj) in self.objects.iter_mut().enumerate() {
             if obj.inner.is_some() && obj.color == color {
                 obj.inner.take();
                 self.free_object_idx.push(idx as _);
             }
         }
-        self.free_object_idx.len() - start_free
     }
 
     #[cfg(test)]

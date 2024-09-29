@@ -25,9 +25,9 @@ pub fn set_box<'a>(mut ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
         [UnsafeVal::MutableBox(id), inner_val] => {
             let (id, inner_val) = (*id, *inner_val);
             // Unsafe OK: Defining new value and returning right away.
-            let boxed_val = unsafe { ctx.vm_mut().objects.set_mutable_box(id, inner_val) };
+            let old_val = unsafe { ctx.vm_mut().objects.set_mutable_box(id, inner_val) };
             // Unsafe OK: `boxed_val` has just been created so it will not be garbage collected.
-            Ok(unsafe { ctx.with_unsafe_val(boxed_val) })
+            Ok(unsafe { ctx.with_unsafe_val(old_val) })
         }
         [arg, _] => Err(VmError::TypeError {
             context: "set-box!",

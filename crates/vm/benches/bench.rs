@@ -18,8 +18,31 @@ fn fib_benchmark(c: &mut Criterion) {
     });
 }
 
+fn arithmetic_benchmark(c: &mut Criterion) {
+    c.bench_function("arithmetic", |b| {
+        let mut vm = spore_vm::Vm::new(spore_vm::Settings {
+            enable_aggressive_inline: true,
+            ..Default::default()
+        });
+        let src = r#"
+(define (benchmark)
+  (let ([x (+ 10 20 30)]
+        [y (- x 4 5 8)]
+        [z (- x y x y x y x y)])
+    (+ x y z)))
+"#;
+        vm.eval_str(src).unwrap();
+        b.iter(move || {
+            vm.eval_function_by_name("benchmark", std::iter::empty())
+                .unwrap()
+                .try_int()
+                .unwrap()
+        })
+    });
+}
+
 fn struct_benchmark(c: &mut Criterion) {
-    c.bench_function(&format!("struct"), |b| {
+    c.bench_function("struct", |b| {
         let mut vm = spore_vm::Vm::new(spore_vm::Settings {
             enable_aggressive_inline: true,
             ..Default::default()
@@ -38,5 +61,10 @@ fn struct_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, fib_benchmark, struct_benchmark);
+criterion_group!(
+    benches,
+    fib_benchmark,
+    arithmetic_benchmark,
+    struct_benchmark
+);
 criterion_main!(benches);
