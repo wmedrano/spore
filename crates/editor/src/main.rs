@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context;
 use buffer::SporeBuffer;
 use log::*;
-use ratatui::{style::Style, DefaultTerminal};
+use ratatui::{style::Style, Terminal};
 use spore_vm::{val::Val, Settings, Vm};
 use widgets::WindowWidget;
 
@@ -17,7 +17,7 @@ mod widgets;
 
 fn main() -> anyhow::Result<()> {
     init_logger();
-    let vm = new_vm()?;
+    let vm = new_vm("main.spore")?;
     let mut terminal = ratatui::init();
     terminal.clear()?;
     let app_result = run(vm, terminal);
@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
     app_result
 }
 
-fn new_vm() -> anyhow::Result<Vm> {
+fn new_vm(main_src_file: &str) -> anyhow::Result<Vm> {
     let mut vm = Vm::new(Settings {
         enable_aggressive_inline: false,
         enable_source_maps: true,
@@ -33,7 +33,6 @@ fn new_vm() -> anyhow::Result<Vm> {
     .with(event::register)
     .with(SporeBuffer::register);
     let working_directory = std::env::current_dir().unwrap_or_default();
-    let main_src_file = "main.spore";
     let start_t = Instant::now();
     let main_src = std::fs::read_to_string(main_src_file)
         .with_context(|| format!("Not found under working directory: {working_directory:?}"))
@@ -48,7 +47,7 @@ fn new_vm() -> anyhow::Result<Vm> {
     Ok(vm)
 }
 
-fn run(mut vm: Vm, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
+fn run<T: ratatui::backend::Backend>(mut vm: Vm, mut terminal: Terminal<T>) -> anyhow::Result<()> {
     let mut terminal_size = terminal.size()?;
     let mut terminal_size_changed = false;
     vm.eval_function_by_name(
@@ -124,4 +123,29 @@ fn init_logger() {
         print_logs().ok();
         previous_hook(info);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::backend::TestBackend;
+
+    use super::*;
+
+    #[test]
+    fn ctrl_q_quits() {
+        let mut vm = new_vm("../../main.spore").unwrap();
+        let read_event_override = r#"(define (read-event!) "<ctrl-q>")"#;
+        vm.eval_str(read_event_override).unwrap();
+        let terminal = ratatui::Terminal::new(TestBackend::new(80, 40)).unwrap();
+        run(vm, terminal).unwrap();
+    }
+
+    #[test]
+    fn terminal_size_0_is_ok() {
+        let mut vm = new_vm("../../main.spore").unwrap();
+        let read_event_override = r#"(define (read-event!) "<ctrl-q>")"#;
+        vm.eval_str(read_event_override).unwrap();
+        let terminal = ratatui::Terminal::new(TestBackend::new(0, 0)).unwrap();
+        run(vm, terminal).unwrap();
+    }
 }
