@@ -1,14 +1,12 @@
-use log::error;
+#[allow(unused_imports)]
+use log::*;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Style},
     widgets::{Block, BorderType, Borders, Clear, Widget},
 };
-use spore_vm::{
-    val::{UnsafeVal, Val},
-    Vm,
-};
+use spore_vm::{val::Val, Vm};
 
 use crate::buffer::SporeBuffer;
 
@@ -26,56 +24,33 @@ impl<'a> WindowWidget<'a> {
 impl<'a> Widget for WindowWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         if !self.val.is_struct() {
-            error!(
-                "Expected window to be of type struct but got {struct_type} with value {value}",
-                struct_type = self.val.type_name(),
-                value = self.val.format_quoted(self.vm)
-            );
             return;
         }
-        let get_field = |name: &str| -> Option<u16> {
+        match self.val.try_struct_get(self.vm, "hidden?") {
+            Ok(Some(v)) if v.is_truthy() => return,
+            _ => {}
+        }
+        let get_u16_field = |name: &str| -> u16 {
             let field_val = match self.val.try_struct_get(self.vm, name).unwrap() {
                 Some(v) => v,
-                None => {
-                    error!("window struct is missing field {name:?}.");
-                    return None;
-                }
+                None => return 0,
             };
             match field_val.try_int() {
-                Ok(i) if (0..=u16::MAX as i64).contains(&i) => Some(i as u16),
-                Ok(i) => {
-                    error!("window struct field {name:?} is out of range with value {i}.");
-                    None
-                }
-                Err(v) => {
-                    error!("window struct expected field {name:?} of type {expected_type}, but got type {got_type}: {val}",
-                           expected_type = UnsafeVal::INT_TYPE_NAME,
-                           got_type = v.type_name(),
-                           val = v.format_quoted(self.vm));
-                    None
-                }
+                Ok(i) if (0..=u16::MAX as i64).contains(&i) => i as u16,
+                Ok(i) if i < 0 => 0,
+                Ok(_) => u16::MAX,
+                Err(_) => 0,
             }
         };
         let mut render_impl = || -> Option<()> {
             let area = area.intersection(Rect::new(
-                get_field("x")?,
-                get_field("y")?,
-                get_field("width")?,
-                get_field("height")?,
+                get_u16_field("x"),
+                get_u16_field("y"),
+                get_u16_field("width"),
+                get_u16_field("height"),
             ));
-            let buffer_val = match self.val.try_struct_get(self.vm, "buffer").unwrap() {
-                Some(b) => b,
-                None => {
-                    error!("window struct did not have field {:?}.", "buffer");
-                    return None;
-                }
-            };
-            let buffer = buffer_val
-                .try_custom::<SporeBuffer>(self.vm)
-                .inspect_err(|err| {
-                    error!("window struct failed to get buffer: {err}");
-                })
-                .ok()?;
+            let buffer_val = self.val.try_struct_get(self.vm, "buffer").unwrap()?;
+            let buffer = buffer_val.try_custom::<SporeBuffer>(self.vm).ok()?;
             let draw_cursor = self
                 .val
                 .try_struct_get(self.vm, "draw-cursor?")
