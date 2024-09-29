@@ -18,10 +18,13 @@ impl From<Number> for Val<'static> {
     }
 }
 
-fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
+fn add_impl<'a>(
+    vm: &Vm,
+    context: &'static str,
+    args: impl 'a + Iterator<Item = &'a Val<'a>>,
+) -> VmResult<Number> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
-    let mut has_float = false;
     for arg in args {
         // Unsafe OK: Using field values right away without any garbage collection.
         // TODO: Consider getting the number through [Val] directly.
@@ -29,7 +32,6 @@ fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
             UnsafeVal::Int(x) => int_sum += x,
             UnsafeVal::Float(x) => {
                 float_sum += x;
-                has_float = true;
             }
             _ => {
                 return Err(VmError::TypeError {
@@ -41,7 +43,7 @@ fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
             }
         }
     }
-    if has_float {
+    if float_sum != 0.0 {
         Ok(Number::Float(float_sum + int_sum as f64))
     } else {
         Ok(Number::Int(int_sum))
@@ -49,7 +51,7 @@ fn add_impl(vm: &Vm, context: &'static str, args: &[Val]) -> VmResult<Number> {
 }
 
 pub fn add<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    let res = add_impl(ctx.vm(), "+", args)?;
+    let res = add_impl(ctx.vm(), "+", args.iter())?;
     Ok(ValBuilder::new(res.into()))
 }
 
@@ -71,9 +73,9 @@ pub fn subtract<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBui
     match args {
         [v] => negate(vm, "-", *v).map(|x| ValBuilder::new(x.into())),
         [v, rest @ ..] => {
-            let rest_sum = add_impl(vm, "-", rest)?;
+            let rest_sum = add_impl(vm, "-", rest.iter())?;
             let negated_rest = negate(vm, "-", rest_sum.into())?;
-            let ans = add_impl(vm, "-", &[*v, negated_rest.into()])?;
+            let ans = add_impl(vm, "-", [*v, negated_rest.into()].iter())?;
             Ok(ValBuilder::new(ans.into()))
         }
         [] => Err(VmError::ArityError {

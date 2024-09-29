@@ -192,7 +192,6 @@ impl Vm {
             Bump::new()
         });
         let bytecode = Compiler::compile(self, source, &arena)?;
-        eprintln!("Bytecode: {:#?}", bytecode);
         arena.reset();
         self.tmp_arena = Some(arena);
         let bytecode_id = self.objects.insert_bytecode(bytecode);
@@ -248,16 +247,15 @@ impl Vm {
         bytecode_id: ValId<ByteCode>,
         args: impl Iterator<Item = UnsafeVal>,
     ) -> VmResult<ProtectedVal> {
+        let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
+        self.previous_stack_frames.clear();
         self.stack.clear();
         self.stack.extend(args);
-        self.previous_stack_frames.clear();
-        let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
         self.stack
             .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
-        let instructions = bytecode.instructions.clone();
         self.stack_frame = StackFrame {
             bytecode_id,
-            instructions,
+            instructions: bytecode.instructions.clone(),
             instruction_idx: 0,
             stack_start: 0,
         };
@@ -299,8 +297,6 @@ impl Vm {
             .get(self.stack_frame.instruction_idx);
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
         self.stack_frame.instruction_idx += 1;
-        eprintln!("Stack: {stack:?}", stack = self.stack);
-        eprintln!("Instruction: {instruction:?}");
         match instruction {
             Instruction::PushConst(c) => {
                 self.stack.push(*c);
@@ -830,7 +826,7 @@ mod tests {
     fn let_statement() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(let (x 10 y 20) (+ x y) (+ x y x y))")
+            vm.eval_str("(let ((x 10) (y 20) (z (+ x y))) (+ x y z))")
                 .unwrap()
                 .try_int()
                 .unwrap(),

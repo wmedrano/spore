@@ -35,6 +35,14 @@ enum CompilerContext {
     Subexpression,
 }
 
+#[derive(Copy, Clone, PartialEq)]
+enum CompileManyBehavior {
+    /// Keep all expressions on the stack. Requires one less instruction.
+    KeepAll,
+    /// Only keep the last expression on the stack. All other expressions are discarded.
+    KeepSingleReturn,
+}
+
 impl<'a> Compiler<'a> {
     pub fn compile(vm: &'a mut Vm, input_source: &str, arena: &Bump) -> Result<ByteCode> {
         let settings = vm.settings;
@@ -116,20 +124,23 @@ impl<'a> Compiler<'a> {
                 bindings,
                 expressions,
             } => self.compile_one_let(*span, bindings.as_slice(), expressions)?,
-
             Ir::Return { expr } => self.compile_one_return(expr)?,
         };
         Ok(())
     }
 
-    fn compile_many_keep_last(&mut self, expressions: &[Ir]) -> Result<()> {
+    fn compile_many(&mut self, expressions: &[Ir], behavior: CompileManyBehavior) -> Result<()> {
         match expressions {
-            [] => self.compile_one_constant(Span::new(0, 0), &Constant::Void)?,
+            [] => {
+                if behavior == CompileManyBehavior::KeepSingleReturn {
+                    self.compile_one_constant(Span::new(0, 0), &Constant::Void)?;
+                }
+            }
             [exprs @ .., last] => {
                 for expr in exprs {
                     self.compile_one(expr, CompilerContext::Subexpression)?;
                 }
-                if !exprs.is_empty() {
+                if !exprs.is_empty() && behavior == CompileManyBehavior::KeepSingleReturn {
                     self.instruction_source.push(Span::new(0, 0));
                     self.instructions.push(Instruction::Pop(exprs.len()));
                 }
@@ -153,7 +164,7 @@ impl<'a> Compiler<'a> {
             self.instructions
                 .push(Instruction::BindArg(self.arg_idx(binding).unwrap()));
         }
-        self.compile_many_keep_last(expressions)?;
+        self.compile_many(expressions, CompileManyBehavior::KeepSingleReturn)?;
         self.local_space_required = self.local_space_required.max(self.local_bindings.len());
         for _ in bindings {
             self.local_bindings.pop().unwrap();
@@ -221,14 +232,7 @@ impl<'a> Compiler<'a> {
         if maybe_native_function.is_none() {
             self.compile_one(function, CompilerContext::Subexpression)?;
         }
-        for arg in args {
-            if arg.return_type() != IrReturnType::Value {
-                return Err(CompileError::ExpectedExpression {
-                    context: "function call argument",
-                });
-            }
-            self.compile_one(arg, CompilerContext::Subexpression)?;
-        }
+        self.compile_many(args, CompileManyBehavior::KeepAll)?;
         match maybe_native_function {
             Some(func) => {
                 self.instruction_source.push(span);
@@ -331,16 +335,18 @@ impl<'a> Compiler<'a> {
         if let Some(dupe) = find_duplicate(&lambda_compiler.arguments) {
             return Err(CompileError::ArgumentDefinedMultipleTimes(dupe));
         }
-        lambda_compiler.compile_many_keep_last(expressions)?;
+        // We keep all since its faster.
+        lambda_compiler.compile_many(expressions, CompileManyBehavior::KeepAll)?;
+        let bytecode = ByteCode {
+            name: name.unwrap_or("").into(),
+            arg_count: args.len(),
+            local_bindings: lambda_compiler.local_space_required,
+            instructions: lambda_compiler.instructions.into_bump_slice().into(),
+            source: lambda_compiler.source,
+            instruction_source: lambda_compiler.instruction_source.into_bump_slice().into(),
+        };
         let lambda_val =
-            UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(ByteCode {
-                name: name.unwrap_or("").into(),
-                arg_count: args.len(),
-                local_bindings: lambda_compiler.local_space_required,
-                instructions: lambda_compiler.instructions.into_bump_slice().into(),
-                source: lambda_compiler.source,
-                instruction_source: lambda_compiler.instruction_source.into_bump_slice().into(),
-            }));
+            UnsafeVal::ByteCodeFunction(lambda_compiler.vm.objects.insert_bytecode(bytecode));
         self.instruction_source.push(span);
         self.instructions.push(Instruction::PushConst(lambda_val));
         Ok(())

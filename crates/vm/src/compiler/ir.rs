@@ -313,8 +313,7 @@ impl<'a> Ir<'a> {
             Node::Tree(_, tree) => tree.as_slice(),
             _ => todo!(),
         };
-        let mut bindings = BumpVec::with_capacity_in(bindings_ast.len() / 2, arena);
-        Self::parse_let_bindings(&mut bindings, arena, src, bindings_ast)?;
+        let bindings = Self::parse_let_bindings(arena, src, bindings_ast)?;
         let expressions = Self::new_many(arena, src, exprs)?;
         Ok(Ir::Let {
             span,
@@ -324,25 +323,23 @@ impl<'a> Ir<'a> {
     }
 
     fn parse_let_bindings(
-        res: &mut BumpVec<(&'a str, Ir<'a>)>,
         arena: &'a Bump,
         src: &'a str,
         bindings: &[Node],
-    ) -> Result<()> {
-        match bindings {
-            [] => Ok(()),
-            [_] => todo!(),
-            [a, b, rest @ ..] => {
-                match a {
-                    Node::Identifier(ident) => {
-                        let ir = Self::new(arena, src, b)?;
-                        res.push((ident.as_str(src), ir));
+    ) -> Result<BumpVec<'a, (&'a str, Ir<'a>)>> {
+        let mut ret = BumpVec::with_capacity_in(bindings.len(), arena);
+        for node in bindings {
+            match node {
+                Node::Tree(_, tree) => match tree.as_slice() {
+                    [Node::Identifier(ident), expr] => {
+                        ret.push((ident.as_str(src), Self::new(arena, src, expr)?));
                     }
                     _ => todo!(),
-                };
-                Self::parse_let_bindings(res, arena, src, rest)
+                },
+                _ => todo!(),
             }
         }
+        Ok(ret)
     }
 }
 

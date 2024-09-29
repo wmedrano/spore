@@ -91,13 +91,13 @@ impl Token {
                 })
             }
             Some('"') => return Some(Token::parse_next_string(src, start)),
-            Some('(') => {
+            Some('(') | Some('[') => {
                 return Some(Token {
                     token_type: TokenType::OpenParen,
                     span: Span::new(start as u32, start as u32 + 1),
                 })
             }
-            Some(')') => {
+            Some(')') | Some(']') => {
                 return Some(Token {
                     token_type: TokenType::CloseParen,
                     span: Span::new(start as u32, start as u32 + 1),
@@ -107,7 +107,7 @@ impl Token {
         }
         for (idx, ch) in input_src.char_indices() {
             let is_end = match ch {
-                '(' | ')' => true,
+                '(' | ')' | '[' | ']' => true,
                 _ => ch.is_whitespace(),
             };
             if is_end {

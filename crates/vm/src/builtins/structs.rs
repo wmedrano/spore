@@ -10,6 +10,13 @@ use crate::{
 pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
     let mut args_iter = args.iter();
     let mut strct = HashMap::with_capacity(args.len() / 2);
+    if args.len() % 2 != 0 {
+        return Err(VmError::ArityError {
+            function: "struct needs an even amount of args, ".into(),
+            expected: args.len() + 1,
+            actual: args.len(),
+        });
+    }
     while let Some(field) = args_iter.next() {
         let field = field.try_str(ctx.vm()).unwrap().to_compact_string();
         let val = args_iter.next().unwrap();
@@ -97,6 +104,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn struct_with_no_args_produces_empty_struct() {
+        let mut vm = Vm::default();
+        assert!(vm
+            .eval_str("(= (struct) (struct))")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+    }
+
+    #[test]
+    fn struct_with_odd_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(struct \"field\")").unwrap_err(),
+            VmError::ArityError {
+                function: "struct needs an even amount of args, ".into(),
+                expected: 2,
+                actual: 1
+            }
+        )
+    }
+
+    #[test]
     fn struct_get_with_field_returns_field() {
         let mut vm = Vm::default();
         let got = vm
@@ -112,6 +142,47 @@ mod tests {
             .eval_str("(struct-get (struct \"field\" 1) \"not-field\")")
             .unwrap();
         assert!(got.is_void());
+    }
+
+    #[test]
+    fn struct_get_with_too_many_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(struct-get 1 2 3)").unwrap_err(),
+            VmError::ArityError {
+                function: "struct-get".into(),
+                expected: 2,
+                actual: 3
+            }
+        );
+    }
+
+    #[test]
+    fn struct_get_with_non_struct_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(struct-get 1 \"field\")").unwrap_err(),
+            VmError::TypeError {
+                context: "struct-get arg(idx=0)",
+                expected: UnsafeVal::STRUCT_TYPE_NAME,
+                actual: "int",
+                value: "1".into()
+            }
+        );
+    }
+
+    #[test]
+    fn struct_get_with_non_string_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(struct-get (struct) 1)").unwrap_err(),
+            VmError::TypeError {
+                context: "struct-get arg(idx=1)",
+                expected: UnsafeVal::STRING_TYPE_NAME,
+                actual: "int",
+                value: "1".into()
+            }
+        );
     }
 
     #[test]

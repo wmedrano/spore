@@ -2,7 +2,7 @@
 ;; Program lifetime.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define *running?*
-    (new-box true))
+  (new-box true))
 
 (define (running?) (unbox *running?*))
 (define (quit!) (set-box! *running?* false))
@@ -11,49 +11,52 @@
 ;; Buffers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define scratch-buffer
-    (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
+  (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
 (define modal-buffer
-    (new-buffer "*modal*" "TODO"))
+  (new-buffer "*modal*" "TODO"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Windows
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define *main-window*
-    (struct "buffer" scratch-buffer
-            "x" 0
-            "y" 0
-            "width" 0
-            "height" 0
-            "draw-cursor?" true))
+  (struct "buffer" scratch-buffer
+          "x" 0
+          "y" 0
+          "width" 0
+          "height" 0
+          "draw-cursor?" true))
 (define *modal-window*
-    (struct "buffer" modal-buffer
-            "x" 5
-            "y" 5
-            "width" 0
-            "height" 0))
+  (struct "buffer" modal-buffer
+          "x" 5
+          "y" 5
+          "width" 0
+          "height" 0))
 (define *windows*
-    (new-box (list *main-window*)))
+  (new-box (list *main-window*)))
 
 (define (toggle-modal!)
-    (if (< (list-length (unbox *windows*)) 2)
-        (set-box! *windows* (list *main-window* *modal-window*))
-        (set-box! *windows* (list *main-window*))))
+  (if (< (list-length (unbox *windows*)) 2)
+      (set-box! *windows* (list *main-window* *modal-window*))
+      (set-box! *windows* (list *main-window*))))
 
 (define (windows)
-    (unbox *windows*))
-        
+  (unbox *windows*))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Handlers
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define (event->insert-str event)
-    (if (not (special-event? event)) (return event))
-    (if (= event "<tab>") (return "\t"))
-    (if (= event "<space>") (return " "))
-    (if (= event "<enter>") (return "\n"))
-    "")
+  (if (not event) (return false))
+  (if (= event "<tab>") (return "\t"))
+  (if (= event "<space>") (return " "))
+  (if (= event "<enter>") (return "\n"))
+  (if (special-event? event) (return false))
+  event)
 
-(define (handle-event-impl! event)
+(define (handle-event!)
+  (let ([event (read-event!)]
+        [insert-str (event->insert-str event)])
     (if (not event) (return void))
     (if (= event "<esc>") (return (toggle-modal!)))
     (if (= event "<ctrl-q>") (return (quit!)))
@@ -62,13 +65,10 @@
     (if (= event "<up>") (return (buffer-cursor-move! scratch-buffer 0 -1)))
     (if (= event "<down>") (return (buffer-cursor-move! scratch-buffer 0 1)))
     (if (= event "<backspace>") (return (buffer-delete! scratch-buffer)))
-    (buffer-insert! scratch-buffer (event->insert-str event)))
-
-(define (handle-event!)
-    (handle-event-impl! (read-event!)))
+    (if insert-str (buffer-insert! scratch-buffer insert-str))))
 
 (define (handle-size-change! width height)
-    (struct-set! *main-window* "width" width)
-    (struct-set! *main-window* "height" height)
-    (struct-set! *modal-window* "width" (- width 10))
-    (struct-set! *modal-window* "height" (- height 10)))
+  (struct-set! *main-window* "width" width)
+  (struct-set! *main-window* "height" height)
+  (struct-set! *modal-window* "width" (- width 10))
+  (struct-set! *modal-window* "height" (- height 10)))
