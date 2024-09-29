@@ -535,10 +535,7 @@ impl Vm {
 
 impl Drop for Vm {
     fn drop(&mut self) {
-        info!(
-            "Dropping Spore VM, final GC stats: {gc_stats:#?}",
-            gc_stats = self.objects.stats()
-        );
+        info!("Dropping Spore VM.");
     }
 }
 

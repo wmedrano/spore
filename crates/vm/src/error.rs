@@ -214,6 +214,8 @@ pub enum CompileError {
     DefineNotAllowed,
     #[error("{context} expected identifier list")]
     ExpectedIdentifierList { context: &'static str },
+    #[error("let expected form: (let ([binding-a expr-a] [binding-b expr-b] ..) (exprs..))")]
+    BadLetBindings,
     #[error("argument {0} was defined multiple times")]
     ArgumentDefinedMultipleTimes(CompactString),
 }

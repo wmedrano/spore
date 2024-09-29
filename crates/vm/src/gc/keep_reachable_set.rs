@@ -25,15 +25,6 @@ pub struct KeepReachableSet {
 }
 
 impl KeepReachableSet {
-    /// Get the size of the keep reachable set in bytes.
-    pub fn bytes_size(&self) -> usize {
-        self.strings.byte_size()
-            + self.mutable_boxes.byte_size()
-            + self.lists.byte_size()
-            + self.bytecodes.byte_size()
-            + self.customs.byte_size()
-    }
-
     /// Iterate over all values that should be kept reachable.
     pub fn iter(&self) -> impl '_ + Iterator<Item = UnsafeVal> {
         self.strings
@@ -76,12 +67,7 @@ impl KeepReachableSet {
 /// A private trait with some helper methods around reachable counters.
 trait ReachableStoreSealed {
     type K: Copy + std::fmt::Debug + Hash + Eq;
-    fn as_hashmap(&self) -> &HashMap<Self::K, ReferenceCounter>;
     fn as_mut_hashmap(&mut self) -> &mut HashMap<Self::K, ReferenceCounter>;
-
-    fn byte_size(&self) -> usize {
-        self.as_hashmap().capacity() * std::mem::size_of::<(Self::K, ReferenceCounter)>()
-    }
 
     fn increment(&mut self, k: Self::K) {
         match self.as_mut_hashmap().entry(k) {
@@ -110,9 +96,6 @@ trait ReachableStoreSealed {
 
 impl<T: std::fmt::Debug> ReachableStoreSealed for HashMap<ValId<T>, ReferenceCounter> {
     type K = ValId<T>;
-    fn as_hashmap(&self) -> &HashMap<Self::K, ReferenceCounter> {
-        self
-    }
 
     fn as_mut_hashmap(&mut self) -> &mut HashMap<Self::K, ReferenceCounter> {
         self

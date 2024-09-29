@@ -311,7 +311,7 @@ impl<'a> Ir<'a> {
     ) -> Result<Ir<'a>> {
         let bindings_ast = match bindings {
             Node::Tree(_, tree) => tree.as_slice(),
-            _ => todo!(),
+            _ => return Err(CompileError::BadLetBindings),
         };
         let bindings = Self::parse_let_bindings(arena, src, bindings_ast)?;
         let expressions = Self::new_many(arena, src, exprs)?;
@@ -334,9 +334,9 @@ impl<'a> Ir<'a> {
                     [Node::Identifier(ident), expr] => {
                         ret.push((ident.as_str(src), Self::new(arena, src, expr)?));
                     }
-                    _ => todo!(),
+                    _ => return Err(CompileError::BadLetBindings),
                 },
-                _ => todo!(),
+                _ => return Err(CompileError::BadLetBindings),
             }
         }
         Ok(ret)

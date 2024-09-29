@@ -26,40 +26,6 @@ pub struct MemoryManager {
     customs: ObjectStore<CustomVal>,
     keep_reachable: KeepReachableSet,
     reachable_color: Color,
-    stats: GcStats,
-}
-
-/// Contains garbage collection stats for a [MemoryManager].
-#[derive(Clone, Debug, Default)]
-pub struct GcStats {
-    /// The number of times GC was invoked.
-    gc_invocations: usize,
-    /// The size of GC metadata structures in bytes.
-    gc_metadata_size: usize,
-    /// The total number of strings allocated.
-    strings_allocated: usize,
-    /// The total number of strings freed.
-    strings_freed: usize,
-    /// The total number of mutable boxes allocated.
-    mutable_boxes_allocated: usize,
-    /// The total number of mutable boxes freed.
-    mutable_boxes_freed: usize,
-    /// The total number of lists allocated.
-    lists_allocated: usize,
-    /// The total number of lists freed.
-    lists_freed: usize,
-    /// The total number of structs allocated.
-    structs_allocated: usize,
-    /// The total number of structs freed.
-    structs_freed: usize,
-    /// The total number of bytecodes allocated.
-    bytecodes_allocated: usize,
-    /// The total number of bytecodes freed.
-    bytecodes_freed: usize,
-    /// The total number of custom values allocated.
-    customs_allocated: usize,
-    /// The total number of custom values freed.
-    customs_freed: usize,
 }
 
 impl MemoryManager {
@@ -75,24 +41,10 @@ impl MemoryManager {
             customs: ObjectStore::default(),
             keep_reachable: KeepReachableSet::default(),
             reachable_color: Color::default(),
-            stats: GcStats::default(),
         }
     }
-    /// Returns the garage collection stats.
-    ///
-    /// The function is mutable as it updates some metadata components before returning the stats.
-    pub fn stats(&mut self) -> &GcStats {
-        self.stats.gc_metadata_size = self.strings.metadata_size()
-            + self.lists.metadata_size()
-            + self.bytecodes.metadata_size()
-            + self.customs.metadata_size()
-            + self.keep_reachable.bytes_size();
-        &self.stats
-    }
-
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, arena: &Bump, populate_vals: impl Iterator<Item = UnsafeVal>) {
-        self.stats.gc_invocations += 1;
         self.run_gc_mark(arena, populate_vals);
         self.run_gc_sweep();
         self.reachable_color = self.reachable_color.other();
@@ -169,13 +121,11 @@ impl MemoryManager {
 
     fn run_gc_sweep(&mut self) {
         let unreachable_color = self.reachable_color.other();
-        self.stats.strings_freed += self.strings.remove_all_with_color(unreachable_color);
-        self.stats.mutable_boxes_freed +=
-            self.mutable_boxes.remove_all_with_color(unreachable_color);
-        self.stats.lists_freed += self.lists.remove_all_with_color(unreachable_color);
-        self.stats.structs_freed += self.structs.remove_all_with_color(unreachable_color);
-        self.stats.bytecodes_freed += self.bytecodes.remove_all_with_color(unreachable_color);
-        self.stats.customs_freed += self.customs.remove_all_with_color(unreachable_color);
+        self.mutable_boxes.remove_all_with_color(unreachable_color);
+        self.lists.remove_all_with_color(unreachable_color);
+        self.structs.remove_all_with_color(unreachable_color);
+        self.bytecodes.remove_all_with_color(unreachable_color);
+        self.customs.remove_all_with_color(unreachable_color);
     }
 
     /// Marks `value` as reachable so that it doesn't get garbage collected.
@@ -199,7 +149,6 @@ impl MemoryManager {
 
     /// Insert a string and get its id.
     pub fn insert_string(&mut self, s: CompactString) -> ValId<CompactString> {
-        self.stats.strings_allocated += 1;
         self.strings.insert(self.vm_id, s, self.reachable_color)
     }
 
@@ -220,7 +169,6 @@ impl MemoryManager {
 
     /// Insert a string and get its id.
     pub fn insert_mutable_box(&mut self, v: UnsafeVal) -> ValId<UnsafeVal> {
-        self.stats.mutable_boxes_allocated += 1;
         self.mutable_boxes
             .insert(self.vm_id, v, self.reachable_color.other())
     }
@@ -236,7 +184,6 @@ impl MemoryManager {
 
     /// Insert a list and get its id.
     pub fn insert_list(&mut self, list: ListVal) -> ValId<ListVal> {
-        self.stats.lists_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.lists
@@ -259,7 +206,6 @@ impl MemoryManager {
 
     /// Insert a struct and get its id.
     pub fn insert_struct(&mut self, strct: StructVal) -> ValId<StructVal> {
-        self.stats.structs_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.structs
@@ -292,7 +238,6 @@ impl MemoryManager {
 
     /// Insert bytecode into the store and return its id.
     pub fn insert_bytecode(&mut self, bytecode: ByteCode) -> ValId<ByteCode> {
-        self.stats.bytecodes_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.bytecodes
@@ -308,7 +253,6 @@ impl MemoryManager {
 
     /// Insert a custom value and get its id.
     pub fn insert_custom(&mut self, custom: CustomVal) -> ValId<CustomVal> {
-        self.stats.customs_allocated += 1;
         // We mark as unreachable to recurse through `list`'s elements during the next GC mark
         // phase.
         self.customs
