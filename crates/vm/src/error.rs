@@ -208,12 +208,12 @@ pub enum CompileError {
     },
     #[error("expected an identifier")]
     ExpectedIdentifier,
-    #[error("{context} expected expression but sub-expression did not return a value")]
+    #[error("{context} expected expression but sub-expression is not a valid expression")]
     ExpectedExpression { context: &'static str },
+    #[error("define is not allowed in this context, define is only allowed at the top level")]
+    DefineNotAllowed,
     #[error("{context} expected identifier list")]
     ExpectedIdentifierList { context: &'static str },
-    #[error("define is only allowed at the toplevel and not as a subexpression")]
-    DefineNotAllowedInSubexpression,
     #[error("argument {0} was defined multiple times")]
     ArgumentDefinedMultipleTimes(CompactString),
 }

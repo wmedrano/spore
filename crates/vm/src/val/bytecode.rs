@@ -13,6 +13,8 @@ pub struct ByteCode {
     pub name: CompactString,
     /// The number of arguments for the bytecode.
     pub arg_count: usize,
+    /// The number of space reserved for local bindings.
+    pub local_bindings: usize,
     /// The instructions for the bytecode.
     pub instructions: Arc<[Instruction]>,
     /// The source code for the bytecode.
@@ -31,6 +33,7 @@ impl ByteCode {
         ByteCode {
             name: name.into(),
             arg_count: 0,
+            local_bindings: 0,
             instructions: Arc::new([Instruction::EvalNative { func, arg_count }]),
             source: None,
             instruction_source: Box::default(),
@@ -44,7 +47,9 @@ impl ByteCode {
             .flat_map(|instruction| match instruction {
                 Instruction::PushConst(v) => Some(*v),
                 Instruction::PushCurrentFunction => None,
+                Instruction::Pop(_) => None,
                 Instruction::GetArg(_) => None,
+                Instruction::BindArg(_) => None,
                 Instruction::Deref(_) => None,
                 Instruction::Define(_) => None,
                 Instruction::Eval(_) => None,
@@ -63,8 +68,12 @@ pub enum Instruction {
     PushConst(UnsafeVal),
     /// Push the current function onto the stack.
     PushCurrentFunction,
+    /// Pop the top `n` elements in the stack.
+    Pop(usize),
     /// Get the nth argument from the start of the continuation's stack.
     GetArg(usize),
+    /// Bind the top argument to the nth argument in the stack.
+    BindArg(usize),
     /// Get the value of a symbol at push it onto the stack.
     Deref(CompactString),
     /// Pop the top value of the stack and assign it to the given symbol.

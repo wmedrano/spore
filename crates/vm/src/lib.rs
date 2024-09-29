@@ -192,6 +192,7 @@ impl Vm {
             Bump::new()
         });
         let bytecode = Compiler::compile(self, source, &arena)?;
+        eprintln!("Bytecode: {:#?}", bytecode);
         arena.reset();
         self.tmp_arena = Some(arena);
         let bytecode_id = self.objects.insert_bytecode(bytecode);
@@ -250,8 +251,10 @@ impl Vm {
         self.stack.clear();
         self.stack.extend(args);
         self.previous_stack_frames.clear();
-        let bytecode = self.objects.get_bytecode(bytecode_id);
-        let instructions = bytecode.unwrap().instructions.clone();
+        let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
+        self.stack
+            .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
+        let instructions = bytecode.instructions.clone();
         self.stack_frame = StackFrame {
             bytecode_id,
             instructions,
@@ -296,6 +299,8 @@ impl Vm {
             .get(self.stack_frame.instruction_idx);
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
         self.stack_frame.instruction_idx += 1;
+        eprintln!("Stack: {stack:?}", stack = self.stack);
+        eprintln!("Instruction: {instruction:?}");
         match instruction {
             Instruction::PushConst(c) => {
                 self.stack.push(*c);
@@ -304,9 +309,17 @@ impl Vm {
                 let f = UnsafeVal::ByteCodeFunction(self.stack_frame.bytecode_id);
                 self.stack.push(f);
             }
+            Instruction::Pop(n) => {
+                let start = self.stack.len() - n;
+                self.stack.drain(start..);
+            }
             Instruction::GetArg(n) => {
                 let val = self.stack[self.stack_frame.stack_start + *n];
                 self.stack.push(val);
+            }
+            Instruction::BindArg(n) => {
+                let val = self.stack.pop().unwrap();
+                self.stack[self.stack_frame.stack_start + *n] = val;
             }
             Instruction::Deref(symbol) => {
                 let v = match self.values.get(symbol) {
@@ -409,6 +422,8 @@ impl Vm {
                     if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
                         return Err(self.execute_call_stack_limit_reached());
                     }
+                    self.stack
+                        .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
                     bytecode.instructions.clone()
                 };
                 let new_stack_frame = StackFrame {
@@ -579,9 +594,7 @@ mod tests {
         let actual = vm.eval_str("((define x 12))").unwrap_err();
         assert_eq!(
             actual,
-            VmError::CompileError(CompileError::ExpectedExpression {
-                context: "function call"
-            })
+            VmError::CompileError(CompileError::DefineNotAllowed)
         );
     }
 
@@ -811,5 +824,17 @@ mod tests {
                 default_vm.eval_str(src).unwrap().to_string(),
             )
         }
+    }
+
+    #[test]
+    fn let_statement() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(let (x 10 y 20) (+ x y) (+ x y x y))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            60
+        );
     }
 }

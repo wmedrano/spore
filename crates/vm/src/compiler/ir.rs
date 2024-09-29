@@ -73,6 +73,12 @@ pub enum Ir<'a> {
         args: BumpVec<'a, &'a str>,
         expressions: BumpVec<'a, Self>,
     },
+    /// A let expression.
+    Let {
+        span: Span,
+        bindings: BumpVec<'a, (&'a str, Self)>,
+        expressions: BumpVec<'a, Self>,
+    },
     /// Return the result of the given expression.
     Return { expr: &'a Self },
 }
@@ -94,6 +100,14 @@ impl<'a> Ir<'a> {
         Ok(ir)
     }
 
+    pub fn new_many(arena: &'a Bump, src: &'a str, nodes: &[Node]) -> Result<BumpVec<'a, Ir<'a>>> {
+        let mut res = BumpVec::with_capacity_in(nodes.len(), arena);
+        for node in nodes {
+            res.push(Self::new(arena, src, node)?);
+        }
+        Ok(res)
+    }
+
     /// Returns `true` if the IR contains an expression. Expressions return values while statements
     /// do not.
     pub fn return_type(&self) -> IrReturnType {
@@ -101,9 +115,10 @@ impl<'a> Ir<'a> {
             Ir::Constant(_, _) => IrReturnType::Value,
             Ir::Deref(_, _) => IrReturnType::Value,
             Ir::FunctionCall { .. } => IrReturnType::Value,
-            Ir::Define { .. } => IrReturnType::None,
+            Ir::Define { .. } => IrReturnType::Value,
             Ir::If { .. } => IrReturnType::Value,
             Ir::Lambda { .. } => IrReturnType::Value,
+            Ir::Let { .. } => IrReturnType::Value,
             Ir::Return { .. } => IrReturnType::EarlyReturn,
         }
     }
@@ -166,6 +181,16 @@ impl<'a> Ir<'a> {
                             })
                         }
                     },
+                    "let" => match rest {
+                        [bindings, exprs @ ..] => Self::new_let(arena, src, span, bindings, exprs)?,
+                        [] => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "let",
+                                expected: 1,
+                                actual: rest.len(),
+                            })
+                        }
+                    },
                     _function => Self::new_function_call(arena, src, span, leading_node, rest)?,
                 }
             }
@@ -193,11 +218,7 @@ impl<'a> Ir<'a> {
         function: &Node,
         args: &[Node],
     ) -> Result<Ir<'a>> {
-        let mut args_vec = BumpVec::with_capacity_in(args.len(), arena);
-        for arg in args.iter() {
-            let arg_ir = Ir::new(arena, src, arg)?;
-            args_vec.push(arg_ir);
-        }
+        let args_vec = Self::new_many(arena, src, args)?;
         Ok(Ir::FunctionCall {
             span,
             function: arena.alloc(Ir::new(arena, src, function)?),
@@ -272,11 +293,7 @@ impl<'a> Ir<'a> {
             let ident = node_to_ident(src, arg)?;
             args_vec.push(ident);
         }
-        let mut exprs_vec = BumpVec::with_capacity_in(exprs.len(), arena);
-        for expr in exprs.iter() {
-            let expr_ir = Ir::new(arena, src, expr)?;
-            exprs_vec.push(expr_ir);
-        }
+        let exprs_vec = Self::new_many(arena, src, exprs)?;
         Ok(Ir::Lambda {
             span,
             name,
@@ -284,12 +301,53 @@ impl<'a> Ir<'a> {
             expressions: exprs_vec,
         })
     }
+
+    fn new_let(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        bindings: &Node,
+        exprs: &[Node],
+    ) -> Result<Ir<'a>> {
+        let bindings_ast = match bindings {
+            Node::Tree(_, tree) => tree.as_slice(),
+            _ => todo!(),
+        };
+        let mut bindings = BumpVec::with_capacity_in(bindings_ast.len() / 2, arena);
+        Self::parse_let_bindings(&mut bindings, arena, src, bindings_ast)?;
+        let expressions = Self::new_many(arena, src, exprs)?;
+        Ok(Ir::Let {
+            span,
+            bindings,
+            expressions,
+        })
+    }
+
+    fn parse_let_bindings(
+        res: &mut BumpVec<(&'a str, Ir<'a>)>,
+        arena: &'a Bump,
+        src: &'a str,
+        bindings: &[Node],
+    ) -> Result<()> {
+        match bindings {
+            [] => Ok(()),
+            [_] => todo!(),
+            [a, b, rest @ ..] => {
+                match a {
+                    Node::Identifier(ident) => {
+                        let ir = Self::new(arena, src, b)?;
+                        res.push((ident.as_str(src), ir));
+                    }
+                    _ => todo!(),
+                };
+                Self::parse_let_bindings(res, arena, src, rest)
+            }
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum IrReturnType {
-    /// The IR does not return anything. This means nothing is pushed to the stack.
-    None,
     /// A value is pushed to the top of the stack.
     Value,
     /// The current function is returned, exiting the current function call frame.
