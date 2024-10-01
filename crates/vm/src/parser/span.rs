@@ -87,7 +87,7 @@ where
         let src = self.0.src.as_ref();
 
         let mut current_span = Span::new(0, 0);
-        writeln!(f, "Source: ")?;
+        writeln!(f, "Source:")?;
         for (idx, line) in src.split('\n').enumerate() {
             current_span = current_span.next_window(1 + line.len() as u32);
             if current_span.overlap(span).is_some() {

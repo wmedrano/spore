@@ -237,7 +237,27 @@ pub enum CompileError {
 mod tests {
     use std::error::Error;
 
+    use crate::Vm;
+
     use super::*;
+
+    #[test]
+    fn vm_error_can_print_out_related_source_code() {
+        let mut vm = Vm::default();
+        let src = r#"
+(define x 10)
+(+ x (+ x "string"))
+"#;
+        let err = vm.eval_str(src).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            r#"+ expected type int or float but got string: "string"
+Source:
+  3: (+ x (+ x "string"))
+
+"#
+        );
+    }
 
     #[test]
     fn backtraces_are_all_eq() {
