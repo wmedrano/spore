@@ -35,7 +35,7 @@ pub enum Constant {
 /// Value's are usually arena allocated so `drop` will not be called for a conventional
 /// cleanup. This means all values must either be normal values, references, or arena allocated
 /// references. To detect possible memory leaks, try running valgrind on the test suite.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Ir<'a> {
     /// A constant literal.
     Constant(Span, Constant),
@@ -171,6 +171,18 @@ impl<'a> Ir<'a> {
                             })
                         }
                     },
+                    "let" => match rest {
+                        [bindings, exprs @ ..] => Self::new_let(arena, src, span, bindings, exprs)?,
+                        [] => {
+                            return Err(CompileError::ExpressionHasWrongArgs {
+                                expression: "let",
+                                expected: 1,
+                                actual: rest.len(),
+                            })
+                        }
+                    },
+                    "or" => Self::new_or_expression(arena, src, span, rest)?,
+                    "and" => Self::new_and_expression(arena, src, span, rest)?,
                     "return" => match rest {
                         [expr] => Ir::Return {
                             expr: arena.alloc(Ir::new(arena, src, expr)?),
@@ -178,16 +190,6 @@ impl<'a> Ir<'a> {
                         _ => {
                             return Err(CompileError::ExpressionHasWrongArgs {
                                 expression: "return",
-                                expected: 1,
-                                actual: rest.len(),
-                            })
-                        }
-                    },
-                    "let" => match rest {
-                        [bindings, exprs @ ..] => Self::new_let(arena, src, span, bindings, exprs)?,
-                        [] => {
-                            return Err(CompileError::ExpressionHasWrongArgs {
-                                expression: "let",
                                 expected: 1,
                                 actual: rest.len(),
                             })
@@ -342,6 +344,78 @@ impl<'a> Ir<'a> {
             }
         }
         Ok(ret)
+    }
+
+    fn new_or_expression(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        exprs: &[Node],
+    ) -> Result<Ir<'a>> {
+        let ir = match exprs {
+            [] => Ir::Constant(span, Constant::Bool(false)),
+            [expr_node] => Ir::new(arena, src, expr_node)?,
+            [expr_node, rest_nodes @ ..] => {
+                let expr = Self::new(arena, src, expr_node)?;
+                let deref_expr = arena.alloc(Ir::Deref(expr_node.span(), "__or_internal"));
+                let rest_span = rest_nodes.first().unwrap().span().extend_end(span.end);
+                let rest_expr =
+                    arena.alloc(Self::new_or_expression(arena, src, rest_span, rest_nodes)?);
+                let or_branch_expr = Ir::If {
+                    span,
+                    predicate: deref_expr,
+                    true_expr: deref_expr,
+                    false_expr: Some(rest_expr),
+                };
+                Ir::Let {
+                    span,
+                    bindings: BumpVec::from_iter_in(
+                        std::iter::once(("__or_internal", expr)),
+                        arena,
+                    ),
+                    expressions: BumpVec::from_iter_in(std::iter::once(or_branch_expr), arena),
+                }
+            }
+        };
+        Ok(ir)
+    }
+
+    fn new_and_expression(
+        arena: &'a Bump,
+        src: &'a str,
+        span: Span,
+        exprs: &[Node],
+    ) -> Result<Ir<'a>> {
+        let ir = match exprs {
+            [] => Ir::Constant(span, Constant::Bool(true)),
+            [expr_node] => Ir::new(arena, src, expr_node)?,
+            [expr_node, rest_nodes @ ..] => {
+                let expr = Self::new(arena, src, expr_node)?;
+                let deref_expr = arena.alloc(Ir::Deref(expr_node.span(), "__and_internal"));
+                let rest_span = rest_nodes.first().unwrap().span().extend_end(span.end);
+                let rest_expr =
+                    arena.alloc(Self::new_and_expression(arena, src, rest_span, rest_nodes)?);
+                let and_branch_expr = Ir::If {
+                    span,
+                    predicate: arena.alloc(Ir::FunctionCall {
+                        span: expr_node.span(),
+                        function: arena.alloc(Ir::Deref(expr_node.span(), "not")),
+                        args: BumpVec::from_iter_in(std::iter::once(deref_expr.clone()), arena),
+                    }),
+                    true_expr: deref_expr,
+                    false_expr: Some(rest_expr),
+                };
+                Ir::Let {
+                    span,
+                    bindings: BumpVec::from_iter_in(
+                        std::iter::once(("__and_internal", expr)),
+                        arena,
+                    ),
+                    expressions: BumpVec::from_iter_in(std::iter::once(and_branch_expr), arena),
+                }
+            }
+        };
+        Ok(ir)
     }
 }
 

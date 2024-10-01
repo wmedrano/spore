@@ -876,4 +876,64 @@ x)
 "#;
         assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 110);
     }
+
+    #[test]
+    fn empty_or_returns_false() {
+        let mut vm = Vm::default();
+        let src = "(or)";
+        assert!(!vm.eval_str(src).unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn or_with_true_returns_true() {
+        let mut vm = Vm::default();
+        let src = "(or false false true false)";
+        assert!(vm.eval_str(src).unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn or_with_truthy_values_returns_first_truthy_value() {
+        let mut vm = Vm::default();
+        let src = "(or false false 5 4 3 2)";
+        assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 5);
+    }
+
+    #[test]
+    fn or_with_all_false_or_void_returns_last_arg() {
+        let mut vm = Vm::default();
+        assert!(vm
+            .eval_str("(or void false void false void)")
+            .unwrap()
+            .is_void());
+        assert!(!vm
+            .eval_str("(or void false void false void false)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+    }
+
+    #[test]
+    fn and_with_no_args_returns_true() {
+        let mut vm = Vm::default();
+        let src = "(and)";
+        assert!(vm.eval_str(src).unwrap().try_bool().unwrap());
+    }
+
+    #[test]
+    fn and_with_all_truthy_args_returns_last_arg() {
+        let mut vm = Vm::default();
+        let src = "(and 1 2 3 4)";
+        assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 4);
+    }
+
+    #[test]
+    fn and_with_false_arg_returns_first_false_arg() {
+        let mut vm = Vm::default();
+        assert!(!vm
+            .eval_str("(and 1 2 false 3 4)")
+            .unwrap()
+            .try_bool()
+            .unwrap());
+        assert!(vm.eval_str("(and 1 2 void 3 4)").unwrap().is_void());
+    }
 }

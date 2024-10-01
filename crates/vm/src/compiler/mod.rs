@@ -1248,6 +1248,116 @@ mod tests {
     }
 
     ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: Or
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn or_produces_jumps_to_end_on_first_true() {
+        let mut vm = Vm::default();
+        let src = "(or false 1 2)";
+        assert_eq!(
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
+            ByteCode {
+                name: "".into(),
+                arg_count: 0,
+                local_bindings: 2,
+                instructions: vec![
+                    Instruction::PushConst(UnsafeVal::Bool(false)),
+                    Instruction::BindArg(0),
+                    Instruction::GetArg(0),
+                    Instruction::JumpIf(8),
+                    Instruction::PushConst(UnsafeVal::Int(1)),
+                    Instruction::BindArg(1),
+                    Instruction::GetArg(1),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(UnsafeVal::Int(2)),
+                    Instruction::Jump(1),
+                    Instruction::GetArg(1),
+                    Instruction::Jump(1),
+                    Instruction::GetArg(0)
+                ]
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 4, end: 9 },
+                    Span { start: 0, end: 14 },
+                    Span { start: 4, end: 9 },
+                    Span { start: 0, end: 14 },
+                    Span { start: 10, end: 11 },
+                    Span { start: 10, end: 14 },
+                    Span { start: 10, end: 11 },
+                    Span { start: 10, end: 14 },
+                    Span { start: 12, end: 13 },
+                    Span { start: 10, end: 14 },
+                    Span { start: 10, end: 11 },
+                    Span { start: 0, end: 14 },
+                    Span { start: 4, end: 9 },
+                ]
+                .into(),
+            },
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // BEGIN: And
+    ////////////////////////////////////////////////////////////////////////////////
+
+    #[test]
+    fn and_produces_jumps_to_end_on_first_false() {
+        let mut vm = Vm::default();
+        let src = "(and false 1 2)";
+        assert_eq!(
+            Compiler::compile(&mut vm, src, &Bump::new()).unwrap(),
+            ByteCode {
+                name: "".into(),
+                arg_count: 0,
+                local_bindings: 2,
+                instructions: vec![
+                    Instruction::PushConst(UnsafeVal::Bool(false)),
+                    Instruction::BindArg(0),
+                    Instruction::Deref("not".into()),
+                    Instruction::GetArg(0),
+                    Instruction::Eval(2),
+                    Instruction::JumpIf(10),
+                    Instruction::PushConst(UnsafeVal::Int(1)),
+                    Instruction::BindArg(1),
+                    Instruction::Deref("not".into()),
+                    Instruction::GetArg(1),
+                    Instruction::Eval(2),
+                    Instruction::JumpIf(2),
+                    Instruction::PushConst(UnsafeVal::Int(2)),
+                    Instruction::Jump(1),
+                    Instruction::GetArg(1),
+                    Instruction::Jump(1),
+                    Instruction::GetArg(0)
+                ]
+                .into(),
+                source: Some(src.into()),
+                instruction_source: vec![
+                    Span { start: 5, end: 10 },
+                    Span { start: 0, end: 15 },
+                    Span { start: 5, end: 10 },
+                    Span { start: 5, end: 10 },
+                    Span { start: 5, end: 10 },
+                    Span { start: 0, end: 15 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 11, end: 15 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 11, end: 15 },
+                    Span { start: 13, end: 14 },
+                    Span { start: 11, end: 15 },
+                    Span { start: 11, end: 12 },
+                    Span { start: 0, end: 15 },
+                    Span { start: 5, end: 10 }
+                ]
+                .into(),
+            },
+        );
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
     // BEGIN: Return
     ////////////////////////////////////////////////////////////////////////////////
 
