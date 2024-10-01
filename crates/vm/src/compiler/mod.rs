@@ -80,12 +80,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn arg_idx(&self, symbol: &str) -> Option<usize> {
-        for (idx, sym) in self.local_bindings.iter().enumerate() {
+        for (idx, sym) in self.local_bindings.iter().enumerate().rev() {
             if sym == symbol {
                 return Some(idx + self.arguments.len());
             }
         }
-        for (idx, sym) in self.arguments.iter().enumerate() {
+        for (idx, sym) in self.arguments.iter().enumerate().rev() {
             if sym == symbol {
                 return Some(idx);
             }

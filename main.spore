@@ -13,7 +13,7 @@
 (define scratch-buffer
   (new-buffer "*scratch*" "Press <ctrl-q> to quit.\n"))
 (define modal-buffer
-  (new-buffer "*modal*" "TODO"))
+  (new-buffer "*Open File*" "TODO"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Windows
@@ -30,18 +30,40 @@
           "x" 5
           "y" 5
           "width" 0
-          "height" 0))
-(define *windows*
-  (new-box (list *main-window*)))
+          "height" 0
+          "draw-cursor?" true
+          "hidden?" true))
 
-(define (toggle-modal!)
-  (if (< (list-length (unbox *windows*)) 2)
-      (set-box! *windows* (list *main-window* *modal-window*))
-      (set-box! *windows* (list *main-window*))))
+(define *windows*
+  (new-box (list *main-window* *modal-window*)))
+
+(define (modal-open?)
+  (not (struct-get *modal-window* "hidden?")))
+
+(define (modal-close!)
+  (struct-set! *modal-window* "hidden?" true))
+
+(define modal-prompt ">> ")
+
+(define (modal-handle-event! event)
+  (let ([special? (special-event? event)])
+    (if (= event "<space>") (buffer-insert! modal-buffer " "))
+    (if (= event "<backspace>")
+        (if (< (string-length modal-prompt) (buffer-cursor modal-buffer))
+            (buffer-delete! modal-buffer 1)))
+    (if (not special?) (buffer-insert! modal-buffer event))
+    (if (= event "<esc>") (modal-close!))))
+
+(define (open-file-modal!)
+  (struct-set! *modal-window* "hidden?" false)
+  (buffer-clear! modal-buffer)
+  (buffer-insert! modal-buffer
+                  "\n" (command "git" "ls-files"))
+  (buffer-cursor-set-absolute! modal-buffer 0)
+  (buffer-insert! modal-buffer modal-prompt))
 
 (define (windows)
   (unbox *windows*))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Handlers
@@ -55,17 +77,20 @@
   event)
 
 (define (handle-event!)
-  (let ([event (read-event!)]
-        [insert-str (event->insert-str event)])
+  (let ([event       (read-event!)]
+        [insert-str  (event->insert-str event)]
+        [modal-open? (modal-open?)])
     (if (not event) (return void))
-    (if (= event "<esc>") (return (toggle-modal!)))
     (if (= event "<ctrl-q>") (return (quit!)))
-    (if (= event "<left>") (return (buffer-cursor-move! scratch-buffer -1 0)))
-    (if (= event "<right>") (return (buffer-cursor-move! scratch-buffer 1 0)))
-    (if (= event "<up>") (return (buffer-cursor-move! scratch-buffer 0 -1)))
-    (if (= event "<down>") (return (buffer-cursor-move! scratch-buffer 0 1)))
-    (if (= event "<backspace>") (return (buffer-delete! scratch-buffer)))
-    (if insert-str (buffer-insert! scratch-buffer insert-str))))
+    (if modal-open? (modal-handle-event! event)
+        (let ()
+          (if (= event "<ctrl-o>") (open-file-modal!))
+          (if (= event "<left>") (return (buffer-cursor-move! scratch-buffer -1 0)))
+          (if (= event "<right>") (return (buffer-cursor-move! scratch-buffer 1 0)))
+          (if (= event "<up>") (return (buffer-cursor-move! scratch-buffer 0 -1)))
+          (if (= event "<down>") (return (buffer-cursor-move! scratch-buffer 0 1)))
+          (if (= event "<backspace>") (return (buffer-delete! scratch-buffer)))
+          (if insert-str (buffer-insert! scratch-buffer insert-str))))))
 
 (define (handle-size-change! width height)
   (struct-set! *main-window* "width" width)

@@ -1,5 +1,3 @@
-use compact_str::CompactString;
-
 use crate::{
     error::{VmError, VmResult},
     val::{NativeFunction, NativeFunctionContext, UnsafeVal, Val, ValBuilder},
@@ -11,6 +9,7 @@ pub mod lists;
 pub mod numbers;
 pub mod strings;
 pub mod structs;
+pub mod system;
 
 pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("not", not),
@@ -28,7 +27,8 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("new-box", boxes::new_box),
     ("set-box!", boxes::set_box),
     ("unbox", boxes::unbox),
-    ("working-directory", working_directory),
+    ("working-directory", system::working_directory),
+    ("command", system::command),
 ];
 
 pub fn not<'a>(_: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
@@ -100,27 +100,6 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
         (ByteCodeFunction(a), ByteCodeFunction(b)) => a == b,
         (NativeFunction(a), NativeFunction(b)) => a == b,
         _ => false,
-    }
-}
-
-pub fn working_directory<'a>(
-    ctx: NativeFunctionContext<'a>,
-    args: &[Val<'a>],
-) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [] => {
-            let working_directory: CompactString = match std::env::current_dir() {
-                Ok(path) => path.to_string_lossy().into(),
-                // Untested OK: It is hard to create a working directory error and is not common.
-                Err(err) => return Err(VmError::CustomError(err.to_string())),
-            };
-            Ok(ctx.new_string(working_directory))
-        }
-        _ => Err(VmError::ArityError {
-            function: "working-directory".into(),
-            expected: 0,
-            actual: args.len(),
-        }),
     }
 }
 
@@ -285,31 +264,5 @@ mod tests {
         assert!(!vm.eval_str("(not \"\")").unwrap().try_bool().unwrap());
         assert!(!vm.eval_str("(not not)").unwrap().try_bool().unwrap());
         assert!(!vm.eval_str("(not (list))").unwrap().try_bool().unwrap());
-    }
-
-    #[test]
-    fn working_directory_with_args_produces_arity_error() {
-        let mut vm = Vm::default();
-        assert_eq!(
-            vm.eval_str("(working-directory 1)").unwrap_err(),
-            VmError::ArityError {
-                function: "working-directory".into(),
-                expected: 0,
-                actual: 1
-            }
-        );
-    }
-
-    #[test]
-    fn working_directory_produces_working_directory_path() {
-        let mut vm = Vm::default();
-        let working_directory = std::env::current_dir()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-        assert_ne!(working_directory, "");
-        let got = vm.eval_str("(working-directory)").unwrap();
-        assert_eq!(got.try_str().unwrap(), working_directory.as_str());
     }
 }

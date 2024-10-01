@@ -830,11 +830,50 @@ mod tests {
     fn let_statement() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(let ((x 10) (y 20) (z (+ x y))) (+ x y z))")
+            vm.eval_str("(let ([x 10] [y 20] [z (+ x y)]) (+ x y z))")
                 .unwrap()
                 .try_int()
                 .unwrap(),
             60
         );
+    }
+
+    #[test]
+    fn when_multiple_bindings_exist_last_one_is_used() {
+        let mut vm = Vm::default();
+        let src = r#"
+(let ([x 1])
+  (let ([x 2]
+        [x (+ x x)])
+    x))
+"#;
+        assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 4);
+    }
+
+    #[test]
+    fn multiple_bindings_dont_affect_previous_binding_when_out_of_scope() {
+        let mut vm = Vm::default();
+        let src = r#"
+(let ([x 1])
+  (let ([x 2]
+        [x (+ x x)])
+    x)
+x)
+"#;
+        assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 1);
+    }
+
+    #[test]
+    fn local_bindings_take_precedence_over_arguments() {
+        let mut vm = Vm::default();
+        let src = r#"
+(define (foo x)
+  (let ([old-x x]
+        [x     10])
+    (+ old-x x)))
+
+(foo 100)
+"#;
+        assert_eq!(vm.eval_str(src).unwrap().try_int().unwrap(), 110);
     }
 }

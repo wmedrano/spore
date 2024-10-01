@@ -10,9 +10,9 @@ pub struct Span {
 #[derive(Clone, PartialEq, Debug)]
 pub struct SpanWithSource<T> {
     /// The location within [Self::src] to refer to.
-    span: Span,
+    pub span: Span,
     /// The entire source string.
-    src: T,
+    pub src: T,
 }
 
 impl Span {
