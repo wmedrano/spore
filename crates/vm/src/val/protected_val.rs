@@ -57,6 +57,8 @@ impl<'a> ProtectedVal<'a> {
         self.vm
     }
 
+    /// Maps an `Option<T>` to `Option<U>` by applying a function to a contained value (if `Some`)
+    /// or returns `None` (if `None`).
     pub fn map<T>(&mut self, f: impl Fn(&mut Vm, &ProtectedVal<'a>) -> T) -> T {
         let protected_val_ptr: *const ProtectedVal = self;
         // Unsafe OK: Protected val will still be safe from garbage collection as drop has not been
@@ -69,21 +71,22 @@ impl<'a> ProtectedVal<'a> {
         self.val.try_str(self.vm)
     }
 
-    /// value.
-    pub fn as_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
+    /// Try to get the custom value of type `T` or return its underlying value if `self` is not of
+    /// type `T`.
+    pub fn try_custom<T: CustomType>(&self) -> Result<CustomValRef<T>, CustomValError> {
         self.val.try_custom(self.vm)
+    }
+
+    /// Returns the value as a custom type of `T` or [Err] if [Self] is not of the given custom
+    /// value.
+    pub fn try_custom_mut<T: CustomType>(&self) -> Result<CustomValMut<T>, CustomValError> {
+        self.val.try_custom_mut(self.vm)
     }
 
     /// Get the [Val] that the mutable box is pointing to or `Err<Val>` if `self` is not a mutable
     /// box.
     pub fn get_mutable_box_ref(&self) -> Result<Val, Val<'a>> {
         self.val.try_mutable_box_ref(self.vm)
-    }
-
-    /// Returns the value as a custom type of `T` or [None] if [Self] is not of the given custom
-    /// value.
-    pub fn as_custom_mut<T: CustomType>(&self) -> Result<CustomValMut<T>, CustomValError> {
-        self.val.try_custom_mut(self.vm)
     }
 }
 

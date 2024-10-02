@@ -218,7 +218,7 @@ mod tests {
     fn custom_type_can_be_accessed() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         let val = vm.eval_str("custom-value").unwrap();
-        let got = val.as_custom::<MyType>().unwrap();
+        let got = val.try_custom::<MyType>().unwrap();
         assert_eq!(got.deref(), &MyType { number: 42 });
     }
 
@@ -226,9 +226,9 @@ mod tests {
     fn custom_type_can_be_accessed_multiple_times() {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         vm.eval_str("custom-value").unwrap().map(|vm, val1| {
-            let got1 = val1.as_custom::<MyType>().unwrap();
+            let got1 = val1.try_custom::<MyType>().unwrap();
             let val2 = vm.eval_str("custom-value").unwrap();
-            let got2 = val2.as_custom::<MyType>().unwrap();
+            let got2 = val2.try_custom::<MyType>().unwrap();
             assert_eq!(got1.deref() as *const MyType, got2.deref() as *const MyType);
         });
     }
@@ -238,7 +238,7 @@ mod tests {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
             let val1 = vm.eval_str("custom-value").unwrap();
-            let get1 = val1.as_custom_mut::<MyType>().unwrap();
+            let get1 = val1.try_custom_mut::<MyType>().unwrap();
             std::mem::forget(get1);
             std::mem::forget(val1);
             vm
@@ -247,7 +247,7 @@ mod tests {
         .unwrap();
         let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
-            val1.as_custom::<MyType>().unwrap_err(),
+            val1.try_custom::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
         );
     }
@@ -257,7 +257,7 @@ mod tests {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
             let val1 = vm.eval_str("custom-value").unwrap();
-            let get1 = val1.as_custom_mut::<MyType>().unwrap();
+            let get1 = val1.try_custom_mut::<MyType>().unwrap();
             std::mem::forget(get1);
             std::mem::forget(val1);
             vm
@@ -266,7 +266,7 @@ mod tests {
         .unwrap();
         let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
-            val1.as_custom::<MyType>().unwrap_err(),
+            val1.try_custom::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
         );
         assert_eq!(val1.to_string(), "<custom-value-read-locked>");
@@ -277,8 +277,8 @@ mod tests {
         let mut vm = std::thread::spawn(|| {
             let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
             let val1 = vm.eval_str("custom-value").unwrap();
-            let get1 = val1.as_custom::<MyType>().unwrap();
-            let get2 = val1.as_custom::<MyType>().unwrap();
+            let get1 = val1.try_custom::<MyType>().unwrap();
+            let get2 = val1.try_custom::<MyType>().unwrap();
             std::mem::forget(get1);
             std::mem::forget(get2);
             std::mem::forget(val1);
@@ -288,7 +288,7 @@ mod tests {
         .unwrap();
         let val1 = vm.eval_str("custom-value").unwrap();
         assert_eq!(
-            val1.as_custom_mut::<MyType>().unwrap_err(),
+            val1.try_custom_mut::<MyType>().unwrap_err(),
             CustomValError::LockNotAvailable
         );
     }
@@ -298,14 +298,14 @@ mod tests {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         {
             let mutate_val = vm.eval_str("custom-value").unwrap();
-            let mut mutate_val_ref = mutate_val.as_custom_mut::<MyType>().unwrap();
+            let mut mutate_val_ref = mutate_val.try_custom_mut::<MyType>().unwrap();
             *mutate_val_ref = MyType { number: -42 };
             assert_eq!(mutate_val_ref.deref(), &MyType { number: -42 });
         }
 
         let val = vm.eval_str("custom-value").unwrap();
         assert_eq!(
-            val.as_custom::<MyType>().unwrap().deref(),
+            val.try_custom::<MyType>().unwrap().deref(),
             &MyType { number: -42 }
         );
     }
@@ -328,14 +328,14 @@ mod tests {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         let val = vm.eval_str("custom-value").unwrap();
         assert_eq!(
-            val.as_custom::<OtherType>().unwrap_err(),
+            val.try_custom::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
                 expected: OtherType { string: "" }.name(),
                 actual: MyType { number: 0 }.name(),
             }
         );
         assert_eq!(
-            val.as_custom_mut::<OtherType>().unwrap_err(),
+            val.try_custom_mut::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
                 expected: OtherType { string: "" }.name(),
                 actual: MyType { number: 0 }.name(),
@@ -348,14 +348,14 @@ mod tests {
         let mut vm = Vm::default().with_custom_value("custom-value", MyType { number: 42 });
         let val = vm.eval_str("42.0").unwrap();
         assert_eq!(
-            val.as_custom::<OtherType>().unwrap_err(),
+            val.try_custom::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
                 expected: OtherType { string: "" }.name(),
                 actual: UnsafeVal::FLOAT_TYPE_NAME,
             }
         );
         assert_eq!(
-            val.as_custom_mut::<OtherType>().unwrap_err(),
+            val.try_custom_mut::<OtherType>().unwrap_err(),
             CustomValError::WrongType {
                 expected: OtherType { string: "" }.name(),
                 actual: UnsafeVal::FLOAT_TYPE_NAME,
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(
             vm.eval_str("(custom-function 6)")
                 .unwrap()
-                .as_custom::<MyType>()
+                .try_custom::<MyType>()
                 .unwrap()
                 .deref(),
             &MyType { number: 6 }

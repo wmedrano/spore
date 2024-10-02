@@ -145,6 +145,25 @@ impl Vm {
     }
 
     /// Return the VM with a custom value that is accessible globally.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// #[derive(Debug, Default)]
+    /// pub struct MyType(i64);
+    /// impl spore_vm::val::CustomType for MyType {}
+    /// impl std::fmt::Display for MyType {
+    ///     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    ///         write!(f, "my number is {}", self.0)
+    ///     }
+    /// }
+    ///
+    /// let mut vm = spore_vm::Vm::default()
+    ///     .with_custom_value("my_value", MyType(10));
+    /// let val = vm.val_by_name("my_value").unwrap();
+    /// let mut custom_val = val.try_custom_mut::<MyType>(&vm).unwrap();
+    /// custom_val.0 = 100;
+    /// ```
     pub fn with_custom_value(mut self, name: &str, val: impl CustomType) -> Self {
         let id = self.objects.insert_custom(CustomVal::new(val));
         // Unsafe OK: Custom type is registered in the VM in the line above.
