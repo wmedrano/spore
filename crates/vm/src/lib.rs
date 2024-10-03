@@ -4,7 +4,6 @@ use std::{
 };
 
 use bumpalo::Bump;
-use compact_str::CompactString;
 use gc::{is_garbage_collected, MemoryManager};
 use log::*;
 
@@ -14,7 +13,7 @@ use parser::span::SpanWithSource;
 pub use settings::Settings;
 use val::{
     custom::CustomVal, ByteCode, CustomType, Instruction, NativeFunction, NativeFunctionContext,
-    ProtectedVal, UnsafeVal, Val, ValId,
+    ProtectedVal, Symbol, UnsafeVal, Val, ValId,
 };
 
 mod builtins;
@@ -49,7 +48,7 @@ pub struct Vm {
     /// The data stack. This is used to store temporary values used for computation.
     stack: Vec<UnsafeVal>,
     /// Map from binding name to value. This is used to store global values.
-    values: HashMap<CompactString, UnsafeVal>,
+    values: HashMap<Symbol, UnsafeVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
     stack_frame: StackFrame,
     /// The pending stack frames.
@@ -186,15 +185,17 @@ impl Vm {
             "Registering {name:?} to a(n) {tp} value.",
             tp = val.type_name()
         );
-        self.values.insert(name.into(), val);
+        let interned_sym = self.get_or_create_symbol(name);
+        self.values.insert(interned_sym, val);
     }
 }
 
 impl Vm {
     /// Get the value with the given name or [None] if it does not exist.
     pub fn val_by_name(&self, name: &str) -> Option<Val> {
+        let interned_name = self.get_symbol(name)?;
         self.values
-            .get(name)
+            .get(&interned_name)
             .copied()
             // Unsafe OK: The value has not been garbage collected as its part of the values map.
             .map(|v| unsafe { Val::from_unsafe_val(v) })
@@ -235,13 +236,15 @@ impl Vm {
         name: &str,
         args: impl ExactSizeIterator<Item = Val<'static>>,
     ) -> VmResult<ProtectedVal> {
-        let function_val = *self
-            .values
-            .get(name)
-            .ok_or_else(|| VmError::SymbolNotDefined {
-                src: None,
-                symbol: name.to_string(),
-            })?;
+        let interned_name = self.get_or_create_symbol(name);
+        let function_val =
+            *self
+                .values
+                .get(&interned_name)
+                .ok_or_else(|| VmError::SymbolNotDefined {
+                    src: None,
+                    symbol: name.to_string(),
+                })?;
         let bytecode_id = match function_val {
             UnsafeVal::ByteCodeFunction(bc) => bc,
             UnsafeVal::NativeFunction(f) => self
@@ -344,15 +347,18 @@ impl Vm {
                     None => {
                         return Err(VmError::SymbolNotDefined {
                             src: None,
-                            symbol: symbol.to_string(),
-                        })
+                            symbol: self
+                                .symbol_to_str(*symbol)
+                                .unwrap_or("*symbol-not-registered*")
+                                .to_string(),
+                        });
                     }
                 };
                 self.stack.push(v);
             }
             Instruction::Define(symbol) => {
                 let v = self.stack.pop().ok_or_else(BacktraceError::capture)?;
-                self.values.insert(symbol.clone(), v);
+                self.values.insert(*symbol, v);
             }
             Instruction::Eval(n) => {
                 self.execute_eval(*n)?;
@@ -552,6 +558,20 @@ impl Vm {
         }
         arena.reset();
         self.tmp_arena = Some(arena);
+    }
+}
+
+impl Vm {
+    pub fn get_symbol(&self, s: &str) -> Option<Symbol> {
+        self.objects.get_symbol(s)
+    }
+
+    pub fn get_or_create_symbol(&mut self, s: &str) -> Symbol {
+        self.objects.get_or_create_symbol(s)
+    }
+
+    pub fn symbol_to_str(&self, s: Symbol) -> Option<&str> {
+        self.objects.symbol_to_str(s)
     }
 }
 

@@ -206,10 +206,14 @@ impl<'a> Compiler<'a> {
                 let maybe_inlined_val = self
                     .settings
                     .enable_aggressive_inline
-                    .then(|| self.vm.values.get(ident))
+                    .then(|| {
+                        let interned_ident = self.vm.get_or_create_symbol(ident);
+                        self.vm.values.get(&interned_ident)
+                    })
                     .flatten()
                     .map(|c| Instruction::PushConst(*c));
-                let instruction = maybe_inlined_val.unwrap_or(Instruction::Deref((*ident).into()));
+                let interned_ident = self.vm.get_or_create_symbol(ident);
+                let instruction = maybe_inlined_val.unwrap_or(Instruction::Deref(interned_ident));
                 self.instruction_source.push(span);
                 self.instructions.push(instruction)
             }
@@ -222,10 +226,13 @@ impl<'a> Compiler<'a> {
             .settings
             .enable_aggressive_inline
             .then(|| match function {
-                Ir::Deref(_, ident) => match self.vm.values.get(*ident) {
-                    Some(UnsafeVal::NativeFunction(func)) => Some(*func),
-                    _ => None,
-                },
+                Ir::Deref(_, ident) => {
+                    let interned_ident = self.vm.get_or_create_symbol(ident);
+                    match self.vm.values.get(&interned_ident) {
+                        Some(UnsafeVal::NativeFunction(func)) => Some(*func),
+                        _ => None,
+                    }
+                }
                 _ => None,
             })
             .flatten();
@@ -253,7 +260,7 @@ impl<'a> Compiler<'a> {
         &mut self,
         ctx: CompilerContext,
         span: Span,
-        identifier: &str,
+        ident: &str,
         expr: &Ir,
     ) -> Result<()> {
         if ctx != CompilerContext::Module {
@@ -264,8 +271,8 @@ impl<'a> Compiler<'a> {
         }
         self.compile_one(expr, CompilerContext::Subexpression)?;
         self.instruction_source.push(span);
-        self.instructions
-            .push(Instruction::Define((*identifier).into()));
+        let interned_ident = self.vm.get_or_create_symbol(ident);
+        self.instructions.push(Instruction::Define(interned_ident));
         Ok(())
     }
 
@@ -492,7 +499,8 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 local_bindings: 0,
-                instructions: vec![Instruction::Deref("my-variable".into())].into(),
+                instructions: vec![Instruction::Deref(vm.get_symbol("my-variable").unwrap())]
+                    .into(),
                 source: Some("my-variable".into()),
                 instruction_source: vec![Span::new(0, 11)].into(),
             }
@@ -569,7 +577,7 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("does-not-exist".into()),
+                    Instruction::Deref(vm.get_symbol("does-not-exist").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
@@ -593,7 +601,7 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("get-fn".into()),
+                    Instruction::Deref(vm.get_symbol("get-fn").unwrap()),
                     Instruction::Eval(1),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
@@ -627,7 +635,11 @@ mod tests {
                 name: "".into(),
                 arg_count: 0,
                 local_bindings: 0,
-                instructions: vec![Instruction::Deref("+".into()), Instruction::Eval(1)].into(),
+                instructions: vec![
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
+                    Instruction::Eval(1)
+                ]
+                .into(),
                 source: Some("(+)".into()),
                 instruction_source: vec![Span { start: 1, end: 2 }, Span { start: 0, end: 3 }]
                     .into(),
@@ -646,7 +658,7 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
@@ -676,11 +688,11 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(3.into()),
                     Instruction::PushConst(4.into()),
                     Instruction::Eval(3),
@@ -714,10 +726,10 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(3.into()),
                     Instruction::PushConst(4.into()),
                     Instruction::Eval(3),
@@ -770,7 +782,7 @@ mod tests {
                 local_bindings: 0,
                 instructions: vec![
                     Instruction::PushConst(12.into()),
-                    Instruction::Define("x".into()),
+                    Instruction::Define(vm.get_symbol("x").unwrap()),
                 ]
                 .into(),
                 source: Some("(define x 12)".into()),
@@ -811,7 +823,7 @@ mod tests {
                                 arg_count: 2,
                                 local_bindings: 0,
                                 instructions: vec![
-                                    Instruction::Deref("+".into()),
+                                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                                     Instruction::GetArg(0),
                                     Instruction::GetArg(1),
                                     Instruction::Eval(3),
@@ -829,7 +841,7 @@ mod tests {
                         )
                         .into()
                     ),
-                    Instruction::Define("foo".into()),
+                    Instruction::Define(vm.get_symbol("foo").unwrap()),
                 ]
                 .into(),
                 source: Some(src.into()),
@@ -852,11 +864,11 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
-                    Instruction::Define("x".into()),
+                    Instruction::Define(vm.get_symbol("x").unwrap()),
                 ]
                 .into(),
                 source: Some("(define x (+ 1 2))".into()),
@@ -895,19 +907,19 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("<".into()),
+                    Instruction::Deref(vm.get_symbol("<").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                     Instruction::JumpIf(7),
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(6.into()),
                     Instruction::PushConst(7.into()),
                     Instruction::PushConst(8.into()),
                     Instruction::PushConst(9.into()),
                     Instruction::Eval(5),
                     Instruction::Jump(5),
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(3.into()),
                     Instruction::PushConst(4.into()),
                     Instruction::PushConst(5.into()),
@@ -950,14 +962,14 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![
-                    Instruction::Deref("<".into()),
+                    Instruction::Deref(vm.get_symbol("<").unwrap()),
                     Instruction::PushConst(1.into()),
                     Instruction::PushConst(2.into()),
                     Instruction::Eval(3),
                     Instruction::JumpIf(2),
                     Instruction::PushConst(().into()),
                     Instruction::Jump(5),
-                    Instruction::Deref("+".into()),
+                    Instruction::Deref(vm.get_symbol("+").unwrap()),
                     Instruction::PushConst(4.into()),
                     Instruction::PushConst(5.into()),
                     Instruction::PushConst(6.into()),
@@ -1183,7 +1195,7 @@ mod tests {
                         )
                         .into()
                     ),
-                    Instruction::Define("foo".into()),
+                    Instruction::Define(vm.get_symbol("foo").unwrap()),
                 ]
                 .into(),
                 source: Some(src.into()),
@@ -1315,13 +1327,13 @@ mod tests {
                 instructions: vec![
                     Instruction::PushConst(UnsafeVal::Bool(false)),
                     Instruction::BindArg(0),
-                    Instruction::Deref("not".into()),
+                    Instruction::Deref(vm.get_symbol("not").unwrap()),
                     Instruction::GetArg(0),
                     Instruction::Eval(2),
                     Instruction::JumpIf(10),
                     Instruction::PushConst(UnsafeVal::Int(1)),
                     Instruction::BindArg(1),
-                    Instruction::Deref("not".into()),
+                    Instruction::Deref(vm.get_symbol("not").unwrap()),
                     Instruction::GetArg(1),
                     Instruction::Eval(2),
                     Instruction::JumpIf(2),

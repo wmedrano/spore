@@ -237,9 +237,9 @@ impl<'a> Ir<'a> {
         define_args: &[Node],
     ) -> Result<Ir<'a>> {
         let ir = match define_args {
-            [Node::Identifier(identifier_span), expr] => Ir::Define {
+            [Node::Identifier(ident_span), expr] => Ir::Define {
                 span,
-                identifier: identifier_span.with_src(src).as_str(),
+                identifier: ident_span.with_src(src).as_str(),
                 expr: arena.alloc(Ir::new(arena, src, expr)?),
             },
             [Node::Tree(lambda_signature_span, lambda_signature), exprs @ ..] => {
@@ -249,8 +249,8 @@ impl<'a> Ir<'a> {
                     *lambda_signature_span
                 };
                 match lambda_signature.as_slice() {
-                    [Node::Identifier(identifier_span), lambda_args @ ..] => {
-                        let name = identifier_span.with_src(src).as_str();
+                    [Node::Identifier(ident_span), lambda_args @ ..] => {
+                        let name = ident_span.with_src(src).as_str();
                         let lambda_ir = Ir::new_lambda(
                             arena,
                             src,
@@ -260,8 +260,8 @@ impl<'a> Ir<'a> {
                             exprs,
                         )?;
                         Ir::Define {
-                            span: *identifier_span,
-                            identifier: identifier_span.with_src(src).as_str(),
+                            span: *ident_span,
+                            identifier: ident_span.with_src(src).as_str(),
                             expr: arena.alloc(lambda_ir),
                         }
                     }

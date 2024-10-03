@@ -6,6 +6,7 @@ mod formatter;
 mod id;
 mod native_function;
 mod protected_val;
+mod symbol;
 mod unsafe_val;
 
 use std::{collections::HashMap, marker::PhantomData};
@@ -17,6 +18,7 @@ pub use formatter::ValFormatter;
 pub use id::ValId;
 pub use native_function::{NativeFunction, NativeFunctionContext, ValBuilder};
 pub use protected_val::ProtectedVal;
+pub use symbol::Symbol;
 pub use unsafe_val::UnsafeVal;
 
 use crate::Vm;

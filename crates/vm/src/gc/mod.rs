@@ -3,14 +3,15 @@ use compact_str::CompactString;
 use keep_reachable_set::KeepReachableSet;
 #[allow(unused_imports)]
 use log::*;
+use symbol_interner::SymbolInterner;
 
 use crate::{
     gc::object_store::{Color, ObjectStore},
-    val::{custom::CustomVal, ByteCode, ListVal, StructVal, UnsafeVal, ValId},
+    val::{custom::CustomVal, ByteCode, ListVal, StructVal, Symbol, UnsafeVal, ValId},
 };
-
 mod keep_reachable_set;
 mod object_store;
+mod symbol_interner;
 
 type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 
@@ -18,6 +19,7 @@ type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
 #[derive(Debug)]
 pub struct MemoryManager {
     vm_id: u16,
+    interned_symbols: SymbolInterner,
     strings: ObjectStore<CompactString>,
     mutable_boxes: ObjectStore<UnsafeVal>,
     lists: ObjectStore<ListVal>,
@@ -33,6 +35,7 @@ impl MemoryManager {
     pub fn new(vm_id: u16) -> Self {
         MemoryManager {
             vm_id,
+            interned_symbols: SymbolInterner::new(vm_id),
             strings: ObjectStore::default(),
             mutable_boxes: ObjectStore::default(),
             lists: ObjectStore::default(),
@@ -43,6 +46,22 @@ impl MemoryManager {
             reachable_color: Color::default(),
         }
     }
+
+    /// Get an interned string's value.
+    pub fn symbol_to_str(&self, s: Symbol) -> Option<&str> {
+        self.interned_symbols.symbol_to_str(s)
+    }
+
+    /// Get an interned string.
+    pub fn get_symbol(&self, s: &str) -> Option<Symbol> {
+        self.interned_symbols.get_symbol(s)
+    }
+
+    /// Get or create an interned string.
+    pub fn get_or_create_symbol(&mut self, s: &str) -> Symbol {
+        self.interned_symbols.get_or_create_symbol(self.vm_id, s)
+    }
+
     /// Run the garbage collector. All known values must be in `values`.
     pub fn run_gc(&mut self, arena: &Bump, populate_vals: impl Iterator<Item = UnsafeVal>) {
         self.run_gc_mark(arena, populate_vals);

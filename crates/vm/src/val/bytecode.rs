@@ -4,7 +4,7 @@ use compact_str::CompactString;
 
 use crate::parser::span::Span;
 
-use super::{NativeFunction, UnsafeVal};
+use super::{NativeFunction, Symbol, UnsafeVal};
 
 /// Contains a set of instructions for the Spore VM to evaluate.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -75,9 +75,9 @@ pub enum Instruction {
     /// Bind the top argument to the nth argument in the stack.
     BindArg(usize),
     /// Get the value of a symbol at push it onto the stack.
-    Deref(CompactString),
+    Deref(Symbol),
     /// Pop the top value of the stack and assign it to the given symbol.
-    Define(CompactString),
+    Define(Symbol),
     /// Pop the top `n` values of the stack. The deepmost value should be function with the rest of
     /// the values acting as the arguments.
     Eval(usize),
@@ -102,6 +102,6 @@ mod tests {
 
     #[test]
     fn struct_sizes_are_small_enough() {
-        assert_eq!(size_of::<Instruction>(), 4 * size_of::<usize>());
+        assert_eq!(size_of::<Instruction>(), 3 * size_of::<usize>());
     }
 }
