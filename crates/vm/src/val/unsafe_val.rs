@@ -4,7 +4,7 @@ use crate::Vm;
 
 use super::{
     bytecode::ByteCode, custom::CustomVal, formatter::ValFormatter, ListVal, NativeFunction,
-    StructVal, ValId,
+    StructVal, Symbol, ValId,
 };
 
 /// Contains a Spore value. The value is considered unsafe as it may be garbage collected.
@@ -28,6 +28,8 @@ pub enum UnsafeVal {
     /// # Safety
     /// May be garbage collected or mutated by the VM.
     String(ValId<CompactString>),
+    /// A symbol.
+    Symbol(Symbol),
     /// A handle to a box containing a mutable value.
     ///
     /// # Safety
@@ -65,6 +67,8 @@ impl UnsafeVal {
     pub const FLOAT_TYPE_NAME: &'static str = "float";
     /// The display name for the void type.
     pub const VOID_TYPE_NAME: &'static str = "void";
+    /// The display name for the symbol type.
+    pub const SYMBOL_TYPE_NAME: &'static str = "symbol";
     /// The display name for the string type.
     pub const STRING_TYPE_NAME: &'static str = "string";
     /// The display name for the mutable box type.
@@ -84,6 +88,7 @@ impl UnsafeVal {
             UnsafeVal::Int(_) => UnsafeVal::INT_TYPE_NAME,
             UnsafeVal::Float(_) => UnsafeVal::FLOAT_TYPE_NAME,
             UnsafeVal::String(_) => UnsafeVal::STRING_TYPE_NAME,
+            UnsafeVal::Symbol(_) => UnsafeVal::SYMBOL_TYPE_NAME,
             UnsafeVal::MutableBox(_) => UnsafeVal::MUTABLE_BOX_TYPE_NAME,
             UnsafeVal::List(_) => UnsafeVal::LIST_TYPE_NAME,
             UnsafeVal::Struct(_) => UnsafeVal::STRUCT_TYPE_NAME,

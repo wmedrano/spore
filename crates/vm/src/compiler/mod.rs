@@ -178,6 +178,10 @@ impl<'a> Compiler<'a> {
             Constant::Bool(x) => Instruction::PushConst((*x).into()),
             Constant::Int(x) => Instruction::PushConst((*x).into()),
             Constant::Float(x) => Instruction::PushConst((*x).into()),
+            Constant::Symbol(x) => {
+                let symbol = self.vm.get_or_create_symbol(x);
+                Instruction::PushConst(UnsafeVal::Symbol(symbol))
+            }
             Constant::String(x) => {
                 Instruction::PushConst(UnsafeVal::String(self.vm.objects.insert_string(x.clone())))
             }

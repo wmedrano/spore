@@ -93,7 +93,7 @@ where
             if current_span.overlap(span).is_some() {
                 let line_number = idx + 1;
                 let line_src = current_span.with_src(src);
-                writeln!(f, "{line_number:3}: {line_src}")?;
+                write!(f, "{line_number:3}: {line_src}")?;
             }
         }
         Ok(())

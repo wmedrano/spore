@@ -48,14 +48,14 @@ fn struct_benchmark(c: &mut Criterion) {
             ..Default::default()
         });
         let src = r#"
-(define my-struct (struct "x" 0 "y" 10 "width" 20 "height" 30))
-(struct-set! my-struct "right" (+ (struct-get my-struct "x") (struct-get my-struct "width")))
-(struct-set! my-struct "bottom" (+ (struct-get my-struct "y") (struct-get my-struct "height")))
-(struct-set! my-struct "self" my-struct)
-(+ (struct-get my-struct "x")
-   (struct-get my-struct "y")
-   (struct-get my-struct "width")
-   (struct-get my-struct "height"))
+(define my-struct (struct 'x 0 'y 10 'width 20 'height 30))
+(struct-set! my-struct 'right (+ (struct-get my-struct 'x) (struct-get my-struct 'width)))
+(struct-set! my-struct 'bottom (+ (struct-get my-struct 'y) (struct-get my-struct 'height)))
+(struct-set! my-struct 'self my-struct)
+(+ (struct-get my-struct 'x)
+   (struct-get my-struct 'y)
+   (struct-get my-struct 'width)
+   (struct-get my-struct 'height))
 "#;
         b.iter(move || vm.eval_str(src).unwrap().try_int().unwrap())
     });

@@ -119,7 +119,7 @@ impl MemoryManager {
             UnsafeVal::Struct(id) => {
                 if let Some(strct) = self.structs.set_color(id, self.reachable_color) {
                     for child_val in strct.values() {
-                        add_child(*child_val);
+                        add_child(child_val);
                     }
                 }
             }
@@ -286,6 +286,7 @@ pub fn is_garbage_collected(v: UnsafeVal) -> bool {
         UnsafeVal::Bool(_) => false,
         UnsafeVal::Int(_) => false,
         UnsafeVal::Float(_) => false,
+        UnsafeVal::Symbol(_) => false,
         UnsafeVal::String(_) => true,
         UnsafeVal::MutableBox(_) => true,
         UnsafeVal::List(_) => true,

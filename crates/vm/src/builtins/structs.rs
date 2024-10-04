@@ -1,15 +1,12 @@
-use std::collections::HashMap;
-
-use compact_str::ToCompactString;
-
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+    val::{NativeFunctionContext, StructVal, UnsafeVal, Val, ValBuilder},
+    Vm,
 };
 
 pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
     let mut args_iter = args.iter();
-    let mut strct = HashMap::with_capacity(args.len() / 2);
+    let mut strct = StructVal::with_capacity(args.len() / 2);
     if args.len() % 2 != 0 {
         return Err(VmError::ArityError {
             function: "struct needs an even amount of args, ".into(),
@@ -18,39 +15,41 @@ pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<V
         });
     }
     while let Some(field) = args_iter.next() {
-        let field = field.try_str(ctx.vm()).unwrap().to_compact_string();
+        let field_sym = field.try_symbol().map_err(|v| VmError::TypeError {
+            src: None,
+            context: "struct field name",
+            expected: UnsafeVal::SYMBOL_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        })?;
         let val = args_iter.next().unwrap();
-        strct.insert(field, unsafe { val.as_unsafe_val() });
+        strct.set(field_sym, unsafe { val.as_unsafe_val() });
     }
     Ok(unsafe { ctx.new_struct(strct) })
 }
 
 pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+    let vm = ctx.vm();
     match args {
-        [maybe_struct, maybe_string] => {
-            let field = maybe_string
-                .try_str(ctx.vm())
+        [maybe_struct, maybe_symbol] => {
+            let field = maybe_symbol.try_symbol().map_err(|v| VmError::TypeError {
+                src: None,
+                context: "struct-get arg(idx=1)",
+                expected: UnsafeVal::SYMBOL_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+            // Unsafe OK: The returned val is a reference to a valid value.
+            let strct = maybe_struct
+                .try_struct(vm)
                 .map_err(|v| VmError::TypeError {
                     src: None,
-                    context: "struct-get arg(idx=1)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
+                    context: "struct-get arg(idx=0)",
+                    expected: UnsafeVal::STRUCT_TYPE_NAME,
                     actual: v.type_name(),
                     value: v.format_quoted(ctx.vm()).to_string(),
                 })?;
-            // Unsafe OK: The returned val is a reference to a valid value.
-            let v = unsafe {
-                maybe_struct
-                    .try_struct_get(ctx.vm(), field)
-                    .map_err(|v| VmError::TypeError {
-                        src: None,
-                        context: "struct-get arg(idx=0)",
-                        expected: UnsafeVal::STRUCT_TYPE_NAME,
-                        actual: v.type_name(),
-                        value: v.format_quoted(ctx.vm()).to_string(),
-                    })?
-                    .unwrap_or(Val::new_void())
-                    .as_unsafe_val()
-            };
+            let v = strct.get(field).unwrap_or(UnsafeVal::Void);
             Ok(unsafe { ctx.with_unsafe_val(v) })
         }
         args => Err(VmError::ArityError {
@@ -66,19 +65,16 @@ pub fn struct_set<'a>(
     args: &[Val<'a>],
 ) -> VmResult<ValBuilder<'a>> {
     match args {
-        [maybe_struct, maybe_string, val] => {
-            let field = maybe_string
-                .try_str(ctx.vm())
-                .map_err(|v| VmError::TypeError {
-                    src: None,
-                    context: "struct-set! arg(idx=1)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })?
-                .to_compact_string();
-            // Unsafe OK: The returned val is a reference to a valid value.
-            let strct = match unsafe { maybe_struct.try_unsafe_struct_mut(ctx.vm_mut()) } {
+        [maybe_struct, maybe_symbol, val] => {
+            let field = maybe_symbol.try_symbol().map_err(|v| VmError::TypeError {
+                src: None,
+                context: "struct-set! arg(idx=1)",
+                expected: UnsafeVal::SYMBOL_TYPE_NAME,
+                actual: v.type_name(),
+                value: v.format_quoted(ctx.vm()).to_string(),
+            })?;
+            let vm: *mut Vm = unsafe { ctx.vm_mut() };
+            let strct = match unsafe { maybe_struct.try_unsafe_struct_mut(&mut *vm) } {
                 Ok(v) => v,
                 Err(v) => {
                     return Err(VmError::TypeError {
@@ -90,7 +86,7 @@ pub fn struct_set<'a>(
                     });
                 }
             };
-            strct.insert(field, unsafe { val.as_unsafe_val() });
+            strct.set(field, unsafe { val.as_unsafe_val() });
             Ok(ValBuilder::new(().into()))
         }
         args => Err(VmError::ArityError {
@@ -121,7 +117,7 @@ mod tests {
     fn struct_with_odd_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(struct \"field\")").unwrap_err(),
+            vm.eval_str("(struct 'field)").unwrap_err(),
             VmError::ArityError {
                 function: "struct needs an even amount of args, ".into(),
                 expected: 2,
@@ -134,7 +130,7 @@ mod tests {
     fn struct_get_with_field_returns_field() {
         let mut vm = Vm::default();
         let got = vm
-            .eval_str("(struct-get (struct \"field\" 1.0) \"field\")")
+            .eval_str("(struct-get (struct 'field 1.0) 'field)")
             .unwrap();
         assert_eq!(got.try_float().unwrap(), 1.0);
     }
@@ -143,7 +139,7 @@ mod tests {
     fn struct_get_with_field_that_does_not_exist_returns_void() {
         let mut vm = Vm::default();
         let got = vm
-            .eval_str("(struct-get (struct \"field\" 1) \"not-field\")")
+            .eval_str("(struct-get (struct 'field 1) 'not-field)")
             .unwrap();
         assert!(got.is_void());
     }
@@ -164,11 +160,11 @@ mod tests {
     #[test]
     fn struct_get_with_non_struct_returns_error() {
         let mut vm = Vm::default();
-        let src = "(struct-get 1 \"field\")";
+        let src = "(struct-get 1 'field)";
         assert_eq!(
             vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
-                src: Some(Span::new(0, 22).with_src(src.into())),
+                src: Some(Span::new(0, 21).with_src(src.into())),
                 context: "struct-get arg(idx=0)",
                 expected: UnsafeVal::STRUCT_TYPE_NAME,
                 actual: "int",
@@ -186,7 +182,7 @@ mod tests {
             VmError::TypeError {
                 src: Some(Span::new(0, 23).with_src(src.into())),
                 context: "struct-get arg(idx=1)",
-                expected: UnsafeVal::STRING_TYPE_NAME,
+                expected: UnsafeVal::SYMBOL_TYPE_NAME,
                 actual: "int",
                 value: "1".into()
             }
@@ -196,18 +192,18 @@ mod tests {
     #[test]
     fn struct_set_sets_existing_field() {
         let mut vm = Vm::default();
-        vm.eval_str("(define x (struct \"field\" \"original\"))")
+        vm.eval_str("(define x (struct 'field \"original\"))")
             .unwrap();
         assert_eq!(
-            vm.eval_str("(struct-get x \"field\")")
+            vm.eval_str("(struct-get x 'field)")
                 .unwrap()
                 .try_str()
                 .unwrap(),
             "original"
         );
-        vm.eval_str("(struct-set! x \"field\" \"new\")").unwrap();
+        vm.eval_str("(struct-set! x 'field \"new\")").unwrap();
         assert_eq!(
-            vm.eval_str("(struct-get x \"field\")")
+            vm.eval_str("(struct-get x 'field)")
                 .unwrap()
                 .try_str()
                 .unwrap(),
@@ -218,11 +214,11 @@ mod tests {
     #[test]
     fn struct_set_sets_new_field() {
         let mut vm = Vm::default();
-        vm.eval_str("(define x (struct \"field\" \"original\"))")
+        vm.eval_str("(define x (struct 'field \"original\"))")
             .unwrap();
-        vm.eval_str("(struct-set! x \"field2\" \"new\")").unwrap();
+        vm.eval_str("(struct-set! x 'field2 \"new\")").unwrap();
         assert!(vm
-            .eval_str("(= x (struct \"field\" \"original\" \"field2\" \"new\"))")
+            .eval_str("(= x (struct 'field \"original\" 'field2 \"new\"))")
             .unwrap()
             .try_bool()
             .unwrap(),);
@@ -231,11 +227,11 @@ mod tests {
     #[test]
     fn struct_set_with_non_struct_returns_error() {
         let mut vm = Vm::default();
-        let src = "(struct-set! 1 \"field\" 3)";
+        let src = "(struct-set! 1 'field 3)";
         assert_eq!(
             vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
-                src: Some(Span::new(0, 25).with_src(src.into())),
+                src: Some(Span::new(0, 24).with_src(src.into())),
                 context: "struct-set! arg(idx=0)",
                 expected: UnsafeVal::STRUCT_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -254,7 +250,7 @@ mod tests {
             VmError::TypeError {
                 src: Some(Span::new(0, 19).with_src(src.into())),
                 context: "struct-set! arg(idx=1)",
-                expected: UnsafeVal::STRING_TYPE_NAME,
+                expected: UnsafeVal::SYMBOL_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "2".into(),
             },
@@ -266,7 +262,7 @@ mod tests {
         let mut vm = Vm::default();
         vm.eval_str("(define x (struct))").unwrap();
         assert_eq!(
-            vm.eval_str("(struct-set! x \"field\" 2 3)").unwrap_err(),
+            vm.eval_str("(struct-set! x 'field 2 3)").unwrap_err(),
             VmError::ArityError {
                 function: "struct-set!".into(),
                 expected: 3,

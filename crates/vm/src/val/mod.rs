@@ -6,18 +6,19 @@ mod formatter;
 mod id;
 mod native_function;
 mod protected_val;
+mod struct_val;
 mod symbol;
 mod unsafe_val;
 
-use std::{collections::HashMap, marker::PhantomData};
+use std::marker::PhantomData;
 
 pub use bytecode::{ByteCode, Instruction};
-use compact_str::CompactString;
 pub use custom::{CustomType, CustomVal, CustomValError, CustomValMut, CustomValRef};
 pub use formatter::ValFormatter;
 pub use id::ValId;
 pub use native_function::{NativeFunction, NativeFunctionContext, ValBuilder};
 pub use protected_val::ProtectedVal;
+pub use struct_val::StructVal;
 pub use symbol::Symbol;
 pub use unsafe_val::UnsafeVal;
 
@@ -25,9 +26,6 @@ use crate::Vm;
 
 /// A container for a list.
 pub type ListVal = Vec<UnsafeVal>;
-
-/// A container for a struct. A struct is a map from name to value.
-pub type StructVal = HashMap<CompactString, UnsafeVal>;
 
 /// Contains a [Val] from the [Vm].
 #[repr(transparent)]
@@ -99,6 +97,14 @@ impl<'a> Val<'a> {
         }
     }
 
+    /// Get the underlying Symbol or `Err<Val>` if `self` is not a string.
+    pub fn try_symbol(self) -> Result<Symbol, Self> {
+        match self.inner {
+            UnsafeVal::Symbol(sym) => Ok(sym),
+            _ => Err(self),
+        }
+    }
+
     /// Get the underlying [&str] or `Err<Val>` if `self` is not a string.
     pub fn try_str(self, vm: &Vm) -> Result<&str, Self> {
         match self.inner {
@@ -124,43 +130,26 @@ impl<'a> Val<'a> {
         matches!(self.inner, UnsafeVal::Struct(_))
     }
 
-    /// Get the underlying struct as an iterator or `Err<Val>` if `self` is not a struct.
-    ///
-    /// The returned iterator produces `(field, value)`. pairs.
-    pub fn try_iter_struct(
-        self,
-        vm: &'a Vm,
-    ) -> Result<impl 'a + Iterator<Item = (&'a str, Val<'a>)>, Val<'a>> {
-        // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
-        let strct = unsafe { self.try_unsafe_struct(vm) }?;
-        let iter = strct
-            .iter()
-            // Unsafe OK: `v` has the same lifetime as the underlying struct.
-            .map(|(k, v)| (k.as_str(), unsafe { Val::from_unsafe_val(*v) }));
-        Ok(iter)
-    }
-
-    /// Get the underlying struct's field named `field` as as a value or `Err<Val>` if `self` is not
-    /// a struct.
-    ///
-    /// The returned iterator produces `(field, value)`. pairs.
-    pub fn try_struct_get(self, vm: &'a Vm, field: &str) -> Result<Option<Val<'a>>, Val<'a>> {
-        let strct = unsafe { self.try_unsafe_struct(vm) }?;
-        let v = strct
-            .get(field)
-            .copied()
-            // Unsafe OK: Return value lifetime is linked to `self` and the `vm`.
-            .map(|v| unsafe { Val::from_unsafe_val(v) });
-        Ok(v)
-    }
-
     /// Get the underlying struct or `Err<Val>` if `self` is not a struct.
-    unsafe fn try_unsafe_struct(self, vm: &Vm) -> Result<&StructVal, Val<'a>> {
+    pub fn try_struct(self, vm: &Vm) -> Result<&StructVal, Val<'a>> {
         match self.inner {
             UnsafeVal::Struct(id) => {
                 let strct = vm.objects.get_struct(id);
                 // The VM is borrowed so it is ensured to not garbage collect.
                 Ok(strct)
+            }
+            _ => Err(self),
+        }
+    }
+
+    /// Get the underlying struct or `Err<Val>` if `self` is not a struct.
+    pub fn try_struct_get(self, vm: &'a Vm, name: &str) -> Result<Option<Val<'a>>, Val<'a>> {
+        match self.inner {
+            UnsafeVal::Struct(id) => {
+                let strct = vm.objects.get_struct(id);
+                let sym = vm.get_symbol(name).ok_or(self)?;
+                let maybe_v = strct.get(sym).map(|v| unsafe { Val::from_unsafe_val(v) });
+                Ok(maybe_v)
             }
             _ => Err(self),
         }

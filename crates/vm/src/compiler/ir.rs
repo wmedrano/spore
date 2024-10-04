@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use compact_str::CompactString;
+use compact_str::{CompactString, ToCompactString};
 
 use crate::{
     error::CompileError,
@@ -26,6 +26,8 @@ pub enum Constant {
     /// For example, "what \"is\" a string" is parsed as:
     ///     what "is" a string
     String(CompactString),
+    /// A symbol constant.
+    Symbol(CompactString),
 }
 
 /// Contains the intermediate representation. This is a slightly more processed AST that is usefull
@@ -95,7 +97,15 @@ impl<'a> Ir<'a> {
                 Constant::String(node.to_string_literal(src).unwrap()),
             ),
             Node::Identifier(ident_span) => {
-                Ir::Deref(*ident_span, ident_span.with_src(src).as_str())
+                let ident_str = ident_span.with_src(src).as_str();
+                if ident_str.starts_with('\'') {
+                    Ir::Constant(
+                        *ident_span,
+                        Constant::Symbol((&ident_str[1..]).to_compact_string()),
+                    )
+                } else {
+                    Ir::Deref(*ident_span, ident_str)
+                }
             }
             Node::Tree(span, tree) => Self::new_tree(arena, src, *span, tree)?,
         };

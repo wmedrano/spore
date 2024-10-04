@@ -37,7 +37,10 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
             UnsafeVal::Bool(x) => write!(f, "{x}"),
             UnsafeVal::Int(x) => write!(f, "{x}"),
             UnsafeVal::Float(x) => write!(f, "{x}"),
-            // TODO: Allow printing with quotes.
+            UnsafeVal::Symbol(x) => {
+                let name = self.vm.symbol_to_str(*x).unwrap_or("*corrupt-symbol*");
+                write!(f, "'{name}")
+            }
             UnsafeVal::String(x) => {
                 if self.quote_strings {
                     write!(f, "{:?}", self.vm.objects.get_str(*x))
@@ -68,6 +71,10 @@ impl<'a> std::fmt::Display for ValFormatter<'a> {
                 write!(f, "(struct")?;
                 for (name, val) in self.vm.objects.get_struct(*x).iter() {
                     let val = val.format_quoted(self.vm);
+                    let name = self
+                        .vm
+                        .symbol_to_str(name)
+                        .unwrap_or("*unknown-symbol-name*");
                     write!(f, " '{name} {val}")?;
                 }
                 write!(f, ")")
@@ -154,7 +161,7 @@ mod tests {
     #[test]
     fn format_struct_produces_all_key_values() {
         let mut vm = Vm::default();
-        vm.eval_str("(define x (struct \"field-1\" 1 \"field-2\" \"2\"))")
+        vm.eval_str("(define x (struct 'field-1 1 'field-2 \"2\"))")
             .unwrap();
         let res = vm.eval_str("x").unwrap();
         assert!(

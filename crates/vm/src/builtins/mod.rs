@@ -91,7 +91,7 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
                     Some(other) => other,
                     None => return false,
                 };
-                if !equal_impl(vm, *v, *other) {
+                if !equal_impl(vm, v, other) {
                     return false;
                 }
             }
@@ -154,7 +154,7 @@ mod tests {
             .try_bool()
             .unwrap());
         assert!(vm
-            .eval_str("(= (struct \"field\" 1) (struct \"field\" 1))")
+            .eval_str("(= (struct 'field 1) (struct 'field 1))")
             .unwrap()
             .try_bool()
             .unwrap());
@@ -168,9 +168,8 @@ mod tests {
     #[test]
     fn equal_with_same_struct_ref_returns_true() {
         let mut vm = Vm::default();
-        vm.eval_str("(define my-struct (struct \"a\" 1))").unwrap();
-        vm.eval_str("(struct-set! my-struct \"b\" my-struct)")
-            .unwrap();
+        vm.eval_str("(define my-struct (struct 'a 1))").unwrap();
+        vm.eval_str("(struct-set! my-struct 'b my-struct)").unwrap();
         assert!(vm
             .eval_str("(= my-struct my-struct)")
             .unwrap()
@@ -212,7 +211,7 @@ mod tests {
             .try_bool()
             .unwrap());
         assert!(!vm
-            .eval_str("(= (struct \"field\" 1) (struct \"field\" 2))")
+            .eval_str("(= (struct 'field 1) (struct 'field 2))")
             .unwrap()
             .try_bool()
             .unwrap());

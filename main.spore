@@ -19,29 +19,29 @@
 ;; Windows
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (define *main-window*
-  (struct "buffer" scratch-buffer
-          "x" 0
-          "y" 0
-          "width" 0
-          "height" 0
-          "draw-cursor?" true))
+  (struct 'buffer scratch-buffer
+          'x 0
+          'y 0
+          'width 0
+          'height 0
+          'draw-cursor? true))
 (define *modal-window*
-  (struct "buffer" modal-buffer
-          "x" 5
-          "y" 5
-          "width" 0
-          "height" 0
-          "draw-cursor?" true
-          "hidden?" true))
+  (struct 'buffer modal-buffer
+          'x 5
+          'y 5
+          'width 0
+          'height 0
+          'draw-cursor? true
+          'hidden? true))
 
 (define *windows*
   (new-box (list *main-window* *modal-window*)))
 
 (define (modal-open?)
-  (not (struct-get *modal-window* "hidden?")))
+  (not (struct-get *modal-window* 'hidden?)))
 
 (define (modal-close!)
-  (struct-set! *modal-window* "hidden?" true))
+  (struct-set! *modal-window* 'hidden? true))
 
 (define modal-prompt ">> ")
 
@@ -55,7 +55,7 @@
     (if (= event "<esc>") (modal-close!))))
 
 (define (open-file-modal!)
-  (struct-set! *modal-window* "hidden?" false)
+  (struct-set! *modal-window* 'hidden? false)
   (buffer-clear! modal-buffer)
   (buffer-insert! modal-buffer
                   "\n" (command "git" "ls-files"))
@@ -93,7 +93,7 @@
           (if insert-str (buffer-insert! scratch-buffer insert-str))))))
 
 (define (handle-size-change! width height)
-  (struct-set! *main-window* "width" width)
-  (struct-set! *main-window* "height" height)
-  (struct-set! *modal-window* "width" (- width 10))
-  (struct-set! *modal-window* "height" (- height 10)))
+  (struct-set! *main-window* 'width width)
+  (struct-set! *main-window* 'height height)
+  (struct-set! *modal-window* 'width (- width 10))
+  (struct-set! *modal-window* 'height (- height 10)))

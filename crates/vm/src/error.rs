@@ -91,7 +91,7 @@ impl std::fmt::Display for VmError {
         let format_src = |f: &mut std::fmt::Formatter<'_>,
                           src: &Option<SpanWithSource<Arc<str>>>| {
             if let Some(src) = src {
-                write!(f, "\n{}", src.contextual_formatter())?;
+                write!(f, "\n{}\n", src.contextual_formatter())?;
             }
             Ok(())
         };
