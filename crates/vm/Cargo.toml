@@ -1,6 +1,8 @@
 [package]
 name = "spore-vm"
-version = "0.1.0"
+description = "Virtual machine for the Spore interpretted language."
+license = "MIT"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]

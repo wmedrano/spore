@@ -1,6 +1,8 @@
 [package]
 name = "spore-editor"
-version = "0.1.0"
+description = "Virtual machine for the Spore interpretted language."
+license = "MIT"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]
@@ -11,4 +13,4 @@ crossterm = "0.28"
 env_logger = "0.11"
 log = "0.4"
 ratatui = "0.28"
-spore-vm = {path = "../vm" }
+spore-vm = {version = "0.0.1", path = "../vm" }

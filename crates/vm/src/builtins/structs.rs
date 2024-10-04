@@ -23,7 +23,7 @@ pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<V
             value: v.format_quoted(ctx.vm()).to_string(),
         })?;
         let val = args_iter.next().unwrap();
-        strct.set(field_sym, unsafe { val.as_unsafe_val() });
+        strct.set(field_sym, unsafe { val.as_static() });
     }
     Ok(unsafe { ctx.new_struct(strct) })
 }
@@ -86,7 +86,7 @@ pub fn struct_set<'a>(
                     });
                 }
             };
-            strct.set(field, unsafe { val.as_unsafe_val() });
+            strct.set(field, unsafe { val.as_static() });
             Ok(ValBuilder::new(().into()))
         }
         args => Err(VmError::ArityError {
