@@ -12,6 +12,7 @@ pub mod structs;
 pub mod system;
 
 pub const BUILTINS: &[(&str, NativeFunction)] = &[
+    ("global-values", global_values),
     ("not", not),
     ("=", equal),
     ("+", numbers::add),
@@ -30,6 +31,26 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("working-directory", system::working_directory),
     ("command", system::command),
 ];
+
+pub fn global_values<'a>(mut ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+    if !args.is_empty() {
+        return Err(VmError::ArityError {
+            function: "global-values".into(),
+            expected: 0,
+            actual: args.len(),
+        });
+    }
+    let values: Vec<UnsafeVal> = ctx
+        .vm()
+        .values
+        .keys()
+        .map(|s| UnsafeVal::Symbol(*s))
+        .collect();
+    let v = unsafe { ctx.vm_mut().objects.insert_list(values) };
+    Ok(ValBuilder::new(unsafe {
+        Val::from_unsafe_val(UnsafeVal::List(v))
+    }))
+}
 
 pub fn not<'a>(_: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     match args {
@@ -107,6 +128,31 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn global_values_returns_list() {
+        let mut vm = Vm::default();
+        assert_ne!(
+            vm.eval_str("(list-length (global-values))")
+                .unwrap()
+                .try_int()
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn global_values_with_args_returns_error() {
+        let mut vm = Vm::default();
+        assert_eq!(
+            vm.eval_str("(global-values 0)").unwrap_err(),
+            VmError::ArityError {
+                function: "global-values".into(),
+                expected: 0,
+                actual: 1
+            }
+        );
+    }
 
     #[test]
     fn equal_with_wrong_number_of_args_produces_arity_error() {

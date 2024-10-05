@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{atomic::AtomicU16, Arc},
-};
+use std::{collections::HashMap, sync::atomic::AtomicU16};
 
 use bumpalo::Bump;
 use gc::{is_garbage_collected, MemoryManager};
@@ -9,8 +6,8 @@ use log::*;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
-use parser::span::SpanWithSource;
 pub use settings::Settings;
+use stack_frame::StackFrame;
 use val::{
     custom::CustomVal, ByteCode, CustomType, Instruction, NativeFunction, NativeFunctionContext,
     ProtectedVal, Symbol, UnsafeVal, Val, ValId,
@@ -22,6 +19,7 @@ pub mod error;
 mod gc;
 pub mod parser;
 mod settings;
+mod stack_frame;
 pub mod val;
 
 type BumpVec<'a, T> = bumpalo::collections::Vec<'a, T>;
@@ -59,41 +57,6 @@ pub struct Vm {
     settings: Settings,
     /// An arena for temporary computations for things like compilation and garbage collection.
     tmp_arena: Option<Bump>,
-}
-
-/// Used to decide the next instruction to take.
-#[derive(Clone, Debug)]
-struct StackFrame {
-    bytecode_id: ValId<ByteCode>,
-    /// The instructions that will be taken.
-    instructions: Arc<[Instruction]>,
-    /// The index of the next instruction within bytecode.
-    instruction_idx: usize,
-    /// The index of the stack for the first value of this stack frame's local stack.
-    stack_start: usize,
-}
-
-impl StackFrame {
-    /// Get the underlying bytecode object.
-    fn bytecode<'a>(&self, vm: &'a Vm) -> &'a ByteCode {
-        vm.objects.get_bytecode(self.bytecode_id).unwrap()
-    }
-}
-
-impl Default for StackFrame {
-    fn default() -> StackFrame {
-        StackFrame {
-            bytecode_id: ValId {
-                vm_id: 0,
-                obj_id: 0,
-                idx: 0,
-                _marker: std::marker::PhantomData,
-            },
-            instructions: Arc::default(),
-            instruction_idx: 0,
-            stack_start: 0,
-        }
-    }
 }
 
 impl Default for Vm {
@@ -277,12 +240,7 @@ impl Vm {
         self.stack.extend(args);
         self.stack
             .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
-        self.stack_frame = StackFrame {
-            bytecode_id,
-            instructions: bytecode.instructions.clone(),
-            instruction_idx: 0,
-            stack_start: 0,
-        };
+        self.stack_frame = StackFrame::new(bytecode_id, bytecode, 0);
         // Unsafe OK: The environment has just been set up.
         unsafe { self.run_gc() };
         loop {
@@ -295,15 +253,7 @@ impl Vm {
     }
 
     fn annotate_src(&self, error: VmError) -> VmError {
-        let src = || -> Option<SpanWithSource<Arc<str>>> {
-            let instruction_idx = self.stack_frame.instruction_idx.saturating_sub(1);
-            let bytecode_id = self.stack_frame.bytecode_id;
-            let bytecode = self.objects.get_bytecode(bytecode_id)?;
-            let src = bytecode.source.as_ref()?;
-            let span = bytecode.instruction_source.get(instruction_idx)?;
-            Some(span.with_src(src.clone()))
-        };
-        match src() {
+        match self.stack_frame.previous_instruction_source(self) {
             Some(src) => error.with_src(src),
             None => error,
         }
@@ -322,9 +272,7 @@ impl Vm {
         let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
         self.stack_frame.instruction_idx += 1;
         match instruction {
-            Instruction::PushConst(c) => {
-                self.stack.push(*c);
-            }
+            Instruction::PushConst(c) => self.stack.push(*c),
             Instruction::PushCurrentFunction => {
                 let f = UnsafeVal::ByteCodeFunction(self.stack_frame.bytecode_id);
                 self.stack.push(f);
@@ -374,10 +322,7 @@ impl Vm {
             Instruction::Jump(n) => {
                 self.stack_frame.instruction_idx += *n;
             }
-            Instruction::Return => {
-                let res = self.execute_return();
-                return Ok(res);
-            }
+            Instruction::Return => return Ok(self.execute_return()),
         }
         Ok(None)
     }
@@ -432,7 +377,7 @@ impl Vm {
                 Ok(())
             }
             UnsafeVal::ByteCodeFunction(bytecode_id) => {
-                let instructions = {
+                let bytecode = {
                     let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
                     let arg_count = n - 1;
                     if bytecode.arg_count != arg_count {
@@ -445,18 +390,14 @@ impl Vm {
                     if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
                         return Err(self.execute_call_stack_limit_reached());
                     }
-                    self.stack
-                        .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
-                    bytecode.instructions.clone()
+                    bytecode
                 };
-                let new_stack_frame = StackFrame {
-                    bytecode_id,
-                    instructions,
-                    instruction_idx: 0,
-                    stack_start,
-                };
-                let previous_stack_frame =
-                    std::mem::replace(&mut self.stack_frame, new_stack_frame);
+                self.stack
+                    .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
+                let previous_stack_frame = std::mem::replace(
+                    &mut self.stack_frame,
+                    StackFrame::new(bytecode_id, bytecode, stack_start),
+                );
                 self.previous_stack_frames.push(previous_stack_frame);
                 Ok(())
             }
@@ -562,14 +503,17 @@ impl Vm {
 }
 
 impl Vm {
+    /// Get the symbol for the given `s`, or `None` if it does not exist within the VM.
     pub fn get_symbol(&self, s: &str) -> Option<Symbol> {
         self.objects.get_symbol(s)
     }
 
+    /// Get the given symbol within the VM or create it if it does not exist.
     pub fn get_or_create_symbol(&mut self, s: &str) -> Symbol {
         self.objects.get_or_create_symbol(s)
     }
 
+    /// Get the `str` representation for a symbol.
     pub fn symbol_to_str(&self, s: Symbol) -> Option<&str> {
         self.objects.symbol_to_str(s)
     }
