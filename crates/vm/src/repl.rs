@@ -49,35 +49,38 @@ impl Repl {
     /// through `stdout`.
     pub fn eval_next_input(&mut self) -> rustyline::Result<ProtectedVal<'_>> {
         let mut input = String::new();
-        let mut is_ready = false;
-        while !is_ready {
-            let prompt = ">> ";
-            match self.editor.readline(prompt) {
-                Ok(line) => {
-                    input.push_str(line.as_str());
-                    for node_or_err in Node::parse(&input) {
-                        match node_or_err {
-                            Ok(_) => is_ready = true,
-                            Err(crate::parser::ast::AstParseError::UnclosedParen) => {
-                                is_ready = false;
-                                break;
-                            }
-                            Err(err) => {
-                                return rustyline::Result::Err(rustyline::error::ReadlineError::Io(
-                                    std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
-                                ))
-                            }
-                        }
+        fn input_is_ready(input: &str) -> rustyline::Result<bool> {
+            if input.is_empty() {
+                return Ok(false);
+            }
+            for node_or_err in Node::parse(&input) {
+                match node_or_err {
+                    Ok(_) => {}
+                    Err(crate::parser::ast::AstParseError::UnclosedParen) => {
+                        return Ok(false);
+                    }
+                    Err(err) => {
+                        return rustyline::Result::Err(rustyline::error::ReadlineError::Io(
+                            std::io::Error::new(std::io::ErrorKind::InvalidInput, err),
+                        ))
                     }
                 }
+            }
+            Ok(true)
+        }
+        while !input_is_ready(&input)? {
+            let prompt = if input.is_empty() { ">> " } else { ".. " };
+            match self.editor.readline(prompt) {
+                Ok(line) => input.push_str(line.as_str()),
                 Err(err) => return Err(err),
             };
         }
         let res = self
             .vm
             .eval_str(&input)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err))?;
-        println!("{res}");
-        Ok(res)
+            .inspect(|v| println!("{v}"))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidInput, err).into());
+        let _ = self.editor.add_history_entry(input);
+        res
     }
 }

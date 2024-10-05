@@ -2,7 +2,7 @@
 name = "spore-vm"
 description = "Virtual machine for the Spore interpretted language."
 license = "MIT"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 
 [dependencies]
