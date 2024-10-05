@@ -18,6 +18,7 @@ mod compiler;
 pub mod error;
 mod gc;
 pub mod parser;
+pub mod repl;
 mod settings;
 mod stack_frame;
 pub mod val;

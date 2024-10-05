@@ -2,7 +2,7 @@
 name = "spore-vm"
 description = "Virtual machine for the Spore interpretted language."
 license = "MIT"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,7 @@ bumpalo = { version = "3.16", features = ["collections"] }
 compact_str = "0.8"
 ctor = "0.2"
 log = "0.4"
+rustyline = "14.0"
 thiserror = "1.0"
 
 [dev-dependencies]

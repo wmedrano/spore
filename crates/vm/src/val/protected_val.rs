@@ -35,6 +35,13 @@ impl<'a> ProtectedVal<'a> {
     pub fn split(&mut self) -> (&mut Vm, &Val) {
         (self.vm, &self.val)
     }
+
+    /// Run function `f` on the [Vm] and [Val] and return the result. This is a convenient way of
+    /// gaining mutable reference to the underlying vm.
+    pub fn with<T>(&mut self, f: impl Fn(&mut Vm, &Val) -> T) -> T {
+        let (vm, val) = self.split();
+        f(vm, val)
+    }
 }
 
 impl<'a> Drop for ProtectedVal<'a> {
@@ -92,6 +99,6 @@ impl<'a> ProtectedVal<'a> {
 
 impl<'a> std::fmt::Display for ProtectedVal<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.val.formatted(self.vm).fmt(f)
+        self.val.format_quoted(self.vm).fmt(f)
     }
 }

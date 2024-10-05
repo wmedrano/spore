@@ -71,7 +71,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let src = self.src.as_ref();
-        let s = &src[self.span.start as usize..self.span.end as usize];
+        let s = &src[self.span.start as usize..(self.span.end as usize).clamp(0, src.len())];
         write!(f, "{s}")
     }
 }
