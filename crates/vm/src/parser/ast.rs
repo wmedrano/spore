@@ -197,7 +197,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn whitespace_produces_no_nodes() {
+    fn whitespace_returns_no_nodes() {
         let src = " \t\n ";
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![]);
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn backslash_with_n_produces_newline() {
+    fn backslash_with_n_returns_newline() {
         let src = r#""\nn\n""#;
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn backslash_with_t_produces_tab() {
+    fn backslash_with_t_returns_tab() {
         let src = "\"\\tt\\t\"";
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![Node::String(Span::new(0, 7))]);
@@ -279,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn backslash_with_backslash_produces_backslash() {
+    fn backslash_with_backslash_returns_backslash() {
         let src = r#""\\""#;
         let actual = Node::parse_to_vec(src).unwrap();
         assert_eq!(actual, vec![Node::String(Span::new(0, 4))]);
@@ -287,21 +287,21 @@ mod tests {
     }
 
     #[test]
-    fn unclosed_paren_produces_error() {
+    fn unclosed_paren_returns_error() {
         let src = "(not closed";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
         assert_eq!(actual_err, AstParseError::UnclosedParen);
     }
 
     #[test]
-    fn unexpected_close_paren_produces_error() {
+    fn unexpected_close_paren_returns_error() {
         let src = "not closed)";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
         assert_eq!(actual_err, AstParseError::UnexpectedCloseParen);
     }
 
     #[test]
-    fn unterminated_string_produces_error() {
+    fn unterminated_string_returns_error() {
         let src = "\"start of string but no end";
         let actual_err = Node::parse_to_vec(src).unwrap_err();
         assert_eq!(actual_err, AstParseError::UnclosedString(Span::new(0, 27)));

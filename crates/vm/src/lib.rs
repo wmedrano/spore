@@ -668,7 +668,7 @@ mod tests {
     }
 
     #[test]
-    fn function_called_with_wrong_number_of_args_produces_error() {
+    fn function_called_with_wrong_number_of_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("((lambda () 10) 1)").unwrap_err(),
@@ -728,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_function_that_does_not_exist_produces_error() {
+    fn eval_function_that_does_not_exist_returns_error() {
         let mut vm = Vm::default();
         vm.eval_str("(define (foo) 1)").unwrap();
         assert_eq!(
@@ -742,7 +742,7 @@ mod tests {
     }
 
     #[test]
-    fn eval_function_that_is_not_function_produces_error() {
+    fn eval_function_that_is_not_function_returns_error() {
         let mut vm = Vm::default();
         vm.eval_str("(define foo 100)").unwrap();
         assert_eq!(
@@ -792,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn aggressive_inline_produces_same_results_when_there_are_no_redefinitions() {
+    fn aggressive_inline_returns_same_results_when_there_are_no_redefinitions() {
         let mut aggressive_inline_vm = Vm::new(Settings {
             enable_aggressive_inline: true,
             enable_source_maps: false,

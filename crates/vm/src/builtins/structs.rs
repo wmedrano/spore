@@ -104,7 +104,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn struct_with_no_args_produces_empty_struct() {
+    fn struct_with_no_args_returns_empty_struct() {
         let mut vm = Vm::default();
         assert!(vm
             .eval_str("(= (struct) (struct))")

@@ -37,9 +37,10 @@ enum CompilerContext {
 
 #[derive(Copy, Clone, PartialEq)]
 enum CompileManyBehavior {
-    /// Keep all expressions on the stack. Requires one less instruction.
+    /// Keep all expressions on the stack. Requires one less instruction than [KeepSingleReturn].
     KeepAll,
-    /// Only keep the last expression on the stack. All other expressions are discarded.
+    /// Only keep the last expression on the stack. All other expressions are discarded. If the
+    /// expressions add nothing to the stack, then `void` is added to the top.
     KeepSingleReturn,
 }
 
@@ -430,7 +431,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn literal_value_produces_single_push_const() {
+    fn literal_value_returns_single_push_const() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "true", &Bump::new()).unwrap(),
@@ -757,14 +758,14 @@ mod tests {
     }
 
     #[test]
-    fn define_in_function_args_produces_error() {
+    fn define_in_function_args_returns_error() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(+ 1 (define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(actual, CompileError::DefineNotAllowed);
     }
 
     #[test]
-    fn define_in_function_call_produces_error() {
+    fn define_in_function_call_returns_error() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "((define x 12))", &Bump::new()).unwrap_err();
         assert_eq!(actual, CompileError::DefineNotAllowed);
@@ -809,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn define_with_list_identifier_produces_lambda() {
+    fn define_with_list_identifier_returns_lambda() {
         let mut vm = Vm::default();
         let src = "(define (foo a b) (+ a b))";
         let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
@@ -889,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn define_in_define_expr_produces_error() {
+    fn define_in_define_expr_returns_error() {
         let mut vm = Vm::default();
         let actual =
             Compiler::compile(&mut vm, "(define y (define x 12))", &Bump::new()).unwrap_err();
@@ -901,7 +902,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn if_expression_produces_branching_instructions() {
+    fn if_expression_returns_branching_instructions() {
         let mut vm = Vm::default();
         let src = "(if (< 1 2) (+ 3 4 5) (+ 6 7 8 9))";
         assert_eq!(
@@ -1036,7 +1037,7 @@ mod tests {
     }
 
     #[test]
-    fn early_return_on_predicate_produces_error() {
+    fn early_return_on_predicate_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(if (return 10) 1 2)", &Bump::new()).unwrap_err(),
@@ -1047,7 +1048,7 @@ mod tests {
     }
 
     #[test]
-    fn if_expression_with_non_expression_produces_error() {
+    fn if_expression_with_non_expression_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(if (define x 1) 1 2)", &Bump::new()).unwrap_err(),
@@ -1064,7 +1065,7 @@ mod tests {
     }
 
     #[test]
-    fn if_with_wrong_number_of_args_produces_arity_error() {
+    fn if_with_wrong_number_of_args_returns_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(if)", &Bump::new()).unwrap_err(),
@@ -1089,7 +1090,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn lambda_produces_lambda_expr() {
+    fn lambda_returns_lambda_expr() {
         let mut vm = Vm::default();
         let src = "(lambda () 1)";
         let actual = Compiler::compile(&mut vm, src, &Bump::new()).unwrap();
@@ -1212,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn lambda_with_same_arg_defined_multiple_times_produces_error() {
+    fn lambda_with_same_arg_defined_multiple_times_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(lambda (arg0 arg0) 0)", &Bump::new()).unwrap_err(),
@@ -1237,7 +1238,7 @@ mod tests {
     }
 
     #[test]
-    fn lambda_with_no_expr_produces_error() {
+    fn lambda_with_no_expr_returns_error() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda ())", &Bump::new()).unwrap_err();
         assert_eq!(
@@ -1249,7 +1250,7 @@ mod tests {
     }
 
     #[test]
-    fn lambda_with_define_statement_produces_error() {
+    fn lambda_with_define_statement_returns_error() {
         let mut vm = Vm::default();
         let actual =
             Compiler::compile(&mut vm, "(lambda () (define x 12))", &Bump::new()).unwrap_err();
@@ -1257,7 +1258,7 @@ mod tests {
     }
 
     #[test]
-    fn lambda_with_invalid_expression_produces_error() {
+    fn lambda_with_invalid_expression_returns_error() {
         let mut vm = Vm::default();
         let actual = Compiler::compile(&mut vm, "(lambda () (+ ()))", &Bump::new()).unwrap_err();
         assert_eq!(actual, CompileError::EmptyExpression);
@@ -1268,7 +1269,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn or_produces_jumps_to_end_on_first_true() {
+    fn or_returns_jumps_to_end_on_first_true() {
         let mut vm = Vm::default();
         let src = "(or false 1 2)";
         assert_eq!(
@@ -1319,7 +1320,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn and_produces_jumps_to_end_on_first_false() {
+    fn and_returns_jumps_to_end_on_first_false() {
         let mut vm = Vm::default();
         let src = "(and false 1 2)";
         assert_eq!(
@@ -1378,7 +1379,7 @@ mod tests {
     ////////////////////////////////////////////////////////////////////////////////
 
     #[test]
-    fn return_produces_return_instruction() {
+    fn return_returns_return_instruction() {
         let mut vm = Vm::default();
         let src = "(return (if true 1 2))";
         assert_eq!(
@@ -1411,7 +1412,7 @@ mod tests {
     }
 
     #[test]
-    fn return_with_non_expression_produces_error() {
+    fn return_with_non_expression_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(return (define x 0))", &Bump::new()).unwrap_err(),
@@ -1420,7 +1421,7 @@ mod tests {
     }
 
     #[test]
-    fn return_with_no_expr_produces_error() {
+    fn return_with_no_expr_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(return)", &Bump::new()).unwrap_err(),
@@ -1433,7 +1434,7 @@ mod tests {
     }
 
     #[test]
-    fn return_with_too_many_exprs_produces_error() {
+    fn return_with_too_many_exprs_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             Compiler::compile(&mut vm, "(return 0 1 2)", &Bump::new()).unwrap_err(),

@@ -146,13 +146,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_str_produces_empty_stream() {
+    fn empty_str_returns_empty_stream() {
         let actual = Token::parse_tokens_to_vec("");
         assert_eq!(actual, Vec::new());
     }
 
     #[test]
-    fn whitespace_only_produces_empty_stream() {
+    fn whitespace_only_returns_empty_stream() {
         let actual = Token::parse_tokens_to_vec(" \n\t");
         assert_eq!(actual, Vec::new());
     }

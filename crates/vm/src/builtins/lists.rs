@@ -34,7 +34,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn list_length_with_wrong_args_produces_error() {
+    fn list_length_with_wrong_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(list-length)").unwrap_err(),

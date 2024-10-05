@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn add_ints_produces_int() {
+    fn add_ints_returns_int() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1 2 3)").unwrap();
         assert_eq!(got.try_int().unwrap(), 6);
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn add_floats_produces_floats() {
+    fn add_floats_returns_floats() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1.0 2.0 3.0)").unwrap();
         assert_eq!(got.try_float().unwrap(), 6.0);
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn add_ints_and_floats_produces_floats() {
+    fn add_ints_and_floats_returns_floats() {
         let mut vm = Vm::default();
         let got = vm.eval_str("(+ 1 2.0 3)").unwrap();
         assert_eq!(got.try_float().unwrap(), 6.0);
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn subtract_with_no_args_produces_error() {
+    fn subtract_with_no_args_returns_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(-)").unwrap_err(),
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn subtract_with_wrong_args_produces_error() {
+    fn subtract_with_wrong_args_returns_error() {
         let mut vm = Vm::default();
         let src = "(- \"string\")";
         assert_eq!(

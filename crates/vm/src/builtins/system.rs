@@ -81,7 +81,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn working_directory_with_args_produces_arity_error() {
+    fn working_directory_with_args_returns_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(working-directory 1)").unwrap_err(),
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    fn working_directory_produces_working_directory_path() {
+    fn working_directory_returns_working_directory_path() {
         let mut vm = Vm::default();
         let working_directory = std::env::current_dir()
             .unwrap()

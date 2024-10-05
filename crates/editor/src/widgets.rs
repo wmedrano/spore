@@ -91,7 +91,7 @@ impl<'a> BufferWidget<'a> {
         let b = Block::default()
             .title(self.buffer.name.as_str())
             .border_style(Style::default().fg(Color::White))
-            .border_type(BorderType::Rounded)
+            .border_type(BorderType::Thick)
             .borders(Borders::ALL);
         let inner_area = b.inner(area);
         b.render(area, buf);

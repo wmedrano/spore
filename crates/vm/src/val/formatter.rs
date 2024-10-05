@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn format_string_produces_string() {
+    fn format_string_returns_string() {
         let mut vm = Vm::default();
         let string_id = vm.objects.insert_string("my string".into());
         assert_eq!(
@@ -159,7 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn format_struct_produces_all_key_values() {
+    fn format_struct_returns_all_key_values() {
         let mut vm = Vm::default();
         vm.eval_str("(define x (struct 'field-1 1 'field-2 \"2\"))")
             .unwrap();
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn format_mutable_box_produces_underlying_value() {
+    fn format_mutable_box_returns_underlying_value() {
         let mut vm = Vm::default();
         vm.eval_str("(define x (new-box \"string\"))").unwrap();
         let res = vm.eval_str("x").unwrap();

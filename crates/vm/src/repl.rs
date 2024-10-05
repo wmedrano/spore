@@ -53,7 +53,7 @@ impl Repl {
             if input.is_empty() {
                 return Ok(false);
             }
-            for node_or_err in Node::parse(&input) {
+            for node_or_err in Node::parse(input) {
                 match node_or_err {
                     Ok(_) => {}
                     Err(crate::parser::ast::AstParseError::UnclosedParen) => {

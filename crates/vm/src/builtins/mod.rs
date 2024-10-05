@@ -19,6 +19,7 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("-", numbers::subtract),
     ("<", numbers::less),
     ("string-length", strings::string_length),
+    ("string-split", strings::string_split),
     ("string-join", strings::string_join),
     ("list", lists::list),
     ("list-length", lists::list_length),
@@ -155,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn equal_with_wrong_number_of_args_produces_arity_error() {
+    fn equal_with_wrong_number_of_args_returns_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(=)").unwrap_err(),
@@ -274,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn not_with_wrong_not_just_one_arg_produces_arity_error() {
+    fn not_with_wrong_not_just_one_arg_returns_arity_error() {
         let mut vm = Vm::default();
         assert_eq!(
             vm.eval_str("(not)").unwrap_err(),
