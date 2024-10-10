@@ -6,6 +6,54 @@ use crate::{
     Vm,
 };
 
+#[derive(Debug)]
+pub struct StackFrameManager {
+    pub current: StackFrame,
+    pub previous: Vec<StackFrame>,
+}
+
+impl StackFrameManager {
+    pub fn reset(&mut self) {
+        self.reset_with_stack_frame(StackFrame::default());
+    }
+
+    pub fn reset_with_stack_frame(&mut self, stack_frame: StackFrame) {
+        self.current = stack_frame;
+        self.previous.clear();
+    }
+
+    pub fn at_capacity(&self) -> bool {
+        self.previous.len() == self.previous.capacity()
+    }
+
+    pub fn push(&mut self, stack_frame: StackFrame) {
+        self.previous
+            .push(std::mem::replace(&mut self.current, stack_frame));
+    }
+
+    pub fn pop(&mut self) {
+        self.current = self.previous.pop().unwrap();
+    }
+
+    pub fn iter(&self) -> impl '_ + Iterator<Item = &StackFrame> {
+        self.previous.iter().chain(std::iter::once(&self.current))
+    }
+
+    pub fn stack_trace_depth(&self) -> usize {
+        self.previous.len() + 1
+    }
+}
+
+impl Default for StackFrameManager {
+    fn default() -> StackFrameManager {
+        StackFrameManager {
+            current: StackFrame::default(),
+            // Allocate for a function call depth of 64. This is more than enough for most programs.
+            previous: Vec::with_capacity(64),
+        }
+    }
+}
+
 /// Used to decide the next instruction to take.
 #[derive(Clone, Debug)]
 pub struct StackFrame {
@@ -31,6 +79,11 @@ impl StackFrame {
             instruction_idx: 0,
             stack_start,
         }
+    }
+
+    /// Returns `true` if `self` holds a valid function call.
+    pub fn has_valid_function_call(&self) -> bool {
+        self.bytecode_id.vm_id != 0
     }
 
     /// Get the underlying bytecode object.

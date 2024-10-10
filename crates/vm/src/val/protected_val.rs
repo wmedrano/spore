@@ -13,10 +13,17 @@ use super::{
 /// Holds a value from the [Vm] that is guaranteed to not be garbage collected.
 ///
 /// The underlying value is protected from garbage collection until `ProtectedVal` is dropped.
-#[derive(Debug)]
 pub struct ProtectedVal<'a> {
     pub(crate) vm: &'a mut Vm,
     pub(crate) val: Val<'a>,
+}
+
+impl<'a> std::fmt::Debug for ProtectedVal<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProtectedVal")
+            .field("val", &self.val.inner)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> ProtectedVal<'a> {

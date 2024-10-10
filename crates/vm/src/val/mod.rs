@@ -29,10 +29,16 @@ pub type ListVal = Vec<UnsafeVal>;
 
 /// Contains a [Val] from the [Vm].
 #[repr(transparent)]
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Default)]
 pub struct Val<'a> {
     inner: UnsafeVal,
     _lifetime: PhantomData<&'a ()>,
+}
+
+impl<'a> std::fmt::Debug for Val<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Val").field(&self.inner).finish()
+    }
 }
 
 impl Val<'static> {
@@ -246,10 +252,7 @@ impl<'a> Val<'a> {
     }
 
     /// Return the underlying [UnsafeVal] representation.
-    ///
-    /// # Safety
-    /// This is unsafe as it removes the lifetime offered by [Val].
-    pub unsafe fn as_unsafe_val(self) -> UnsafeVal {
+    pub fn as_unsafe_val(self) -> UnsafeVal {
         self.inner
     }
 
@@ -279,16 +282,13 @@ impl<'a> Val<'a> {
     }
 
     /// Convert a slice of [Val] to a slice of [UnsafeVal].
-    ///
-    /// # Safety
-    /// This is unsafe as the caller must be certain that [Val] will not be garbage collected.
-    pub unsafe fn as_unsafe_val_slice<'b>(slice: &'b [Val<'a>]) -> &'b [UnsafeVal] {
+    pub fn as_unsafe_val_slice<'b>(slice: &'b [Val<'a>]) -> &'b [UnsafeVal] {
         // This is always true as Val is repr(transparent) with an [UnsafeVal] under the hood.
         debug_assert_eq!(
             std::mem::size_of::<UnsafeVal>(),
             std::mem::size_of::<Val<'a>>()
         );
-        std::mem::transmute(slice)
+        unsafe { std::mem::transmute(slice) }
     }
 }
 

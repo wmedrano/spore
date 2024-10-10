@@ -69,7 +69,7 @@ pub fn equal<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResult<ValBu
         [a, b] => {
             // Unsafe OK: [equal_imp] holds the a reference to the VM so it can't run garbage
             // collection.
-            let (a, b) = unsafe { (a.as_unsafe_val(), b.as_unsafe_val()) };
+            let (a, b) = (a.as_unsafe_val(), b.as_unsafe_val());
             Ok(Val::new_bool(equal_impl(ctx.vm(), a, b)).into())
         }
         _ => Err(VmError::ArityError {
@@ -127,7 +127,6 @@ pub fn equal_impl(vm: &Vm, a: UnsafeVal, b: UnsafeVal) -> bool {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]

@@ -20,7 +20,7 @@ pub fn new_box<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<Val
 
 pub fn set_box<'a>(mut ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     // TODO: Use safe API.
-    match unsafe { Val::as_unsafe_val_slice(args) } {
+    match Val::as_unsafe_val_slice(args) {
         // Unsafe OK: This is for sure safe...
         [UnsafeVal::MutableBox(id), inner_val] => {
             let (id, inner_val) = (*id, *inner_val);
@@ -46,7 +46,7 @@ pub fn set_box<'a>(mut ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
 
 pub fn unbox<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
     // TODO: Use safe API.
-    match unsafe { Val::as_unsafe_val_slice(args) } {
+    match Val::as_unsafe_val_slice(args) {
         [UnsafeVal::MutableBox(id)] => {
             let boxed_val = *ctx.vm().objects.get_mutable_box(*id);
             // Unsafe OK: `boxed_val` has just been retrieved so the VM does not have a chance to

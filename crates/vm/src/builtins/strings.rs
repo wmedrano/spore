@@ -33,7 +33,7 @@ fn string_split_impl<'a, 'b>(
     let vm: *mut Vm = unsafe { ctx.vm_mut() };
     let ret: Vec<UnsafeVal> = strs
         .map(|l| (unsafe { &mut *vm }).objects.insert_string(l.into()))
-        .map(|id| UnsafeVal::String(id))
+        .map(UnsafeVal::String)
         .collect();
     let list = UnsafeVal::List(unsafe { ctx.vm_mut().objects.insert_list(ret) });
     unsafe { ctx.with_unsafe_val(list) }
@@ -234,7 +234,7 @@ mod tests {
     fn string_split_with_custom_separator_splits_by_separator() {
         let mut vm = Vm::default();
         assert_eq!(
-            vm.eval_str("(string-split \"one, two, three\", \", \")")
+            vm.eval_str("(string-split \"one, two, three\" \", \")")
                 .unwrap()
                 .to_string(),
             "(\"one\" \"two\" \"three\")"

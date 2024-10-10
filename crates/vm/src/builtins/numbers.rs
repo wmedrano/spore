@@ -28,7 +28,7 @@ fn add_impl<'a>(
     for arg in args {
         // Unsafe OK: Using field values right away without any garbage collection.
         // TODO: Consider getting the number through [Val] directly.
-        match unsafe { arg.as_unsafe_val() } {
+        match arg.as_unsafe_val() {
             UnsafeVal::Int(x) => int_sum += x,
             UnsafeVal::Float(x) => {
                 float_sum += x;
@@ -57,7 +57,7 @@ pub fn add<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<Val
 }
 
 fn negate(vm: &Vm, context: &'static str, v: Val) -> VmResult<Number> {
-    match unsafe { v.as_unsafe_val() } {
+    match v.as_unsafe_val() {
         UnsafeVal::Int(x) => Ok(Number::Int(-x)),
         UnsafeVal::Float(x) => Ok(Number::Float(-x)),
         _ => Err(VmError::TypeError {
@@ -90,7 +90,7 @@ pub fn subtract<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBui
 
 fn less_two_impl(vm: &Vm, a: Val, b: Val) -> VmResult<bool> {
     // Unsafe OK: Only gets basic types like int and float.
-    let (a, b) = unsafe { (a.as_unsafe_val(), b.as_unsafe_val()) };
+    let (a, b) = (a.as_unsafe_val(), b.as_unsafe_val());
     match (a, b) {
         (UnsafeVal::Int(a), UnsafeVal::Int(b)) => Ok(a < b),
         (UnsafeVal::Float(a), UnsafeVal::Float(b)) => Ok(a < b),

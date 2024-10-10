@@ -1,13 +1,14 @@
 use std::{collections::HashMap, sync::atomic::AtomicU16};
 
 use bumpalo::Bump;
+use compact_str::CompactString;
 use gc::{is_garbage_collected, MemoryManager};
 use log::*;
 
 use compiler::Compiler;
 use error::{BacktraceError, VmError, VmResult};
 pub use settings::Settings;
-use stack_frame::StackFrame;
+use stack_frame::{StackFrame, StackFrameManager};
 use val::{
     custom::CustomVal, ByteCode, CustomType, Instruction, NativeFunction, NativeFunctionContext,
     ProtectedVal, Symbol, UnsafeVal, Val, ValId,
@@ -49,9 +50,7 @@ pub struct Vm {
     /// Map from binding name to value. This is used to store global values.
     values: HashMap<Symbol, UnsafeVal>,
     /// The current stack frame. This contains what should be evaluated next and some extra context.
-    stack_frame: StackFrame,
-    /// The pending stack frames.
-    previous_stack_frames: Vec<StackFrame>,
+    stack_frames: StackFrameManager,
     /// Manages lifetime of all values, aside from simple atoms like bool/int/float.
     pub(crate) objects: MemoryManager,
     /// Contains bytecode compilation settings,
@@ -75,15 +74,16 @@ impl Vm {
     /// Create a new virtual machine.
     pub fn new(settings: Settings) -> Vm {
         let start_t = std::time::Instant::now();
-        let vm_id = VM_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut vm_id = 0;
+        while vm_id == 0 {
+            vm_id = VM_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let mut vm = Vm {
             // TODO: Determine optimal size for stack. Small values may perform, better, but
             // exceeding the capacity may cause performance degregations.
             stack: Vec::with_capacity(4096),
             values: HashMap::new(),
-            // Allocate for a function call depth of 64. This is more than enough for most programs.
-            previous_stack_frames: Vec::with_capacity(64),
-            stack_frame: StackFrame::default(),
+            stack_frames: StackFrameManager::default(),
             objects: MemoryManager::new(vm_id),
             settings,
             tmp_arena: Some(Bump::new()),
@@ -172,15 +172,27 @@ impl Vm {
     /// let x = vm.eval_str("(+ 20 22)").unwrap().try_int().unwrap();
     /// ```
     pub fn eval_str(&mut self, source: &str) -> VmResult<ProtectedVal> {
-        let mut arena = self.tmp_arena.take().unwrap_or_else(|| {
-            warn!("Arena was unexpectedly unavailable. Please file an issue at {ISSUE_LINK} with proper context.");
-            Bump::new()
-        });
-        let bytecode = Compiler::compile(self, source, &arena)?;
-        arena.reset();
-        self.tmp_arena = Some(arena);
+        let bytecode = {
+            let mut arena = self.tmp_arena.take().unwrap_or_else(|| {
+                warn!("Arena was unexpectedly unavailable. Please file an issue at {ISSUE_LINK} with proper context.");
+                Bump::new()
+            });
+            arena.reset();
+            let bytecode = Compiler::compile(self, source, &arena)?;
+            self.tmp_arena = Some(arena);
+            bytecode
+        };
+
         let bytecode_id = self.objects.insert_bytecode(bytecode);
-        self.eval_bytecode(bytecode_id, std::iter::empty())
+        let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
+
+        self.stack.clear();
+        self.stack
+            .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
+        self.stack_frames
+            .reset_with_stack_frame(StackFrame::new(bytecode_id, bytecode, 0));
+        unsafe { self.run_gc() };
+        self.run_all_protected()
     }
 
     /// Call a function with the given name.
@@ -200,64 +212,51 @@ impl Vm {
         name: &str,
         args: impl ExactSizeIterator<Item = Val<'static>>,
     ) -> VmResult<ProtectedVal> {
-        let interned_name = self.get_or_create_symbol(name);
-        let function_val =
-            *self
-                .values
-                .get(&interned_name)
-                .ok_or_else(|| VmError::SymbolNotDefined {
-                    src: None,
-                    symbol: name.to_string(),
-                })?;
-        let bytecode_id = match function_val {
-            UnsafeVal::ByteCodeFunction(bc) => bc,
-            UnsafeVal::NativeFunction(f) => self
-                .objects
-                .insert_bytecode(ByteCode::new_native_function_call(name, f, args.len())),
-            v => {
-                return Err(VmError::TypeError {
-                    src: None,
-                    context: "eval-function-by-name",
-                    expected: UnsafeVal::FUNCTION_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.formatted(self).to_string(),
-                })
-            }
+        let symbol_not_defined_err = || VmError::SymbolNotDefined {
+            src: None,
+            symbol: name.to_string(),
         };
-        // Unsafe Ack: These values should be inserted into VM stack ASAP.
-        let args = args.map(|arg| unsafe { arg.as_unsafe_val() });
-        self.eval_bytecode(bytecode_id, args)
-    }
-
-    /// Evaluate some bytecode in the virtual machine.
-    fn eval_bytecode(
-        &mut self,
-        bytecode_id: ValId<ByteCode>,
-        args: impl Iterator<Item = UnsafeVal>,
-    ) -> VmResult<ProtectedVal> {
-        let bytecode = self.objects.get_bytecode(bytecode_id).unwrap();
-        self.previous_stack_frames.clear();
+        let interned_name = self.get_symbol(name).ok_or_else(symbol_not_defined_err)?;
+        let function_val = self
+            .values
+            .get(&interned_name)
+            .copied()
+            .ok_or_else(symbol_not_defined_err)?;
+        self.stack_frames.reset();
         self.stack.clear();
-        self.stack.extend(args);
-        self.stack
-            .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
-        self.stack_frame = StackFrame::new(bytecode_id, bytecode, 0);
-        // Unsafe OK: The environment has just been set up.
+        self.stack.push(function_val);
+        self.stack.extend(args.map(|arg| arg.as_unsafe_val()));
         unsafe { self.run_gc() };
-        loop {
-            if let Some(v) = self.run_next().map_err(|err| self.annotate_src(err))? {
-                // Unsafe OK: This is a new valid val and we are adding GC protection to it.
-                let v = unsafe { Val::from_unsafe_val(v) };
-                return Ok(ProtectedVal::new(self, v));
-            }
-        }
+        let stack_len = self.stack.len();
+        self.execute_eval(stack_len)?;
+        self.run_all_protected()
     }
 
     fn annotate_src(&self, error: VmError) -> VmError {
-        match self.stack_frame.previous_instruction_source(self) {
-            Some(src) => error.with_src(src),
-            None => error,
+        for stack_frame in self.stack_frames.iter() {
+            if let Some(src) = stack_frame.previous_instruction_source(self) {
+                return error.with_src(src);
+            }
         }
+        error
+    }
+
+    /// Runs the virtual machine until either:
+    ///   1. Completion, there is nothing left to run.
+    ///   2. An error has occurred.
+    ///   3. An FFI stack frame has been reached.
+    pub(crate) fn run_all(&mut self) -> VmResult<UnsafeVal> {
+        loop {
+            if let Some(v) = self.run_next().map_err(|err| self.annotate_src(err))? {
+                return Ok(v);
+            }
+        }
+    }
+
+    /// Similar to [Self::run_all] but the returned value is protected from garbage collection.
+    pub(crate) fn run_all_protected(&mut self) -> VmResult<ProtectedVal> {
+        let v = self.run_all()?;
+        Ok(ProtectedVal::new(self, unsafe { Val::from_unsafe_val(v) }))
     }
 
     /// Run the next instruction in the virtual machine.
@@ -265,17 +264,17 @@ impl Vm {
     /// If there are no more instructions to run, then `Some(return_value)` will be
     /// returned. Otherwise, `None` will be returned.
     fn run_next(&mut self) -> VmResult<Option<UnsafeVal>> {
-        let maybe_instruction = self
-            .stack_frame
+        let instruction = self
+            .stack_frames
+            .current
             .instructions
-            .as_ref()
-            .get(self.stack_frame.instruction_idx);
-        let instruction = maybe_instruction.unwrap_or(&Instruction::Return);
-        self.stack_frame.instruction_idx += 1;
+            .get(self.stack_frames.current.instruction_idx)
+            .unwrap_or(&Instruction::Return);
+        self.stack_frames.current.instruction_idx += 1;
         match instruction {
             Instruction::PushConst(c) => self.stack.push(*c),
             Instruction::PushCurrentFunction => {
-                let f = UnsafeVal::ByteCodeFunction(self.stack_frame.bytecode_id);
+                let f = UnsafeVal::ByteCodeFunction(self.stack_frames.current.bytecode_id);
                 self.stack.push(f);
             }
             Instruction::Pop(n) => {
@@ -283,12 +282,12 @@ impl Vm {
                 self.stack.drain(start..);
             }
             Instruction::GetArg(n) => {
-                let val = self.stack[self.stack_frame.stack_start + *n];
+                let val = self.stack[self.stack_frames.current.stack_start + *n];
                 self.stack.push(val);
             }
             Instruction::BindArg(n) => {
                 let val = self.stack.pop().unwrap();
-                self.stack[self.stack_frame.stack_start + *n] = val;
+                self.stack[self.stack_frames.current.stack_start + *n] = val;
             }
             Instruction::Deref(symbol) => {
                 let v = match self.values.get(symbol) {
@@ -317,11 +316,11 @@ impl Vm {
             }
             Instruction::JumpIf(n) => {
                 if self.stack.pop().unwrap().is_truthy() {
-                    self.stack_frame.instruction_idx += *n;
+                    self.stack_frames.current.instruction_idx += *n;
                 }
             }
             Instruction::Jump(n) => {
-                self.stack_frame.instruction_idx += *n;
+                self.stack_frames.current.instruction_idx += *n;
             }
             Instruction::Return => return Ok(self.execute_return()),
         }
@@ -330,6 +329,11 @@ impl Vm {
 
     fn execute_eval_native(&mut self, func: NativeFunction, arg_count: usize) -> VmResult<()> {
         let stack_start = self.stack.len() - arg_count;
+        self.stack_frames.push(StackFrame::new(
+            Default::default(),
+            &Default::default(),
+            stack_start,
+        ));
         let args = unsafe {
             let slice = std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), arg_count);
             Val::from_unsafe_val_slice(slice)
@@ -346,6 +350,7 @@ impl Vm {
                 self.stack[stack_start] = v;
             }
         };
+        self.stack_frames.pop();
         Ok(())
     }
 
@@ -370,11 +375,17 @@ impl Vm {
                         std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), n - 1);
                     Val::from_unsafe_val_slice(slice)
                 };
+                self.stack_frames.push(StackFrame::new(
+                    Default::default(),
+                    &Default::default(),
+                    stack_start,
+                ));
                 let builder = func(NativeFunctionContext::new(self), args)?;
                 // Unsafe OK: Value is inserted into VM immediately.
                 let v = unsafe { builder.build() };
                 self.stack[function_idx] = v;
                 self.stack.truncate(stack_start);
+                self.stack_frames.pop();
                 Ok(())
             }
             UnsafeVal::ByteCodeFunction(bytecode_id) => {
@@ -388,18 +399,15 @@ impl Vm {
                             actual: arg_count,
                         });
                     }
-                    if self.previous_stack_frames.capacity() == self.previous_stack_frames.len() {
+                    if self.stack_frames.at_capacity() {
                         return Err(self.execute_call_stack_limit_reached());
                     }
                     bytecode
                 };
                 self.stack
                     .extend(std::iter::repeat(UnsafeVal::Void).take(bytecode.local_bindings));
-                let previous_stack_frame = std::mem::replace(
-                    &mut self.stack_frame,
-                    StackFrame::new(bytecode_id, bytecode, stack_start),
-                );
-                self.previous_stack_frames.push(previous_stack_frame);
+                self.stack_frames
+                    .push(StackFrame::new(bytecode_id, bytecode, stack_start));
                 Ok(())
             }
             _ => Err(VmError::TypeError {
@@ -412,46 +420,59 @@ impl Vm {
         }
     }
 
+    pub fn stack_trace(&self) -> Vec<CompactString> {
+        let depth = self.stack_frames.stack_trace_depth();
+        let mut call_stack = Vec::with_capacity(depth);
+        for stack_frame in self.stack_frames.iter() {
+            if stack_frame.has_valid_function_call() {
+                call_stack.push(stack_frame.bytecode(self).name.clone());
+            } else {
+                call_stack.push("native-call".into());
+            }
+        }
+        call_stack
+    }
+
     fn execute_call_stack_limit_reached(&mut self) -> VmError {
-        let mut call_stack = Vec::with_capacity(1 + self.previous_stack_frames.len());
-        call_stack.push(self.stack_frame.bytecode(self).name.clone());
-        call_stack.extend(
-            self.previous_stack_frames
-                .iter()
-                .rev()
-                .map(|sf| sf.bytecode(self).name.clone()),
-        );
+        let call_stack = self.stack_trace();
+        let max_depth = call_stack.len();
         VmError::MaximumFunctionCallDepth {
             call_stack,
-            max_depth: self.previous_stack_frames.len(),
+            max_depth,
         }
     }
 
     /// Execute returning from the current stack frame.
     fn execute_return(&mut self) -> Option<UnsafeVal> {
         // 1. Return the current value to the top of the stack.
-        let ret_val: UnsafeVal = if self.stack_frame.stack_start < self.stack.len() {
+        let ret_val: UnsafeVal = if self.stack_frames.current.stack_start < self.stack.len() {
             // Unwrap OK: The above statement is never true when len == 0.
             self.stack.pop().unwrap()
         } else {
             ().into()
         };
         // 2. Set up the next continuation.
-        match self.previous_stack_frames.pop() {
+        match self.stack_frames.previous.pop() {
             // 2a. Pop the stack frame and replace the top value in the stack with the return value.
-            Some(c) => {
-                self.stack.truncate(self.stack_frame.stack_start);
+            Some(c) if c.has_valid_function_call() => {
+                self.stack.truncate(self.stack_frames.current.stack_start);
                 match self.stack.last_mut() {
                     Some(v) => *v = ret_val,
                     None => unreachable!(),
                 }
-                self.stack_frame = c;
+                self.stack_frames.current = c;
                 None
             }
-            // 2b. There is nothing to continue to so return the value.
+            // 2b. The previous frame is an ffi boundary. Return the value back to the ffi layer.
+            Some(c) => {
+                self.stack.truncate(self.stack_frames.current.stack_start);
+                self.stack_frames.current = c;
+                Some(ret_val)
+            }
+            // 2c. There is nothing to continue to so return the value.
             None => {
-                std::mem::take(&mut self.stack_frame);
-                self.stack.clear();
+                self.stack.truncate(0);
+                std::mem::take(&mut self.stack_frames.current);
                 Some(ret_val)
             }
         }
@@ -474,15 +495,10 @@ impl Vm {
         });
         {
             let mut bytecodes: BumpVec<(ValId<_>, ByteCode)> = BumpVec::new_in(&arena);
-            bytecodes.push((
-                self.stack_frame.bytecode_id,
-                self.stack_frame.bytecode(self).clone(),
-            ));
-            for previous_frame in self.previous_stack_frames.iter() {
-                bytecodes.push((
-                    previous_frame.bytecode_id,
-                    previous_frame.bytecode(self).clone(),
-                ));
+            for stack_frame in self.stack_frames.iter() {
+                if stack_frame.has_valid_function_call() {
+                    bytecodes.push((stack_frame.bytecode_id, stack_frame.bytecode(self).clone()));
+                }
             }
             let vals = self
                 .stack
@@ -750,7 +766,7 @@ mod tests {
                 .unwrap_err(),
             VmError::TypeError {
                 src: None,
-                context: "eval-function-by-name",
+                context: "function invocation",
                 expected: UnsafeVal::FUNCTION_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
                 value: "100".into(),
@@ -781,10 +797,9 @@ mod tests {
         assert_eq!(
             vm.eval_str("(recurse)").unwrap_err(),
             VmError::MaximumFunctionCallDepth {
-                max_depth: 64,
-                call_stack: std::iter::repeat("recurse")
-                    .take(64)
-                    .chain(std::iter::once(""))
+                max_depth: 65,
+                call_stack: std::iter::once("")
+                    .chain(std::iter::repeat("recurse").take(64))
                     .map(Into::into)
                     .collect(),
             }
