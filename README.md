@@ -14,10 +14,6 @@ Lisp functionality like `Buffer` and `Event` objects.
 
 - [Code Coverage](https://wmedrano.github.io/spore/llvm-cov/html)
 
-### Spore Editor
-
-The main text editor. This is not ready for use yet.
-
 ### Spore VM
 
 The Virtual Machine that implements Spore lispy language.
