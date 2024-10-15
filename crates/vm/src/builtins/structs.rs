@@ -1,17 +1,18 @@
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, StructVal, UnsafeVal, Val, ValBuilder},
+    val::{NativeFunctionContext, StructVal, UnsafeVal, ValBuilder},
     Vm,
 };
 
-pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    let mut args_iter = args.iter();
-    let mut strct = StructVal::with_capacity(args.len() / 2);
-    if args.len() % 2 != 0 {
+pub fn strct(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    let mut strct = StructVal::with_capacity(ctx.arg_count() / 2);
+
+    let mut args_iter = ctx.args();
+    if ctx.arg_count() % 2 != 0 {
         return Err(VmError::ArityError {
             function: "struct needs an even amount of args, ".into(),
-            expected: args.len() + 1,
-            actual: args.len(),
+            expected: ctx.arg_count() + 1,
+            actual: ctx.arg_count(),
         });
     }
     while let Some(field) = args_iter.next() {
@@ -25,22 +26,28 @@ pub fn strct<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<V
         let val = args_iter.next().unwrap();
         strct.set(field_sym, unsafe { val.as_static() });
     }
+    drop(args_iter);
     Ok(unsafe { ctx.new_struct(strct) })
 }
 
-pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+pub fn struct_get(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
     let vm = ctx.vm();
-    match args {
-        [maybe_struct, maybe_symbol] => {
-            let field = maybe_symbol.try_symbol().map_err(|v| VmError::TypeError {
-                src: None,
-                context: "struct-get arg(idx=1)",
-                expected: UnsafeVal::SYMBOL_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            })?;
-            // Unsafe OK: The returned val is a reference to a valid value.
-            let strct = maybe_struct
+    match ctx.arg_count() {
+        2 => {
+            let field = ctx
+                .arg(1)
+                .unwrap()
+                .try_symbol()
+                .map_err(|v| VmError::TypeError {
+                    src: None,
+                    context: "struct-get arg(idx=1)",
+                    expected: UnsafeVal::SYMBOL_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
+            let strct = ctx
+                .arg(0)
+                .unwrap()
                 .try_struct(vm)
                 .map_err(|v| VmError::TypeError {
                     src: None,
@@ -55,26 +62,27 @@ pub fn struct_get<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<
         args => Err(VmError::ArityError {
             function: "struct-get".into(),
             expected: 2,
-            actual: args.len(),
+            actual: args,
         }),
     }
 }
 
-pub fn struct_set<'a>(
-    mut ctx: NativeFunctionContext<'a>,
-    args: &[Val<'a>],
-) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [maybe_struct, maybe_symbol, val] => {
-            let field = maybe_symbol.try_symbol().map_err(|v| VmError::TypeError {
-                src: None,
-                context: "struct-set! arg(idx=1)",
-                expected: UnsafeVal::SYMBOL_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            })?;
+pub fn struct_set(mut ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    match ctx.arg_count() {
+        3 => {
+            let field = ctx
+                .arg(1)
+                .unwrap()
+                .try_symbol()
+                .map_err(|v| VmError::TypeError {
+                    src: None,
+                    context: "struct-set! arg(idx=1)",
+                    expected: UnsafeVal::SYMBOL_TYPE_NAME,
+                    actual: v.type_name(),
+                    value: v.format_quoted(ctx.vm()).to_string(),
+                })?;
             let vm: *mut Vm = unsafe { ctx.vm_mut() };
-            let strct = match unsafe { maybe_struct.try_unsafe_struct_mut(&mut *vm) } {
+            let strct = match unsafe { ctx.arg(0).unwrap().try_unsafe_struct_mut(&mut *vm) } {
                 Ok(v) => v,
                 Err(v) => {
                     return Err(VmError::TypeError {
@@ -86,13 +94,13 @@ pub fn struct_set<'a>(
                     });
                 }
             };
-            strct.set(field, unsafe { val.as_static() });
+            strct.set(field, unsafe { ctx.arg(2).unwrap().as_static() });
             Ok(ValBuilder::new(().into()))
         }
         args => Err(VmError::ArityError {
             function: "struct-set!".into(),
             expected: 3,
-            actual: args.len(),
+            actual: args,
         }),
     }
 }

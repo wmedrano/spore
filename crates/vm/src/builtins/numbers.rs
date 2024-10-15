@@ -21,7 +21,7 @@ impl From<Number> for Val<'static> {
 fn add_impl<'a>(
     vm: &Vm,
     context: &'static str,
-    args: impl 'a + Iterator<Item = &'a Val<'a>>,
+    args: impl 'a + Iterator<Item = Val<'a>>,
 ) -> VmResult<Number> {
     let mut int_sum: i64 = 0;
     let mut float_sum: f64 = 0.0;
@@ -51,8 +51,8 @@ fn add_impl<'a>(
     }
 }
 
-pub fn add<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    let res = add_impl(ctx.vm(), "+", args.iter())?;
+pub fn add(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    let res = add_impl(ctx.vm(), "+", ctx.args())?;
     Ok(ValBuilder::new(res.into()))
 }
 
@@ -70,21 +70,23 @@ fn negate(vm: &Vm, context: &'static str, v: Val) -> VmResult<Number> {
     }
 }
 
-pub fn subtract<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+pub fn subtract<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
     let vm = ctx.vm();
-    match args {
-        [v] => negate(vm, "-", *v).map(|x| ValBuilder::new(x.into())),
-        [v, rest @ ..] => {
-            let rest_sum = add_impl(vm, "-", rest.iter())?;
-            let negated_rest = negate(vm, "-", rest_sum.into())?;
-            let ans = add_impl(vm, "-", [*v, negated_rest.into()].iter())?;
-            Ok(ValBuilder::new(ans.into()))
-        }
-        [] => Err(VmError::ArityError {
+    match ctx.arg_count() {
+        0 => Err(VmError::ArityError {
             function: "-".into(),
             expected: 1,
             actual: 0,
         }),
+        1 => negate(vm, "-", ctx.arg(0).unwrap()).map(|x| ValBuilder::new(x.into())),
+        _ => {
+            let mut args = ctx.args();
+            let first = args.next().unwrap();
+            let rest_sum = add_impl(vm, "-", args)?;
+            let negated_rest = negate(vm, "-", rest_sum.into())?;
+            let ans = add_impl(vm, "-", [first, negated_rest.into()].into_iter())?;
+            Ok(ValBuilder::new(ans.into()))
+        }
     }
 }
 
@@ -113,19 +115,28 @@ fn less_two_impl(vm: &Vm, a: Val, b: Val) -> VmResult<bool> {
     }
 }
 
-pub fn less_impl(vm: &Vm, args: &[Val]) -> VmResult<bool> {
-    match args {
-        [] | [_] => Ok(true),
-        [a, b] => Ok(less_two_impl(vm, *a, *b)?),
-        [a, b, ..] => match less_two_impl(vm, *a, *b)? {
-            true => less_impl(vm, &args[1..]),
-            false => Ok(false),
-        },
+pub fn less_impl<'a>(
+    vm: &Vm,
+    next: Val<'a>,
+    mut rest: impl 'a + Iterator<Item = Val<'a>>,
+) -> VmResult<bool> {
+    let x = match rest.next() {
+        Some(x) => x,
+        None => return Ok(true),
+    };
+    if !less_two_impl(vm, next, x)? {
+        return Ok(false);
     }
+    less_impl(vm, x, rest)
 }
 
-pub fn less<'a>(ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
-    let res = less_impl(ctx.vm(), args)?;
+pub fn less<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    let mut args = ctx.args();
+    let first = match args.next() {
+        Some(x) => x,
+        None => return Ok(Val::new_bool(true).into()),
+    };
+    let res = less_impl(ctx.vm(), first, args)?;
     Ok(Val::new_bool(res).into())
 }
 

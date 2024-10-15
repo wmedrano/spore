@@ -2,7 +2,7 @@ use compact_str::CompactString;
 
 use crate::{error::VmResult, Vm};
 
-use super::{custom::CustomVal, CustomType, StructVal, UnsafeVal, Val};
+use super::{custom::CustomVal, CustomType, ListVal, StructVal, UnsafeVal, Val};
 
 /// A function that can be executed by the Spore VM. Native functions can be registered with
 /// [Vm::with_native_function].
@@ -18,8 +18,7 @@ use super::{custom::CustomVal, CustomType, StructVal, UnsafeVal, Val};
 /// fn my_magic_string(ctx: spore_vm::val::NativeFunctionContext) -> spore_vm::error::VmResult<spore_vm::val::ValBuilder> {
 ///     Ok(ctx.new_string("42".into()))
 /// }
-pub type NativeFunction =
-    for<'a> fn(NativeFunctionContext<'a>, &[Val<'a>]) -> VmResult<ValBuilder<'a>>;
+pub type NativeFunction = for<'a> fn(NativeFunctionContext<'a>) -> VmResult<ValBuilder<'a>>;
 
 /// Builds a value for the VM to consume.
 ///
@@ -89,6 +88,25 @@ impl<'a> NativeFunctionContext<'a> {
     pub unsafe fn vm_mut(&mut self) -> &mut Vm {
         self.vm
     }
+
+    /// Get the `nth` argument for the function call.
+    pub fn arg(&self, nth: usize) -> Option<Val> {
+        self.vm
+            .stack
+            .get(nth + self.vm.stack_frames.current.stack_start)
+            .map(|v| unsafe { Val::from_unsafe_val(*v) })
+    }
+
+    /// Iterate through all the arguments.
+    pub fn args(&self) -> impl '_ + Iterator<Item = Val> {
+        let args = &self.vm.stack[self.vm.stack_frames.current.stack_start..];
+        args.iter().map(|v| unsafe { Val::from_unsafe_val(*v) })
+    }
+
+    /// Get the number of arguments passed into the current function call.
+    pub fn arg_count(&self) -> usize {
+        self.vm.stack.len() - self.vm.stack_frames.current.stack_start
+    }
 }
 
 impl<'a> NativeFunctionContext<'a> {
@@ -141,10 +159,8 @@ impl<'a> NativeFunctionContext<'a> {
     ///
     /// # Safety
     /// `list` must contain valid values within the vm.
-    pub unsafe fn new_list(self, list: &[Val]) -> ValBuilder<'a> {
-        // Unsafe OK: Will be inserting into VM.
-        let unsafe_list = Val::as_unsafe_val_slice(list);
-        let list_id = self.vm.objects.insert_list(unsafe_list.to_vec());
+    pub unsafe fn new_list(self, list: ListVal) -> ValBuilder<'a> {
+        let list_id = self.vm.objects.insert_list(list);
         ValBuilder {
             val: Val::from_unsafe_val(list_id.into()),
         }

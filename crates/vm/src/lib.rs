@@ -334,11 +334,7 @@ impl Vm {
             &Default::default(),
             stack_start,
         ));
-        let args = unsafe {
-            let slice = std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), arg_count);
-            Val::from_unsafe_val_slice(slice)
-        };
-        let builder = func(NativeFunctionContext::new(self), args)?;
+        let builder = func(NativeFunctionContext::new(self))?;
         // Unsafe OK: Value is inserted into VM immediately.
         let v = unsafe { builder.build() };
         match arg_count {
@@ -370,17 +366,12 @@ impl Vm {
         let func_val = self.stack[function_idx];
         match func_val {
             UnsafeVal::NativeFunction(func) => {
-                let args = unsafe {
-                    let slice =
-                        std::slice::from_raw_parts(self.stack.as_ptr().add(stack_start), n - 1);
-                    Val::from_unsafe_val_slice(slice)
-                };
                 self.stack_frames.push(StackFrame::new(
                     Default::default(),
                     &Default::default(),
                     stack_start,
                 ));
-                let builder = func(NativeFunctionContext::new(self), args)?;
+                let builder = func(NativeFunctionContext::new(self))?;
                 // Unsafe OK: Value is inserted into VM immediately.
                 let v = unsafe { builder.build() };
                 self.stack[function_idx] = v;

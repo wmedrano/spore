@@ -43,7 +43,7 @@ impl Token {
     /// Parse an input source into a vector of tokens. Used for convenience in unit tests, prefer
     /// using `Self::parse_tokens`.
     #[cfg(test)]
-    pub fn parse_tokens_to_vec<'a>(input_src: &'a str) -> Vec<(TokenType, &'a str)> {
+    pub fn parse_tokens_to_vec(input_src: &str) -> Vec<(TokenType, &str)> {
         let tokens =
             Token::parse_tokens(input_src).map(|token| (token.token_type, token.as_str(input_src)));
         tokens.collect()

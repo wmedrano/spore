@@ -2,13 +2,15 @@ use compact_str::CompactString;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
     Vm,
 };
 
-pub fn string_length<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [v] => v
+pub fn string_length<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    match ctx.arg_count() {
+        1 => ctx
+            .arg(0)
+            .unwrap()
             .try_str(ctx.vm())
             .map_err(|v| VmError::TypeError {
                 src: None,
@@ -18,10 +20,10 @@ pub fn string_length<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResu
                 value: v.formatted(ctx.vm()).to_string(),
             })
             .map(|s| ValBuilder::new((s.len() as i64).into())),
-        _ => Err(VmError::ArityError {
+        n => Err(VmError::ArityError {
             function: "string-length".into(),
             expected: 1,
-            actual: args.len(),
+            actual: n,
         }),
     }
 }
@@ -39,36 +41,38 @@ fn string_split_impl<'a, 'b>(
     unsafe { ctx.with_unsafe_val(list) }
 }
 
-pub fn string_split<'a>(
-    mut ctx: NativeFunctionContext<'a>,
-    args: &[Val],
-) -> VmResult<ValBuilder<'a>> {
+pub fn string_split(mut ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
     let vm: *mut Vm = unsafe { ctx.vm_mut() };
-    match args {
-        [maybe_string] => {
-            let string = maybe_string
-                .try_str(unsafe { &*vm })
-                .map_err(|v| VmError::TypeError {
-                    src: None,
-                    context: "string-split arg(idx = 0)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })?;
+    match ctx.arg_count() {
+        1 => {
+            let string =
+                ctx.arg(0)
+                    .unwrap()
+                    .try_str(unsafe { &*vm })
+                    .map_err(|v| VmError::TypeError {
+                        src: None,
+                        context: "string-split arg(idx = 0)",
+                        expected: UnsafeVal::STRING_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    })?;
             Ok(string_split_impl(ctx, string.split('\n')))
         }
-        [maybe_string, maybe_separator] => {
-            let string = maybe_string
-                .try_str(unsafe { &*vm })
-                .map_err(|v| VmError::TypeError {
-                    src: None,
-                    context: "string-split arg(idx = 0)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })?;
+        2 => {
+            let string =
+                ctx.arg(0)
+                    .unwrap()
+                    .try_str(unsafe { &*vm })
+                    .map_err(|v| VmError::TypeError {
+                        src: None,
+                        context: "string-split arg(idx = 0)",
+                        expected: UnsafeVal::STRING_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    })?;
             let separator =
-                maybe_separator
+                ctx.arg(1)
+                    .unwrap()
                     .try_str(unsafe { &*vm })
                     .map_err(|v| VmError::TypeError {
                         src: None,
@@ -79,18 +83,20 @@ pub fn string_split<'a>(
                     })?;
             Ok(string_split_impl(ctx, string.split(separator)))
         }
-        _ => Err(VmError::ArityError {
+        n => Err(VmError::ArityError {
             function: "string-split".into(),
-            expected: if args.is_empty() { 1 } else { 2 },
-            actual: args.len(),
+            expected: if n == 0 { 1 } else { 2 },
+            actual: n,
         }),
     }
 }
 
-pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
-    let (list, separator) = match args {
-        [maybe_list] => {
-            let list = maybe_list
+pub fn string_join(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    let (list, separator) = match ctx.arg_count() {
+        1 => {
+            let list = ctx
+                .arg(0)
+                .unwrap()
                 .try_list(ctx.vm())
                 .map_err(|v| VmError::TypeError {
                     src: None,
@@ -101,8 +107,10 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
                 })?;
             (list, "")
         }
-        [maybe_list, maybe_separator] => {
-            let list = maybe_list
+        2 => {
+            let list = ctx
+                .arg(0)
+                .unwrap()
                 .try_list(ctx.vm())
                 .map_err(|v| VmError::TypeError {
                     src: None,
@@ -111,29 +119,31 @@ pub fn string_join<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
                     actual: v.type_name(),
                     value: v.format_quoted(ctx.vm()).to_string(),
                 })?;
-            let separator = maybe_separator
-                .try_str(ctx.vm())
-                .map_err(|v| VmError::TypeError {
-                    src: None,
-                    context: "string-join arg(idx=1)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })?;
+            let separator =
+                ctx.arg(1)
+                    .unwrap()
+                    .try_str(ctx.vm())
+                    .map_err(|v| VmError::TypeError {
+                        src: None,
+                        context: "string-join arg(idx=1)",
+                        expected: UnsafeVal::STRING_TYPE_NAME,
+                        actual: v.type_name(),
+                        value: v.format_quoted(ctx.vm()).to_string(),
+                    })?;
             (list, separator)
         }
-        [] => {
+        0 => {
             return Err(VmError::ArityError {
                 function: "string-join".into(),
                 expected: 1,
                 actual: 0,
             })
         }
-        args => {
+        n => {
             return Err(VmError::ArityError {
                 function: "string-join".into(),
                 expected: 2,
-                actual: args.len(),
+                actual: n,
             })
         }
     };
@@ -268,7 +278,7 @@ mod tests {
         assert_eq!(
             vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
-                context: "string-split arg(idx = 0)".into(),
+                context: "string-split arg(idx = 0)",
                 src: Some(Span::new(0, 16).with_src(src.into())),
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -280,7 +290,7 @@ mod tests {
         assert_eq!(
             vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
-                context: "string-split arg(idx = 1)".into(),
+                context: "string-split arg(idx = 1)",
                 src: Some(Span::new(0, 19).with_src(src.into())),
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,
@@ -292,7 +302,7 @@ mod tests {
         assert_eq!(
             vm.eval_str(src).unwrap_err(),
             VmError::TypeError {
-                context: "string-split arg(idx = 0)".into(),
+                context: "string-split arg(idx = 0)",
                 src: Some(Span::new(0, 19).with_src(src.into())),
                 expected: UnsafeVal::STRING_TYPE_NAME,
                 actual: UnsafeVal::INT_TYPE_NAME,

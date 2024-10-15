@@ -33,12 +33,12 @@ pub const BUILTINS: &[(&str, NativeFunction)] = &[
     ("command", system::command),
 ];
 
-pub fn global_values<'a>(mut ctx: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
-    if !args.is_empty() {
+pub fn global_values<'a>(mut ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    if ctx.arg_count() > 0 {
         return Err(VmError::ArityError {
             function: "global-values".into(),
             expected: 0,
-            actual: args.len(),
+            actual: ctx.arg_count(),
         });
     }
     let values: Vec<UnsafeVal> = ctx
@@ -53,29 +53,29 @@ pub fn global_values<'a>(mut ctx: NativeFunctionContext, args: &[Val]) -> VmResu
     }))
 }
 
-pub fn not<'a>(_: NativeFunctionContext, args: &[Val]) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [v] => Ok(Val::new_bool(!v.is_truthy()).into()),
-        args => Err(VmError::ArityError {
+pub fn not<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    if ctx.arg_count() != 1 {
+        return Err(VmError::ArityError {
             function: "not".into(),
             expected: 1,
-            actual: args.len(),
-        }),
+            actual: ctx.arg_count(),
+        });
     }
+    let v = ctx.arg(0).unwrap();
+    Ok(ValBuilder::new(Val::new_bool(!v.is_truthy())))
 }
 
-pub fn equal<'a>(ctx: NativeFunctionContext, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [a, b] => {
-            // Unsafe OK: [equal_imp] holds the a reference to the VM so it can't run garbage
-            // collection.
+pub fn equal<'a>(ctx: NativeFunctionContext) -> VmResult<ValBuilder<'a>> {
+    match ctx.arg_count() {
+        2 => {
+            let (a, b) = (ctx.arg(0).unwrap(), ctx.arg(1).unwrap());
             let (a, b) = (a.as_unsafe_val(), b.as_unsafe_val());
             Ok(Val::new_bool(equal_impl(ctx.vm(), a, b)).into())
         }
         _ => Err(VmError::ArityError {
             function: "=".into(),
             expected: 2,
-            actual: args.len(),
+            actual: ctx.arg_count(),
         }),
     }
 }

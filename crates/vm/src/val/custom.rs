@@ -188,7 +188,7 @@ where
 mod tests {
     use super::*;
     use crate::{
-        val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+        val::{NativeFunctionContext, UnsafeVal, ValBuilder},
         Vm, VmResult,
     };
 
@@ -365,11 +365,8 @@ mod tests {
 
     #[test]
     fn custom_type_can_be_made_from_native_function() {
-        fn custom_function<'a>(
-            ctx: NativeFunctionContext<'a>,
-            args: &[Val],
-        ) -> VmResult<ValBuilder<'a>> {
-            let number = args[0].try_int().unwrap();
+        fn custom_function(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+            let number = ctx.arg(0).unwrap().try_int().unwrap();
             let v = MyType { number };
             Ok(ctx.new_custom(v))
         }

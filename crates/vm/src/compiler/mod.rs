@@ -526,7 +526,7 @@ mod tests {
                 arg_count: 0,
                 local_bindings: 0,
                 instructions: vec![Instruction::PushConst(
-                    UnsafeVal::NativeFunction(crate::builtins::numbers::add).into()
+                    UnsafeVal::NativeFunction(crate::builtins::numbers::add)
                 )]
                 .into(),
                 source: None,
@@ -844,7 +844,6 @@ mod tests {
                                 .into(),
                             })
                         )
-                        .into()
                     ),
                     Instruction::Define(vm.get_symbol("foo").unwrap()),
                 ]
@@ -1109,7 +1108,6 @@ mod tests {
                         source: Some(src.into()),
                         instruction_source: [Span { start: 11, end: 12 }].into(),
                     }))
-                    .into()
                 )]
                 .into(),
                 source: Some(src.into()),
@@ -1154,7 +1152,6 @@ mod tests {
                             .into()
                         })
                     )
-                    .into()
                 )]
                 .into(),
                 source: Some(src.into()),
@@ -1198,7 +1195,6 @@ mod tests {
                                 .into(),
                             })
                         )
-                        .into()
                     ),
                     Instruction::Define(vm.get_symbol("foo").unwrap()),
                 ]

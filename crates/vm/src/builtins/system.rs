@@ -5,15 +5,12 @@ use log::*;
 
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
 };
 
-pub fn working_directory<'a>(
-    ctx: NativeFunctionContext<'a>,
-    args: &[Val<'a>],
-) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [] => {
+pub fn working_directory(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    match ctx.arg_count() {
+        0 => {
             let working_directory: CompactString = match std::env::current_dir() {
                 Ok(path) => path.to_string_lossy().into(),
                 // Untested OK: It is hard to create a working directory error and is not common.
@@ -21,57 +18,57 @@ pub fn working_directory<'a>(
             };
             Ok(ctx.new_string(working_directory))
         }
-        _ => Err(VmError::ArityError {
+        args => Err(VmError::ArityError {
             function: "working-directory".into(),
             expected: 0,
-            actual: args.len(),
+            actual: args,
         }),
     }
 }
 
-pub fn command<'a>(ctx: NativeFunctionContext<'a>, args: &[Val<'a>]) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [cmd, rest @ ..] => {
-            let cmd_str = cmd.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
-                src: None,
-                context: "command arg(idx=0)",
-                expected: UnsafeVal::STRING_TYPE_NAME,
-                actual: v.type_name(),
-                value: v.format_quoted(ctx.vm()).to_string(),
-            })?;
-            let mut cmd = Command::new(cmd_str);
-            for arg in rest {
-                let arg_str = arg.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
-                    src: None,
-                    context: "command arg(idx>0)",
-                    expected: UnsafeVal::STRING_TYPE_NAME,
-                    actual: v.type_name(),
-                    value: v.format_quoted(ctx.vm()).to_string(),
-                })?;
-                cmd.arg(arg_str);
-            }
-            let output = cmd.output().map_err(|err| {
-                VmError::CustomError(format!("failed to run command {cmd_str}: {err}"))
-            })?;
-            if !output.stderr.is_empty() {
-                let err = String::from_utf8_lossy(&output.stderr);
-                error!("Command {cmd_str}: {err}");
-            }
-            if !output.status.success() {
-                return Err(VmError::CustomError(format!(
-                    "command {cmd_str} exited with code {code:?}",
-                    code = output.status.code()
-                )));
-            }
-            let output = ctx.new_string(CompactString::from_utf8_lossy(&output.stdout));
-            Ok(output)
-        }
-        [] => Err(VmError::ArityError {
+pub fn command(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    let mut args = ctx.args();
+    let cmd_str = args
+        .next()
+        .ok_or_else(|| VmError::ArityError {
             function: "command".into(),
             expected: 1,
             actual: 0,
-        }),
+        })?
+        .try_str(ctx.vm())
+        .map_err(|v| VmError::TypeError {
+            src: None,
+            context: "command arg(idx=0)",
+            expected: UnsafeVal::STRING_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        })?;
+    let mut cmd = Command::new(cmd_str);
+    for arg in args {
+        let arg_str = arg.try_str(ctx.vm()).map_err(|v| VmError::TypeError {
+            src: None,
+            context: "command arg(idx>0)",
+            expected: UnsafeVal::STRING_TYPE_NAME,
+            actual: v.type_name(),
+            value: v.format_quoted(ctx.vm()).to_string(),
+        })?;
+        cmd.arg(arg_str);
     }
+    let output = cmd
+        .output()
+        .map_err(|err| VmError::CustomError(format!("failed to run command {cmd_str}: {err}")))?;
+    if !output.stderr.is_empty() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        error!("Command {cmd_str}: {err}");
+    }
+    if !output.status.success() {
+        return Err(VmError::CustomError(format!(
+            "command {cmd_str} exited with code {code:?}",
+            code = output.status.code()
+        )));
+    }
+    let output = ctx.new_string(CompactString::from_utf8_lossy(&output.stdout));
+    Ok(output)
 }
 
 #[cfg(test)]

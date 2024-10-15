@@ -1,15 +1,16 @@
 use crate::{
     error::{VmError, VmResult},
-    val::{NativeFunctionContext, UnsafeVal, Val, ValBuilder},
+    val::{NativeFunctionContext, UnsafeVal, ValBuilder},
 };
 
-pub fn list<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
+pub fn list(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    let args: Vec<_> = ctx.args().map(|x| x.as_unsafe_val()).collect();
     Ok(unsafe { ctx.new_list(args) })
 }
 
-pub fn list_length<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult<ValBuilder<'a>> {
-    match args {
-        [arg] => match arg.try_list(ctx.vm()) {
+pub fn list_length(ctx: NativeFunctionContext<'_>) -> VmResult<ValBuilder<'_>> {
+    match ctx.arg_count() {
+        1 => match ctx.arg(0).unwrap().try_list(ctx.vm()) {
             Ok(list) => Ok(ValBuilder::new((list.len() as i64).into())),
             Err(v) => Err(VmError::TypeError {
                 src: None,
@@ -19,10 +20,10 @@ pub fn list_length<'a>(ctx: NativeFunctionContext<'a>, args: &[Val]) -> VmResult
                 value: v.format_quoted(ctx.vm()).to_string(),
             }),
         },
-        _ => Err(VmError::ArityError {
+        n => Err(VmError::ArityError {
             function: "list-length".into(),
             expected: 1,
-            actual: args.len(),
+            actual: n,
         }),
     }
 }
