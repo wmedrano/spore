@@ -10,10 +10,11 @@ const Val = @This();
 repr: Repr,
 
 /// Create a new `Val` from a given value, deducing its type.
-/// Supports `i64`, `f64`, and `Symbol.Interned`.
+/// Supports `void`, `i64`, `f64`, and `Symbol.Interned`.
 pub fn init(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
+        void => return initRepr(Repr.newNil()),
         i64, comptime_int => return initRepr(Repr.newInt(val)),
         f64, comptime_float => return initRepr(Repr.newFloat(val)),
         Symbol.Interned => return initRepr(Repr.newSymbol(val)),
@@ -33,9 +34,14 @@ fn initRepr(repr: Repr) Val {
 
 /// The internal representation of a value.
 const Repr = union(enum) {
+    nil,
     int: i64,
     float: f64,
     symbol: Symbol.Interned,
+
+    pub fn newNil() Repr {
+        return .{ .nil = {} };
+    }
 
     /// Create a new `Repr` that holds an integer.
     pub fn newInt(int: i64) Repr {
@@ -63,6 +69,7 @@ const Repr = union(enum) {
         _ = fmt;
         _ = options;
         switch (self) {
+            .nil => try writer.print("nil", .{}),
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("{}", .{x}),
@@ -71,6 +78,7 @@ const Repr = union(enum) {
 };
 
 test "print val" {
+    try testing.expectFmt("nil", "{}", .{Val.init({})});
     try testing.expectFmt("45", "{}", .{Val.init(45)});
     try testing.expectFmt("45.5", "{}", .{Val.init(45.5)});
 }
