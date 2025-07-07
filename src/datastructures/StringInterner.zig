@@ -10,16 +10,26 @@ allocator: std.heap.ArenaAllocator,
 string_to_interned: std.StringHashMapUnmanaged(Interned) = .{},
 interned_to_string: std.ArrayListUnmanaged([]const u8) = .{},
 
+/// Initializes a new `StringInterner`.
 pub fn init() StringInterner {
     return .{ .allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
 }
 
+/// Deinitializes the `StringInterner`, freeing all allocated resources.
+///
+/// This includes the internal `ArenaAllocator` and the backing memory for
+/// the hash map and array.
 pub fn deinit(self: *StringInterner, allocator: std.mem.Allocator) void {
     self.allocator.deinit();
     self.string_to_interned.deinit(allocator);
     self.interned_to_string.deinit(allocator);
 }
 
+/// Interns a given string, returning an `Interned` identifier for it.
+///
+/// If the string has already been interned, its existing `Interned` identifier
+/// is returned. Otherwise, a copy of the string is made using the internal
+/// `ArenaAllocator`, and a new `Interned` identifier is assigned and returned.
 pub fn intern(self: *StringInterner, allocator: std.mem.Allocator, string: []const u8) !Interned {
     if (self.string_to_interned.get(string)) |interned| return interned;
     const string_copy = try self.allocator.allocator().dupe(u8, string);
@@ -29,6 +39,8 @@ pub fn intern(self: *StringInterner, allocator: std.mem.Allocator, string: []con
     return interned_string;
 }
 
+/// Retrieves the original string corresponding to an `Interned` identifier.
+/// Returns `null` if the `Interned` identifier is invalid.
 pub fn toString(self: StringInterner, interned: Interned) ?[]const u8 {
     const idx = @as(usize, interned.id);
     if (idx >= self.interned_to_string.items.len) return null;
@@ -38,16 +50,16 @@ pub fn toString(self: StringInterner, interned: Interned) ?[]const u8 {
 test "interned strings are equal" {
     var string_interner = StringInterner.init();
     defer string_interner.deinit(std.testing.allocator);
-    const interned_a = string_interner.intern(std.testing.allocator, "interned");
-    const interned_b = string_interner.intern(std.testing.allocator, "interned");
+    const interned_a = try string_interner.intern(std.testing.allocator, "interned");
+    const interned_b = try string_interner.intern(std.testing.allocator, "interned");
     try std.testing.expectEqualDeep(interned_a, interned_b);
 }
 
 test "different strings are not equal" {
     var string_interner = StringInterner.init();
     defer string_interner.deinit(std.testing.allocator);
-    const interned_a = string_interner.intern(std.testing.allocator, "interned_a");
-    const interned_b = string_interner.intern(std.testing.allocator, "interned_b");
+    const interned_a = try string_interner.intern(std.testing.allocator, "interned_a");
+    const interned_b = try string_interner.intern(std.testing.allocator, "interned_b");
     try std.testing.expect(!std.meta.eql(interned_a, interned_b));
 }
 

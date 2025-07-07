@@ -30,7 +30,7 @@ pub fn init(text: []const u8) Tokenizer {
 }
 
 /// Checks if the tokenizer has processed all the input text.
-pub fn is_done(self: Tokenizer) bool {
+pub fn isDone(self: Tokenizer) bool {
     return self.start >= self.text.len;
 }
 
@@ -40,9 +40,9 @@ pub fn is_done(self: Tokenizer) bool {
 /// - Parentheses `(` or `)`
 /// - Identifiers (sequences of non-whitespace, non-parenthesis characters)
 pub fn next(self: *Tokenizer) ?Span {
-    if (self.is_done()) return null;
+    if (self.isDone()) return null;
     self.eatWhitespace();
-    if (self.is_done()) return null; // Check again after eating whitespace
+    if (self.isDone()) return null; // Check again after eating whitespace
     const next_ch = self.text[self.start];
     if (isParen(next_ch)) {
         const ret = Span{ .start = self.start, .end = self.start + 1 };
@@ -68,7 +68,7 @@ fn isParen(ch: u8) bool {
 
 /// Advances the tokenizer's `start` pointer past any leading whitespace characters.
 fn eatWhitespace(self: *Tokenizer) void {
-    while (!self.is_done()) {
+    while (!self.isDone()) {
         if (!std.ascii.isWhitespace(self.text[self.start])) return;
         self.start += 1;
     }
@@ -77,7 +77,7 @@ fn eatWhitespace(self: *Tokenizer) void {
 /// Advances the tokenizer's `start` pointer past an identifier.
 /// An identifier is defined as a sequence of non-whitespace, non-parenthesis characters.
 fn eatIdentifier(self: *Tokenizer) void {
-    while (!self.is_done()) {
+    while (!self.isDone()) {
         const next_ch = self.text[self.start];
         if (std.ascii.isWhitespace(next_ch)) return;
         if (isParen(next_ch)) return;
@@ -101,7 +101,7 @@ test "s-expression returns each token" {
     try testing.expectEqualDeep(null, tokenizer.next());
 }
 
-test "complex s-expression returns each token via nextStr" {
+test "complex s-expression returns each token" {
     var tokenizer = Tokenizer.init("(plus (divide one two) tree)");
     try testing.expectEqualStrings("(", tokenizer.nextStr().?);
     try testing.expectEqualStrings("plus", tokenizer.nextStr().?);
