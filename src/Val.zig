@@ -11,12 +11,12 @@ fn init(repr: ValRepr) Val {
 }
 
 // Create a new `Val` that holds an integer.
-pub fn new_int(int: i64) Val {
+pub fn newInt(int: i64) Val {
     return init(.{ .int = int });
 }
 
 // Create a new `Val` that holds a float.
-pub fn new_float(float: f64) Val {
+pub fn newFloat(float: f64) Val {
     return init(.{ .float = float });
 }
 
