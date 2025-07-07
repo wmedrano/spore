@@ -1,22 +1,27 @@
+//! A dynamically-typed value capable of holding many different types.
 const std = @import("std");
 const testing = std.testing;
+
+const StringInterner = @import("datastructures/StringInterner.zig");
+const Symbol = @import("datastructures/Symbol.zig");
 
 const Val = @This();
 
 repr: Repr,
 
 /// Create a new `Val` from a given value, deducing its type.
-/// Supports i64 and f64.
+/// Supports `i64`, `f64`, and `Symbol.Interned`.
 pub fn init(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
         i64, comptime_int => return initRepr(Repr.newInt(val)),
         f64, comptime_float => return initRepr(Repr.newFloat(val)),
+        Symbol.Interned => return initRepr(Repr.newSymbol(val)),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
 
-/// Format a `Val` for printing.
+/// Formats self implementing the `std.fmt.Format` interface.
 pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     try self.repr.format(fmt, options, writer);
 }
@@ -30,18 +35,24 @@ fn initRepr(repr: Repr) Val {
 const Repr = union(enum) {
     int: i64,
     float: f64,
+    symbol: Symbol.Interned,
 
-    /// Create a new `ValRepr` that holds an integer.
+    /// Create a new `Repr` that holds an integer.
     pub fn newInt(int: i64) Repr {
         return .{ .int = int };
     }
 
-    /// Create a new `ValRepr` that holds a float.
+    /// Create a new `Repr` that holds a float.
     pub fn newFloat(float: f64) Repr {
         return .{ .float = float };
     }
 
-    /// Formats the `ValRepr` for printing, implementing the `std.fmt.Format`
+    /// Create a new `Repr` that holds a symbol.
+    pub fn newSymbol(val: Symbol.Interned) Repr {
+        return .{ .symbol = val };
+    }
+
+    /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
     /// interface.
     pub fn format(
         self: Repr,
@@ -54,6 +65,7 @@ const Repr = union(enum) {
         switch (self) {
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
+            .symbol => |x| try writer.print("{}", .{x}),
         }
     }
 };
