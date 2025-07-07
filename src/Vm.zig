@@ -4,6 +4,7 @@ const Val = @import("Val.zig");
 
 const Vm = @This();
 const MAX_STACK_SIZE = 1024;
+const Tokenizer = @import("parser/Tokenizer.zig");
 
 stack_len: usize = 0,
 stack_data: [MAX_STACK_SIZE]Val = undefined,
@@ -11,6 +12,11 @@ stack_data: [MAX_STACK_SIZE]Val = undefined,
 // Create a new VM.
 pub fn init() Vm {
     return .{};
+}
+
+pub fn eval_str(src: []const u8) !void {
+    _ = Tokenizer.init(src);
+    return error.NotImplemented;
 }
 
 // Get the complete stack for the `Vm`. The last value in the slice corresponds
