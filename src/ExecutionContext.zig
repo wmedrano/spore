@@ -6,10 +6,14 @@ const Symbol = @import("datastructures/Symbol.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 
+/// Manages the execution state of the VM, including the data stack.
 const ExecutionContext = @This();
 
+/// The maximum number of values that can be on the stack.
 const MAX_STACK_SIZE = 1024;
+/// The current number of values on the stack.
 stack_len: usize = 0,
+/// The backing array for the stack.
 stack_data: [MAX_STACK_SIZE]Val = undefined,
 
 /// Get the complete stack for the `ExecutionContext`. The last value in the slice corresponds

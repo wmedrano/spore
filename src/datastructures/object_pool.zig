@@ -19,6 +19,7 @@ pub fn Handle(comptime T: type) type {
 pub fn ObjectPool(comptime T: type) type {
     return struct {
         const Self = @This();
+        /// The list of objects stored in the pool.
         objects: std.ArrayListUnmanaged(T) = .{},
 
         /// Create a new `ObjectPool`.

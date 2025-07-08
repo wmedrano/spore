@@ -9,17 +9,17 @@ text: []const u8,
 /// The current position in the `text`.
 start: usize = 0,
 
+/// The types of tokens that can be produced.
+pub const TokenType = enum { open_paren, close_paren, identifier };
+
 /// Represents a span of text within the original input.
-pub const Span = struct {
+pub const Token = struct {
     /// The starting index of the span (inclusive).
     start: usize = 0,
     /// The ending index of the span (exclusive).
     end: usize = 0,
-
-    /// Returns the substring corresponding to this span within the given text.
-    pub fn substr(self: Span, text: []const u8) []const u8 {
-        return text[self.start..self.end];
-    }
+    /// The type of token in the span.
+    token_type: TokenType,
 };
 
 /// Initializes a new `Tokenizer` with the given text.
@@ -34,31 +34,40 @@ pub fn isDone(self: Tokenizer) bool {
     return self.start >= self.text.len;
 }
 
-/// Retrieves the next token as a `Span`.
+/// Returns the substring corresponding to this span within the given text.
+pub fn substr(self: Tokenizer, token: Token) []const u8 {
+    return self.text[token.start..token.end];
+}
+
+/// Retrieves the next token as a `Token`.
 /// Skips leading whitespace. Returns `null` if no more tokens are available.
 /// Tokens can be:
 /// - Parentheses `(` or `)`
 /// - Identifiers (sequences of non-whitespace, non-parenthesis characters)
-pub fn next(self: *Tokenizer) ?Span {
+pub fn next(self: *Tokenizer) ?Token {
     if (self.isDone()) return null;
     self.eatWhitespace();
     if (self.isDone()) return null; // Check again after eating whitespace
     const next_ch = self.text[self.start];
     if (isParen(next_ch)) {
-        const ret = Span{ .start = self.start, .end = self.start + 1 };
+        const ret = Token{
+            .start = self.start,
+            .end = self.start + 1,
+            .token_type = if (next_ch == '(') .open_paren else .close_paren,
+        };
         self.start += 1;
         return ret;
     }
     const start = self.start;
     self.eatIdentifier();
-    return .{ .start = start, .end = self.start };
+    return .{ .start = start, .end = self.start, .token_type = .identifier };
 }
 
-/// Similar to `next`, but returns the substring directly instead of a `Span`.
+/// Similar to `next`, but returns the substring directly instead of a `Token`.
 /// Returns `null` if no more tokens are available.
 pub fn nextStr(self: *Tokenizer) ?[]const u8 {
-    const span = self.next() orelse return null;
-    return span.substr(self.text);
+    const token = self.next() orelse return null;
+    return self.substr(token);
 }
 
 /// Checks if a given character is an opening or closing parenthesis.
@@ -93,11 +102,11 @@ test "empty string has no tokens" {
 
 test "s-expression returns each token" {
     var tokenizer = Tokenizer.init("(+ one 2)");
-    try testing.expectEqualDeep(Span{ .start = 0, .end = 1 }, tokenizer.next());
-    try testing.expectEqualDeep(Span{ .start = 1, .end = 2 }, tokenizer.next());
-    try testing.expectEqualDeep(Span{ .start = 3, .end = 6 }, tokenizer.next());
-    try testing.expectEqualDeep(Span{ .start = 7, .end = 8 }, tokenizer.next());
-    try testing.expectEqualDeep(Span{ .start = 8, .end = 9 }, tokenizer.next());
+    try testing.expectEqualDeep(Token{ .start = 0, .end = 1, .token_type = .open_paren }, tokenizer.next());
+    try testing.expectEqualDeep(Token{ .start = 1, .end = 2, .token_type = .identifier }, tokenizer.next());
+    try testing.expectEqualDeep(Token{ .start = 3, .end = 6, .token_type = .identifier }, tokenizer.next());
+    try testing.expectEqualDeep(Token{ .start = 7, .end = 8, .token_type = .identifier }, tokenizer.next());
+    try testing.expectEqualDeep(Token{ .start = 8, .end = 9, .token_type = .close_paren }, tokenizer.next());
     try testing.expectEqualDeep(null, tokenizer.next());
 }
 

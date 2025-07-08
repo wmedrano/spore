@@ -1,5 +1,6 @@
 const std = @import("std");
 
+/// This function is called by the Zig compiler when we run `zig build`.
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});

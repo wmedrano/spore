@@ -17,7 +17,14 @@ symbol: []const u8,
 /// An interned symbol. Interned symbols are faster to compare and take less
 /// memory to store.
 pub const Interned = struct {
+    /// The handle to the interned string for this symbol.
     symbol: StringInterner.Interned,
+
+    /// Get the interned value as a `Symbol`.
+    pub fn get(self: Interned, string_interner: StringInterner) !Symbol {
+        const symbol_str = string_interner.toString(self.symbol) orelse return error.SymbolNotFound;
+        return .{ .symbol = symbol_str };
+    }
 };
 
 /// Initialize a new symbol from `s`.

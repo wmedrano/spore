@@ -6,6 +6,7 @@ const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 const ConsCell = @import("ConsCell.zig"); // New import
 const Handle = @import("datastructures/object_pool.zig").Handle;
+const Vm = @import("Vm.zig");
 
 const Val = @This();
 
@@ -25,9 +26,15 @@ pub fn init(val: anytype) Val {
     }
 }
 
-/// Formats self implementing the `std.fmt.Format` interface.
+/// Formats self implementing the `std.fmt.Format` interface. Prefer using the
+/// object returned by `prettyPrinter`.
 pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     try self.repr.format(fmt, options, writer);
+}
+
+/// Return an object that pretty prints when formatted.
+pub fn prettyPrinter(self: Val, vm: *const Vm) PrettyPrinter {
+    return .{ .vm = vm, .val = self };
 }
 
 /// Create a new `Val` from its internal representation. For internal use only.
@@ -43,6 +50,7 @@ const Repr = union(enum) {
     symbol: Symbol.Interned,
     cons: Handle(ConsCell),
 
+    /// Create a new `Repr` that holds a nil value.
     pub fn newNil() Repr {
         return .{ .nil = {} };
     }
@@ -81,14 +89,67 @@ const Repr = union(enum) {
             .nil => try writer.print("nil", .{}),
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
-            .symbol => |x| try writer.print("{}", .{x}),
+            .symbol => |x| try writer.print("(symbol @{})", .{x}),
             .cons => |handle| try writer.print("(cons @{})", .{handle.id}),
         }
     }
 };
 
-test "print val" {
-    try testing.expectFmt("nil", "{}", .{Val.init({})});
-    try testing.expectFmt("45", "{}", .{Val.init(45)});
-    try testing.expectFmt("45.5", "{}", .{Val.init(45.5)});
+/// A struct for pretty-printing `Val` instances. This should be built with
+/// `Val.prettyPrinter`.
+pub const PrettyPrinter = struct {
+    /// A reference to the VM, needed for resolving symbols and cons cells.
+    vm: *const Vm,
+    /// The value to be printed.
+    val: Val,
+
+    /// Formats the `Val` for pretty-printing.
+    pub fn format(
+        self: PrettyPrinter,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        switch (self.val.repr) {
+            .nil => try writer.print("nil", .{}),
+            .int => |x| try writer.print("{}", .{x}),
+            .float => |x| try writer.print("{d}", .{x}),
+            .symbol => |x| {
+                const symbol = try x.get(self.vm.string_interner);
+                try writer.print("{}", .{symbol});
+            },
+            .cons => |handle| {
+                const cons = try self.vm.cons_cells.get(handle);
+                try formatCons(cons, self.vm, writer);
+            },
+        }
+    }
+
+    fn formatCons(cons: ConsCell, vm: *const Vm, writer: anytype) !void {
+        const car = cons.car.prettyPrinter(vm);
+        const cdr = cons.cdr.prettyPrinter(vm);
+        try writer.print("({} . {})", .{ car, cdr });
+    }
+};
+
+test prettyPrinter {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectFmt("nil", "{}", .{Val.init({}).prettyPrinter(&vm)});
+    try testing.expectFmt("45", "{}", .{Val.init(45).prettyPrinter(&vm)});
+    try testing.expectFmt("45.5", "{}", .{Val.init(45.5).prettyPrinter(&vm)});
+}
+
+test "pretty print cons" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    const cons = Val.init(
+        try vm.cons_cells.create(
+            vm.allocator,
+            ConsCell.init(Val.init(1), Val.init(2)),
+        ),
+    );
+    try testing.expectFmt("(1 . 2)", "{}", .{cons.prettyPrinter(&vm)});
 }
