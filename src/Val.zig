@@ -14,7 +14,7 @@ repr: Repr,
 
 /// Create a new `Val` from a given value, deducing its type.
 /// Supports `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
-pub fn init(val: anytype) Val {
+pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
         void => return initRepr(Repr.newNil()),
@@ -22,6 +22,8 @@ pub fn init(val: anytype) Val {
         f64, comptime_float => return initRepr(Repr.newFloat(val)),
         Symbol.Interned => return initRepr(Repr.newSymbol(val)),
         Handle(ConsCell) => return initRepr(Repr.newCons(val)),
+        ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -129,27 +131,51 @@ pub const PrettyPrinter = struct {
 
     fn formatCons(cons: ConsCell, vm: *const Vm, writer: anytype) !void {
         const car = cons.car.prettyPrinter(vm);
-        const cdr = cons.cdr.prettyPrinter(vm);
-        try writer.print("({} . {})", .{ car, cdr });
+        try writer.print("({}", .{car});
+        try formatCdr(cons.cdr, vm, writer);
+    }
+
+    fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
+        switch (cdr.repr) {
+            .nil => try writer.print(")", .{}),
+            .cons => |handle| {
+                const next = try vm.cons_cells.get(handle);
+                try writer.print(" {}", .{next.car.prettyPrinter(vm)});
+                try formatCdr(next.cdr, vm, writer);
+            },
+            else => try writer.print(" . {})", .{cdr.prettyPrinter(vm)}),
+        }
     }
 };
 
 test prettyPrinter {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
-    try testing.expectFmt("nil", "{}", .{Val.init({}).prettyPrinter(&vm)});
-    try testing.expectFmt("45", "{}", .{Val.init(45).prettyPrinter(&vm)});
-    try testing.expectFmt("45.5", "{}", .{Val.init(45.5).prettyPrinter(&vm)});
+    try testing.expectFmt("nil", "{}", .{Val.from({}).prettyPrinter(&vm)});
+    try testing.expectFmt("45", "{}", .{Val.from(45).prettyPrinter(&vm)});
+    try testing.expectFmt("45.5", "{}", .{Val.from(45.5).prettyPrinter(&vm)});
 }
 
-test "pretty print cons" {
+test "pretty print cons pair" {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
-    const cons = Val.init(
+    const cons = Val.from(
         try vm.cons_cells.create(
             vm.allocator,
-            ConsCell.init(Val.init(1), Val.init(2)),
+            ConsCell.init(Val.from(1), Val.from(2)),
         ),
     );
     try testing.expectFmt("(1 . 2)", "{}", .{cons.prettyPrinter(&vm)});
+}
+
+test "pretty print cons list" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    const cons = Val.from(
+        try vm.cons_cells.create(
+            vm.allocator,
+            ConsCell.init(Val.from(1), Val.from({})),
+        ),
+    );
+    try testing.expectFmt("(1)", "{}", .{cons.prettyPrinter(&vm)});
 }

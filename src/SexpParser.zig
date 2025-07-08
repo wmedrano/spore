@@ -67,12 +67,12 @@ test SexpParser {
     defer vm.deinit();
     var sexp_parser = SexpParser.init("(+ 1 2) (- 1 2)");
     try std.testing.expectFmt(
-        "(+ . (1 . (2 . nil)))",
+        "(+ 1 2)",
         "{}",
         .{(try sexp_parser.next(testing.allocator, &vm)).?.prettyPrinter(&vm)},
     );
     try std.testing.expectFmt(
-        "(- . (1 . (2 . nil)))",
+        "(- 1 2)",
         "{}",
         .{(try sexp_parser.next(testing.allocator, &vm)).?.prettyPrinter(&vm)},
     );
