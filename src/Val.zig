@@ -4,13 +4,15 @@ const testing = std.testing;
 
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
+const ConsCell = @import("ConsCell.zig"); // New import
+const Handle = @import("datastructures/object_pool.zig").Handle;
 
 const Val = @This();
 
 repr: Repr,
 
 /// Create a new `Val` from a given value, deducing its type.
-/// Supports `void`, `i64`, `f64`, and `Symbol.Interned`.
+/// Supports `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
 pub fn init(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
@@ -18,6 +20,7 @@ pub fn init(val: anytype) Val {
         i64, comptime_int => return initRepr(Repr.newInt(val)),
         f64, comptime_float => return initRepr(Repr.newFloat(val)),
         Symbol.Interned => return initRepr(Repr.newSymbol(val)),
+        Handle(ConsCell) => return initRepr(Repr.newCons(val)),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -38,6 +41,7 @@ const Repr = union(enum) {
     int: i64,
     float: f64,
     symbol: Symbol.Interned,
+    cons: Handle(ConsCell),
 
     pub fn newNil() Repr {
         return .{ .nil = {} };
@@ -58,6 +62,11 @@ const Repr = union(enum) {
         return .{ .symbol = val };
     }
 
+    /// Create a new `Repr` that holds a ConsCell handle.
+    pub fn newCons(handle: Handle(ConsCell)) Repr {
+        return .{ .cons = handle };
+    }
+
     /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
     /// interface.
     pub fn format(
@@ -73,6 +82,7 @@ const Repr = union(enum) {
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("{}", .{x}),
+            .cons => |handle| try writer.print("(cons @{})", .{handle.id}),
         }
     }
 };

@@ -1,11 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
+const ConsCell = @import("ConsCell.zig");
+const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
+const Handle = @import("datastructures/object_pool.zig").Handle;
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
+const ExecutionContext = @import("ExecutionContext.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
-const ExecutionContext = @import("ExecutionContext.zig");
 
 const Vm = @This();
 
@@ -16,6 +19,8 @@ execution_context: ExecutionContext,
 /// The string interner used by the Vm. This should also be used when creating
 /// symbols through `Symbols.intern`.
 string_interner: StringInterner,
+/// Stores all objects.
+cons_cells: ObjectPool(ConsCell),
 
 /// Create a new VM.
 pub fn init(allocator: std.mem.Allocator) Vm {
