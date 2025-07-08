@@ -54,22 +54,22 @@ test "initial stack is empty" {
 
 test "push val adds to stack" {
     var ctx = ExecutionContext{};
-    try ctx.pushVals(&.{ Val.init(1), Val.init(2) });
+    try ctx.pushVals(&.{ Val.from(1), Val.from(2) });
     try testing.expectFmt("{ 1, 2 }", "{any}", .{ctx.stack()});
 }
 
 test "push to many vals returns stack overflow" {
     var ctx = ExecutionContext{};
     for (0..MAX_STACK_SIZE) |_| {
-        try ctx.pushVal(Val.init(1));
+        try ctx.pushVal(Val.from(1));
     }
-    try testing.expectError(error.StackOverflow, ctx.pushVal(Val.init(1)));
+    try testing.expectError(error.StackOverflow, ctx.pushVal(Val.from(1)));
 }
 
 test "pop val removes from stack" {
     var ctx = ExecutionContext{};
-    try ctx.pushVals(&.{ Val.init(1), Val.init(2), Val.init(3) });
-    try testing.expectEqualDeep(Val.init(3), ctx.popVal());
+    try ctx.pushVals(&.{ Val.from(1), Val.from(2), Val.from(3) });
+    try testing.expectEqualDeep(Val.from(3), ctx.popVal());
     try testing.expectFmt("{ 1, 2 }", "{any}", .{ctx.stack()});
 }
 

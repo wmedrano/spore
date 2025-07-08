@@ -12,6 +12,8 @@ const Val = @This();
 
 repr: Repr,
 
+pub const ToValError = error{WrongType};
+
 /// Create a new `Val` from a given value, deducing its type.
 /// Supports `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
 pub fn from(val: anytype) Val {
@@ -25,6 +27,38 @@ pub fn from(val: anytype) Val {
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
+    }
+}
+
+/// Convert `Val` into a value of type `T`.
+/// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
+pub fn to(self: Val, T: type) ToValError!T {
+    switch (T) {
+        void => switch (self.repr) {
+            .nil => return {},
+            else => return ToValError.WrongType,
+        },
+        i64 => switch (self.repr) {
+            .int => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        f64 => switch (self.repr) {
+            .float => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        Symbol.Interned => switch (self.repr) {
+            .symbol => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        Symbol => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Symbol.Interned)),
+        Handle(ConsCell) => switch (self.repr) {
+            .cons => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(ConsCell))),
+        else => @compileError("Unsupported type for Val.to: " ++ @typeName(T)),
     }
 }
 
@@ -178,4 +212,45 @@ test "pretty print cons list" {
         ),
     );
     try testing.expectFmt("(1)", "{}", .{cons.prettyPrinter(&vm)});
+}
+
+test "Val.to nil/void" {
+    const nil_val = Val.from({});
+    _ = try nil_val.to(void);
+    try testing.expectError(ToValError.WrongType, nil_val.to(i64));
+}
+
+test "Val.to i64" {
+    const int_val = Val.from(42);
+    try testing.expectEqual(42, try int_val.to(i64));
+    try testing.expectError(ToValError.WrongType, int_val.to(f64));
+}
+
+test "Val.to f64" {
+    const float_val = Val.from(3.14);
+    try testing.expectEqual(3.14, try float_val.to(f64));
+    try testing.expectError(ToValError.WrongType, float_val.to(i64));
+}
+
+test "Val.to Symbol.Interned" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.string_interner);
+    const symbol_val = Val.from(symbol);
+    try testing.expectEqual(symbol, try symbol_val.to(Symbol.Interned));
+    try testing.expectError(ToValError.WrongType, symbol_val.to(i64));
+}
+
+test "Val.to Handle(ConsCell)" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const handle = try vm.cons_cells.create(
+        vm.allocator,
+        ConsCell.init(Val.from(1), Val.from(2)),
+    );
+    const cons_val = Val.from(handle);
+    try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
+    try testing.expectError(ToValError.WrongType, cons_val.to(i64));
 }

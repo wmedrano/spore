@@ -50,16 +50,16 @@ fn nextExpr(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !Val {
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     const symbol = Symbol.init(identifier);
     const interned_symbol = try symbol.intern(vm.allocator, &vm.string_interner);
-    return Val.init(interned_symbol);
+    return Val.from(interned_symbol);
 }
 
 fn listToVal(list: []const Val, vm: *Vm) !Val {
-    if (list.len == 0) return Val.init({});
+    if (list.len == 0) return Val.from({});
     const head = list[0];
     const tail = try listToVal(list[1..], vm);
     const cons = ConsCell.init(head, tail);
     const cons_handle = try vm.cons_cells.create(vm.allocator, cons);
-    return Val.init(cons_handle);
+    return Val.from(cons_handle);
 }
 
 test SexpParser {
