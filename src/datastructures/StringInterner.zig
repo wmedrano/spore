@@ -1,13 +1,21 @@
+//! Produce interned strings. Using interned strings may improve performance by
+//! saving memory and making string comparisons cheaper.
 const std = @import("std");
 
 const StringInterner = @This();
 
+/// An interned string. Interned strings are small and may be compared bitwise
+/// for equality if they are constructed from the same `StringInterner`.
 pub const Interned = struct {
+    /// The unique identifier for the interned string.
     id: u32,
 };
 
+/// The arena in which all strings are allocated.
 allocator: std.heap.ArenaAllocator,
+/// A map from string to the interned string that uniquely identifiers it.
 string_to_interned: std.StringHashMapUnmanaged(Interned) = .{},
+/// An array where the index corresponds to the id and the entry to the string.
 interned_to_string: std.ArrayListUnmanaged([]const u8) = .{},
 
 /// Initializes a new `StringInterner`.

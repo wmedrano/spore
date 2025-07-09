@@ -1,3 +1,4 @@
+//! Parse text into s-expressions formatted as `Val`.
 const std = @import("std");
 const testing = std.testing;
 
@@ -6,6 +7,7 @@ const Symbol = @import("datastructures/Symbol.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const SexpParser = @This();
 
@@ -28,6 +30,8 @@ pub fn next(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !?Val {
     }
 }
 
+/// Parses a list expression, consuming tokens until a matching `)` is found.
+/// Assumes the initial `(` has already been consumed.
 fn nextExpr(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !Val {
     var vals = std.ArrayList(Val).init(allocator);
     defer vals.deinit();
@@ -47,12 +51,15 @@ fn nextExpr(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !Val {
     return error.ParseError;
 }
 
+/// Converts a string identifier into a Lisp Object.
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     const symbol = Symbol.init(identifier);
     const interned_symbol = try symbol.intern(vm.allocator, &vm.string_interner);
     return Val.from(interned_symbol);
 }
 
+/// Recursively constructs a Lisp list (a chain of `ConsCell`s) from a slice of
+/// `Val`s.
 fn listToVal(list: []const Val, vm: *Vm) !Val {
     if (list.len == 0) return Val.from({});
     const head = list[0];
@@ -69,12 +76,12 @@ test SexpParser {
     try std.testing.expectFmt(
         "(+ 1 2)",
         "{}",
-        .{(try sexp_parser.next(testing.allocator, &vm)).?.prettyPrinter(&vm)},
+        .{PrettyPrinter.init(&vm, (try sexp_parser.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectFmt(
         "(- 1 2)",
         "{}",
-        .{(try sexp_parser.next(testing.allocator, &vm)).?.prettyPrinter(&vm)},
+        .{PrettyPrinter.init(&vm, (try sexp_parser.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectEqualDeep(
         null,

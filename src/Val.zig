@@ -5,30 +5,38 @@ const testing = std.testing;
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
-const ValPrettyPrinter = @import("ValPrettyPrinter.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 const Vm = @import("Vm.zig");
 
 const Val = @This();
 
+/// The internal representation of the `Val` object. This is optimized to be
+/// small.
 repr: Repr,
 
-pub const ToValError = error{WrongType};
+/// Create a new `Val` from its internal representation. For internal use only.
+fn init(repr: Repr) Val {
+    return .{ .repr = repr };
+}
 
 /// Create a new `Val` from a given value, deducing its type.
 /// Supports `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
 pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
-        void => return initRepr(Repr.newNil()),
-        i64, comptime_int => return initRepr(Repr.newInt(val)),
-        f64, comptime_float => return initRepr(Repr.newFloat(val)),
-        Symbol.Interned => return initRepr(Repr.newSymbol(val)),
-        Handle(ConsCell) => return initRepr(Repr.newCons(val)),
+        void => return init(Repr.newNil()),
+        i64, comptime_int => return init(Repr.newInt(val)),
+        f64, comptime_float => return init(Repr.newFloat(val)),
+        Symbol.Interned => return init(Repr.newSymbol(val)),
+        Handle(ConsCell) => return init(Repr.newCons(val)),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
+
+/// An error that occurs when converting a Zig object into a Spore object.
+pub const ToValError = error{WrongType};
 
 /// Convert `Val` into a value of type `T`.
 /// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
@@ -62,28 +70,23 @@ pub fn to(self: Val, T: type) ToValError!T {
     }
 }
 
-/// Formats self implementing the `std.fmt.Format` interface. Prefer using the
-/// object returned by `prettyPrinter`.
+/// Formats self implementing the `std.fmt.Format` interface. Prefer using
+/// `PrettyPrinter` for more readable formatting.
 pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     try self.repr.format(fmt, options, writer);
 }
 
-/// Return an object that pretty prints when formatted.
-pub fn prettyPrinter(self: Val, vm: *const Vm) ValPrettyPrinter {
-    return .{ .vm = vm, .val = self };
-}
-
-/// Create a new `Val` from its internal representation. For internal use only.
-fn initRepr(repr: Repr) Val {
-    return .{ .repr = repr };
-}
-
 /// The internal representation of a value.
 pub const Repr = union(enum) {
+    /// The `nil` value. This is equivalent to an empty list.
     nil,
+    /// An integer.
     int: i64,
+    /// A floating point number.
     float: f64,
+    /// A symbol. Interned to keep the size of `Repr` small.
     symbol: Symbol.Interned,
+    /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
     cons: Handle(ConsCell),
 
     /// Create a new `Repr` that holds a nil value.
@@ -130,6 +133,10 @@ pub const Repr = union(enum) {
         }
     }
 };
+
+test "Val is small" {
+    try testing.expectEqual(2 * @sizeOf(usize), @sizeOf(Val));
+}
 
 test "Val.to nil/void" {
     const nil_val = Val.from({});

@@ -102,11 +102,26 @@ test "empty string has no tokens" {
 
 test "s-expression returns each token" {
     var tokenizer = Tokenizer.init("(+ one 2)");
-    try testing.expectEqualDeep(Token{ .start = 0, .end = 1, .token_type = .open_paren }, tokenizer.next());
-    try testing.expectEqualDeep(Token{ .start = 1, .end = 2, .token_type = .identifier }, tokenizer.next());
-    try testing.expectEqualDeep(Token{ .start = 3, .end = 6, .token_type = .identifier }, tokenizer.next());
-    try testing.expectEqualDeep(Token{ .start = 7, .end = 8, .token_type = .identifier }, tokenizer.next());
-    try testing.expectEqualDeep(Token{ .start = 8, .end = 9, .token_type = .close_paren }, tokenizer.next());
+    try testing.expectEqualDeep(
+        Token{ .start = 0, .end = 1, .token_type = .open_paren },
+        tokenizer.next(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .start = 1, .end = 2, .token_type = .identifier },
+        tokenizer.next(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .start = 3, .end = 6, .token_type = .identifier },
+        tokenizer.next(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .start = 7, .end = 8, .token_type = .identifier },
+        tokenizer.next(),
+    );
+    try testing.expectEqualDeep(
+        Token{ .start = 8, .end = 9, .token_type = .close_paren },
+        tokenizer.next(),
+    );
     try testing.expectEqualDeep(null, tokenizer.next());
 }
 
