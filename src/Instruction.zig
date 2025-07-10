@@ -15,6 +15,8 @@ repr: Repr,
 pub const Repr = union(enum) {
     /// Push a new value onto the stack.
     push: Val,
+    /// Evaluate the top n values of the stack as a function call.
+    eval: usize,
 };
 
 /// Intialize an instruction from its internal representation.
@@ -26,6 +28,7 @@ pub fn init(repr: Repr) Instruction {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
+        .eval => return error.NotImplemented,
     }
 }
 
