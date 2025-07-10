@@ -22,11 +22,6 @@ pub fn ObjectPool(comptime T: type) type {
         /// The list of objects stored in the pool.
         objects: std.ArrayListUnmanaged(T) = .{},
 
-        /// Create a new `ObjectPool`.
-        pub fn init() Self {
-            return .{};
-        }
-
         /// Deinitialize `self`, freeing all allocated resources.
         /// This must be called when the pool is no longer needed.
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -55,7 +50,7 @@ pub fn ObjectPool(comptime T: type) type {
 }
 
 test "create object can be returned with get" {
-    var pool = ObjectPool(usize).init();
+    var pool = ObjectPool(usize){};
     defer pool.deinit(testing.allocator);
     _ = try pool.create(testing.allocator, 1);
     const id = try pool.create(testing.allocator, 10);

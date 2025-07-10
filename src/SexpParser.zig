@@ -57,7 +57,7 @@ fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.from(x);
     if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.from(x);
     const symbol = Symbol.init(identifier);
-    const interned_symbol = try symbol.intern(vm.allocator, &vm.string_interner);
+    const interned_symbol = try symbol.intern(vm.heap.allocator, &vm.heap.string_interner);
     return Val.from(interned_symbol);
 }
 
@@ -68,7 +68,7 @@ fn listToVal(list: []const Val, vm: *Vm) !Val {
     const head = list[0];
     const tail = try listToVal(list[1..], vm);
     const cons = ConsCell.init(head, tail);
-    const cons_handle = try vm.cons_cells.create(vm.allocator, cons);
+    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons);
     return Val.from(cons_handle);
 }
 

@@ -59,7 +59,7 @@ fn compileCons(self: *Compiler, cons: Handle(ConsCell), instructions: *std.Array
     while (next_val) |val| {
         switch (val.repr) {
             .cons => |h| {
-                const cell = try self.vm.cons_cells.get(h);
+                const cell = try self.vm.heap.cons_cells.get(h);
                 try self.compileImpl(cell.car, instructions);
                 next_val = cell.cdr;
                 items += 1;
@@ -103,7 +103,7 @@ test "compile simple list" {
             .{ .push = Val.from(
                 try Symbol.init("plus").intern(
                     testing.allocator,
-                    &vm.string_interner,
+                    &vm.heap.string_interner,
                 ),
             ) },
         ),
@@ -117,7 +117,7 @@ test "compile simple list" {
 test compile {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try Symbol.init("plus").intern(testing.allocator, &vm.string_interner);
+    const plus_sym = try Symbol.init("plus").intern(testing.allocator, &vm.heap.string_interner);
     var compiler = init(testing.allocator, &vm);
     var parser = SexpParser.init("(plus 1 (plus 2 3))");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;

@@ -55,11 +55,11 @@ pub fn format(
         .int => |x| try writer.print("{}", .{x}),
         .float => |x| try writer.print("{d}", .{x}),
         .symbol => |x| {
-            const symbol = try x.get(self.vm.string_interner);
+            const symbol = try x.get(self.vm.heap.string_interner);
             try writer.print("{}", .{symbol});
         },
         .cons => |handle| {
-            const cons = try self.vm.cons_cells.get(handle);
+            const cons = try self.vm.heap.cons_cells.get(handle);
             try formatCons(cons, self.vm, writer);
         },
     }
@@ -74,7 +74,7 @@ fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
     switch (cdr.repr) {
         .nil => try writer.print(")", .{}),
         .cons => |handle| {
-            const next = try vm.cons_cells.get(handle);
+            const next = try vm.heap.cons_cells.get(handle);
             try writer.print(" {}", .{init(vm, next.car)});
             try formatCdr(next.cdr, vm, writer);
         },
@@ -94,8 +94,8 @@ test "pretty print cons pair" {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
     const cons = Val.from(
-        try vm.cons_cells.create(
-            vm.allocator,
+        try vm.heap.cons_cells.create(
+            vm.heap.allocator,
             ConsCell.init(Val.from(1), Val.from(2)),
         ),
     );
@@ -106,8 +106,8 @@ test "pretty print cons list" {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
     const cons = Val.from(
-        try vm.cons_cells.create(
-            vm.allocator,
+        try vm.heap.cons_cells.create(
+            vm.heap.allocator,
             ConsCell.init(Val.from(1), Val.from({})),
         ),
     );

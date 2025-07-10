@@ -160,7 +160,7 @@ test "Val.to Symbol.Interned" {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.string_interner);
+    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
     const symbol_val = Val.from(symbol);
     try testing.expectEqual(symbol, try symbol_val.to(Symbol.Interned));
     try testing.expectError(ToValError.WrongType, symbol_val.to(i64));
@@ -170,8 +170,8 @@ test "Val.to Handle(ConsCell)" {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const handle = try vm.cons_cells.create(
-        vm.allocator,
+    const handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
         ConsCell.init(Val.from(1), Val.from(2)),
     );
     const cons_val = Val.from(handle);
