@@ -53,6 +53,9 @@ fn nextExpr(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !Val {
 
 /// Converts a string identifier into a Lisp Object.
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
+    if (std.mem.eql(u8, identifier, "nil")) return Val.from({});
+    if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.from(x);
+    if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.from(x);
     const symbol = Symbol.init(identifier);
     const interned_symbol = try symbol.intern(vm.allocator, &vm.string_interner);
     return Val.from(interned_symbol);
@@ -101,4 +104,34 @@ test "unexpected close produces error" {
     defer vm.deinit();
     var sexp_parser = SexpParser.init("  ) ()");
     try std.testing.expectError(error.ParseError, sexp_parser.next(testing.allocator, &vm));
+}
+
+test "parse nil" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    var sexp_parser = SexpParser.init("nil");
+    try std.testing.expectEqualDeep(
+        Val.from({}),
+        try sexp_parser.next(testing.allocator, &vm),
+    );
+}
+
+test "parse integer" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    var sexp_parser = SexpParser.init("-1");
+    try std.testing.expectEqualDeep(
+        Val.from(-1),
+        try sexp_parser.next(testing.allocator, &vm),
+    );
+}
+
+test "parse float" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    var sexp_parser = SexpParser.init("3.14");
+    try std.testing.expectEqualDeep(
+        Val.from(3.14),
+        try sexp_parser.next(testing.allocator, &vm),
+    );
 }
