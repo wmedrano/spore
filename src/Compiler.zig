@@ -44,8 +44,11 @@ pub fn compile(self: *Compiler, val: Val) ![]Instruction {
 
 fn compileImpl(self: *Compiler, val: Val, instructions: *std.ArrayList(Instruction)) CompileError!void {
     switch (val.repr) {
-        .nil, .int, .float, .symbol => {
+        .nil, .int, .float => {
             try instructions.append(Instruction.init(.{ .push = val }));
+        },
+        .symbol => |s| {
+            try instructions.append(Instruction.init(.{ .get = s }));
         },
         .cons => |cons_handle| {
             try self.compileCons(cons_handle, instructions);
@@ -94,19 +97,16 @@ test "compile simple list" {
     var compiler = init(testing.allocator, &vm);
     var parser = SexpParser.init("(plus 1 2)");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+    const plus_sym = try Symbol.init("plus").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
 
     const instructions = try compiler.compile(parsed_val);
     defer testing.allocator.free(instructions);
 
     const expected = [_]Instruction{
-        Instruction.init(
-            .{ .push = Val.from(
-                try Symbol.init("plus").intern(
-                    testing.allocator,
-                    &vm.heap.string_interner,
-                ),
-            ) },
-        ),
+        Instruction.init(.{ .get = plus_sym }),
         Instruction.init(.{ .push = Val.from(1) }),
         Instruction.init(.{ .push = Val.from(2) }),
         Instruction.init(.{ .eval = 3 }),
@@ -117,7 +117,10 @@ test "compile simple list" {
 test compile {
     var vm = Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try Symbol.init("plus").intern(testing.allocator, &vm.heap.string_interner);
+    const plus_sym = try Symbol.init("plus").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
     var compiler = init(testing.allocator, &vm);
     var parser = SexpParser.init("(plus 1 (plus 2 3))");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
@@ -126,9 +129,9 @@ test compile {
     defer testing.allocator.free(instructions);
 
     const expected = [_]Instruction{
-        Instruction.init(.{ .push = Val.from(plus_sym) }),
+        Instruction.init(.{ .get = plus_sym }),
         Instruction.init(.{ .push = Val.from(1) }),
-        Instruction.init(.{ .push = Val.from(plus_sym) }),
+        Instruction.init(.{ .get = plus_sym }),
         Instruction.init(.{ .push = Val.from(2) }),
         Instruction.init(.{ .push = Val.from(3) }),
         Instruction.init(.{ .eval = 3 }),

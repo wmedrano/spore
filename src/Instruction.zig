@@ -5,6 +5,7 @@ const testing = std.testing;
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const Symbol = @import("datastructures/Symbol.zig");
 
 const Instruction = @This();
 
@@ -15,6 +16,8 @@ repr: Repr,
 pub const Repr = union(enum) {
     /// Push a new value onto the stack.
     push: Val,
+    /// Get the value of the symbol and push it on the stack.
+    get: Symbol.Interned,
     /// Evaluate the top n values of the stack as a function call.
     eval: usize,
 };
@@ -28,6 +31,7 @@ pub fn init(repr: Repr) Instruction {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
+        .get => return error.NotImplemented,
         .eval => return error.NotImplemented,
     }
 }
