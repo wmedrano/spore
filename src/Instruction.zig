@@ -31,7 +31,10 @@ pub fn init(repr: Repr) Instruction {
 pub fn execute(self: Instruction, vm: *Vm) !void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
-        .get => return error.NotImplemented,
+        .get => |s| {
+            const val = vm.execution_context.getGlobal(s) orelse return error.SymbolNotFound;
+            try vm.execution_context.pushVal(val);
+        },
         .eval => return error.NotImplemented,
     }
 }
@@ -44,6 +47,21 @@ test "push val pushes to stack" {
 
     try testing.expectFmt(
         "42 43",
+        "{}",
+        .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack())},
+    );
+}
+
+test "get symbol pushes value referred to by symbol onto stack" {
+    var vm = Vm.init(testing.allocator);
+    defer vm.deinit();
+    const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
+    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.from(123));
+
+    try init(.{ .get = symbol }).execute(&vm);
+
+    try testing.expectFmt(
+        "123",
         "{}",
         .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack())},
     );

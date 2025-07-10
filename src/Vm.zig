@@ -28,5 +28,6 @@ pub fn init(allocator: std.mem.Allocator) Vm {
 
 /// Deinitialize the VM.
 pub fn deinit(self: *Vm) void {
+    self.execution_context.deinit(self.heap.allocator);
     self.heap.deinit();
 }
