@@ -3,6 +3,7 @@ const std = @import("std");
 const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
 const StringInterner = @import("datastructures/StringInterner.zig");
+const Function = @import("Function.zig");
 
 const Heap = @This();
 
@@ -12,16 +13,19 @@ allocator: std.mem.Allocator,
 /// symbols through `Symbols.intern`.
 string_interner: StringInterner,
 /// Stores all cons cell objects.
-cons_cells: ObjectPool(ConsCell),
+cons_cells: ObjectPool(ConsCell) = .{},
+/// Stores all function objects.
+functions: ObjectPool(Function) = .{},
 
+/// Initializes the heap, preparing it for allocations.
 pub fn init(allocator: std.mem.Allocator) Heap {
     return .{
         .allocator = allocator,
         .string_interner = StringInterner.init(allocator),
-        .cons_cells = .{},
     };
 }
 
+/// Deinitializes the heap, freeing all memory used by the objects it contains.
 pub fn deinit(self: *Heap) void {
     self.string_interner.deinit(self.allocator);
     self.cons_cells.deinit(self.allocator);

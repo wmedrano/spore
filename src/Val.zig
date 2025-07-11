@@ -5,6 +5,7 @@ const testing = std.testing;
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
+const Function = @import("Function.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Vm = @import("Vm.zig");
 
@@ -31,6 +32,9 @@ pub fn from(val: anytype) Val {
         Handle(ConsCell) => return init(Repr.newCons(val)),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
+        Handle(Function) => return init(Repr.newFunction(val)),
+        Function => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(Function)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -66,6 +70,10 @@ pub fn to(self: Val, T: type) ToValError!T {
         },
         ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell))),
+        Handle(Function) => switch (self.repr) {
+            .function => |x| return x,
+            else => return ToValError.WrongType,
+        },
         else => @compileError("Unsupported type for Val.to: " ++ @typeName(T)),
     }
 }
@@ -88,6 +96,8 @@ pub const Repr = union(enum) {
     symbol: Symbol.Interned,
     /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
     cons: Handle(ConsCell),
+    /// A function. Stored as a handle to keep the size of `Repr` small.
+    function: Handle(Function),
 
     /// Create a new `Repr` that holds a nil value.
     pub fn newNil() Repr {
@@ -114,6 +124,11 @@ pub const Repr = union(enum) {
         return .{ .cons = handle };
     }
 
+    /// Create a new `Repr` that holds a Function handle.
+    pub fn newFunction(handle: Handle(Function)) Repr {
+        return .{ .function = handle };
+    }
+
     /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
     /// interface.
     pub fn format(
@@ -130,6 +145,7 @@ pub const Repr = union(enum) {
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("(symbol @{})", .{x}),
             .cons => |handle| try writer.print("(cons @{})", .{handle.id}),
+            .function => |handle| try writer.print("(function @{})", .{handle.id}),
         }
     }
 };

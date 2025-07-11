@@ -3,6 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const ConsCell = @import("ConsCell.zig");
+const Function = @import("Function.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -61,6 +62,10 @@ pub fn format(
         .cons => |handle| {
             const cons = try self.vm.heap.cons_cells.get(handle);
             try formatCons(cons, self.vm, writer);
+        },
+        .function => |handle| {
+            const func = try self.vm.heap.functions.get(handle);
+            try writer.print("{any}", .{func});
         },
     }
 }

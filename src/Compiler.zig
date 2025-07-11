@@ -44,7 +44,7 @@ pub fn compile(self: *Compiler, val: Val) ![]Instruction {
 
 fn compileImpl(self: *Compiler, val: Val, instructions: *std.ArrayList(Instruction)) CompileError!void {
     switch (val.repr) {
-        .nil, .int, .float => {
+        .nil, .int, .float, .function => {
             try instructions.append(Instruction.init(.{ .push = val }));
         },
         .symbol => |s| {

@@ -5,8 +5,8 @@ const testing = std.testing;
 ///
 /// It primarily stores the index (`id`) of the object in the pool.
 pub fn Handle(comptime T: type) type {
-    _ = T;
     return struct {
+        const _ = T;
         id: u32,
     };
 }
