@@ -3,10 +3,10 @@ const testing = std.testing;
 
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
+const Instruction = @import("Instruction.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const Instruction = @import("Instruction.zig");
 
 /// Manages the execution state of the VM, including the data stack.
 const ExecutionContext = @This();
@@ -124,7 +124,7 @@ test "pop empty stack returns stack underflow" {
 }
 
 test "getGlobal on non-existant symbol returns null" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const symbol = try Symbol.init("my-var").intern(
         vm.heap.allocator,
@@ -138,7 +138,7 @@ test "getGlobal on non-existant symbol returns null" {
 }
 
 test "getGlobal on symbol registered with setGlobal returns that symbol" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.from(123));

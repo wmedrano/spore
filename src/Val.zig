@@ -5,7 +5,7 @@ const testing = std.testing;
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
-const Function = @import("Function.zig");
+const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Vm = @import("Vm.zig");
 
@@ -32,9 +32,9 @@ pub fn from(val: anytype) Val {
         Handle(ConsCell) => return init(Repr.newCons(val)),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
-        Handle(Function) => return init(Repr.newFunction(val)),
-        Function => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(Function)) ++ ")"),
+        Handle(NativeFunction) => return init(Repr.newNativeFunction(val)),
+        NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -70,7 +70,7 @@ pub fn to(self: Val, T: type) ToValError!T {
         },
         ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell))),
-        Handle(Function) => switch (self.repr) {
+        Handle(NativeFunction) => switch (self.repr) {
             .function => |x| return x,
             else => return ToValError.WrongType,
         },
@@ -97,7 +97,7 @@ pub const Repr = union(enum) {
     /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
     cons: Handle(ConsCell),
     /// A function. Stored as a handle to keep the size of `Repr` small.
-    function: Handle(Function),
+    function: Handle(NativeFunction),
 
     /// Create a new `Repr` that holds a nil value.
     pub fn newNil() Repr {
@@ -124,8 +124,8 @@ pub const Repr = union(enum) {
         return .{ .cons = handle };
     }
 
-    /// Create a new `Repr` that holds a Function handle.
-    pub fn newFunction(handle: Handle(Function)) Repr {
+    /// Create a new `Repr` that holds a NativeFunction handle.
+    pub fn newNativeFunction(handle: Handle(NativeFunction)) Repr {
         return .{ .function = handle };
     }
 
@@ -173,7 +173,7 @@ test "Val.to f64" {
 }
 
 test "Val.to Symbol.Interned" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
@@ -183,7 +183,7 @@ test "Val.to Symbol.Interned" {
 }
 
 test "Val.to Handle(ConsCell)" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     const handle = try vm.heap.cons_cells.create(

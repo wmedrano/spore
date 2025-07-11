@@ -3,10 +3,10 @@ const testing = std.testing;
 
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const Function = @import("Function.zig");
+const NativeFunction = @import("NativeFunction.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 
-fn addFunctionImpl(vm: *Vm) Function.Error!Val {
+fn addFunctionImpl(vm: *Vm) NativeFunction.Error!Val {
     var int_sum: i64 = 0;
     var float_sum: f64 = 0.0;
     var has_float = false;
@@ -17,7 +17,7 @@ fn addFunctionImpl(vm: *Vm) Function.Error!Val {
                 has_float = true;
                 float_sum += x;
             },
-            else => return Function.Error.TypeError,
+            else => return NativeFunction.Error.TypeError,
         }
     }
     if (has_float) {
@@ -30,7 +30,7 @@ fn addFunctionImpl(vm: *Vm) Function.Error!Val {
 /// A native function that adds all values on the local stack. It can handle
 /// integers, floats, or a mix of both. If any floats are present, the result
 /// will be a float.
-pub const AddFunction = Function{
+pub const AddFunction = NativeFunction{
     .name = "+",
     .docstring = "Adds all values on the local stack. It can handle integers, " ++
         "floats, or a mix of both. If any floats are present, the result will be a float.",
@@ -38,7 +38,7 @@ pub const AddFunction = Function{
 };
 
 test "+ sums integers" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2), Val.from(3) });
@@ -47,7 +47,7 @@ test "+ sums integers" {
 }
 
 test "+ sums floats" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     try vm.execution_context.pushVals(&.{ Val.from(1.5), Val.from(2.5), Val.from(3.5) });
@@ -56,7 +56,7 @@ test "+ sums floats" {
 }
 
 test "+ sums mixed integers and floats and returns float" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2.5), Val.from(3) });
@@ -65,10 +65,10 @@ test "+ sums mixed integers and floats and returns float" {
 }
 
 test "+ returns TypeError for non-numeric values" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
     try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(symbol) });
-    try testing.expectError(Function.Error.TypeError, AddFunction.call(&vm));
+    try testing.expectError(NativeFunction.Error.TypeError, AddFunction.call(&vm));
 }

@@ -3,7 +3,7 @@ const std = @import("std");
 const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
 const StringInterner = @import("datastructures/StringInterner.zig");
-const Function = @import("Function.zig");
+const NativeFunction = @import("NativeFunction.zig");
 
 const Heap = @This();
 
@@ -15,7 +15,7 @@ string_interner: StringInterner,
 /// Stores all cons cell objects.
 cons_cells: ObjectPool(ConsCell) = .{},
 /// Stores all function objects.
-functions: ObjectPool(Function) = .{},
+functions: ObjectPool(NativeFunction) = .{},
 
 /// Initializes the heap, preparing it for allocations.
 pub fn init(allocator: std.mem.Allocator) Heap {
@@ -29,4 +29,5 @@ pub fn init(allocator: std.mem.Allocator) Heap {
 pub fn deinit(self: *Heap) void {
     self.string_interner.deinit(self.allocator);
     self.cons_cells.deinit(self.allocator);
+    self.functions.deinit(self.allocator);
 }

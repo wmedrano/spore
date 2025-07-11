@@ -19,11 +19,14 @@ execution_context: ExecutionContext,
 heap: Heap,
 
 /// Create a new VM.
-pub fn init(allocator: std.mem.Allocator) Vm {
-    return .{
+pub fn init(allocator: std.mem.Allocator) !Vm {
+    var vm = Vm{
         .execution_context = .{},
         .heap = Heap.init(allocator),
     };
+    const builtins = @import("builtins.zig");
+    try builtins.AddFunction.register(&vm);
+    return vm;
 }
 
 /// Deinitialize the VM.

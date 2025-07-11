@@ -1,8 +1,9 @@
 const std = @import("std");
 const Vm = @import("Vm.zig");
 const Val = @import("Val.zig");
+const Symbol = @import("datastructures/Symbol.zig");
 
-const Function = @This();
+const NativeFunction = @This();
 
 /// An error that can occur when calling a function.
 pub const Error = error{
@@ -21,12 +22,14 @@ ptr: *const fn (*Vm) Error!Val,
 
 /// Call the function. The arguments for the function are assumed to be on the
 /// local stack of the current call frame.
-pub fn call(self: Function, vm: *Vm) Error!Val {
+pub fn call(self: NativeFunction, vm: *Vm) Error!Val {
     return self.ptr(vm);
 }
 
+/// Formats the `NativeFunction` for printing, implementing the `std.fmt.Format`
+/// interface.
 pub fn format(
-    self: Function,
+    self: NativeFunction,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
@@ -34,4 +37,17 @@ pub fn format(
     _ = fmt;
     _ = options;
     try writer.print("@nativefunction-{s}", .{self.name});
+}
+
+/// Add the function to a `Vm`'s global namespace.
+pub fn register(self: NativeFunction, vm: *Vm) !void {
+    const function_handle = try vm.heap.functions.create(vm.heap.allocator, self);
+    const function_val = Val.from(function_handle);
+
+    const symbol = try Symbol.init(self.name).intern(
+        vm.heap.allocator,
+        &vm.heap.string_interner,
+    );
+
+    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, function_val);
 }

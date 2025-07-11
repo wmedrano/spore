@@ -3,7 +3,6 @@ const std = @import("std");
 const testing = std.testing;
 
 const ConsCell = @import("ConsCell.zig");
-const Function = @import("Function.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -88,7 +87,7 @@ fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
 }
 
 test format {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectFmt("nil", "{}", .{PrettyPrinter.init(&vm, Val.from({}))});
     try testing.expectFmt("45", "{}", .{PrettyPrinter.init(&vm, Val.from(45))});
@@ -96,7 +95,7 @@ test format {
 }
 
 test "pretty print cons pair" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const cons = Val.from(
         try vm.heap.cons_cells.create(
@@ -108,7 +107,7 @@ test "pretty print cons pair" {
 }
 
 test "pretty print cons list" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const cons = Val.from(
         try vm.heap.cons_cells.create(

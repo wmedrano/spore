@@ -78,7 +78,7 @@ fn compileCons(self: *Compiler, cons: Handle(ConsCell), instructions: *std.Array
 }
 
 test "compile atom" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var compiler = init(testing.allocator, &vm);
 
@@ -92,7 +92,7 @@ test "compile atom" {
 }
 
 test "compile simple list" {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var compiler = init(testing.allocator, &vm);
     var parser = SexpParser.init("(plus 1 2)");
@@ -115,7 +115,7 @@ test "compile simple list" {
 }
 
 test compile {
-    var vm = Vm.init(testing.allocator);
+    var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const plus_sym = try Symbol.init("plus").intern(
         testing.allocator,
