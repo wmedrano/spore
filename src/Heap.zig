@@ -17,7 +17,7 @@ cons_cells: ObjectPool(ConsCell),
 pub fn init(allocator: std.mem.Allocator) Heap {
     return .{
         .allocator = allocator,
-        .string_interner = StringInterner.init(),
+        .string_interner = StringInterner.init(allocator),
         .cons_cells = .{},
     };
 }

@@ -1,6 +1,7 @@
 //! Produce interned strings. Using interned strings may improve performance by
 //! saving memory and making string comparisons cheaper.
 const std = @import("std");
+const testing = std.testing;
 
 const StringInterner = @This();
 
@@ -19,8 +20,10 @@ string_to_interned: std.StringHashMapUnmanaged(Interned) = .{},
 interned_to_string: std.ArrayListUnmanaged([]const u8) = .{},
 
 /// Initializes a new `StringInterner`.
-pub fn init() StringInterner {
-    return .{ .allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator) };
+///
+/// `allocator` will be used to initialize the arena for interned strings.
+pub fn init(allocator: std.mem.Allocator) StringInterner {
+    return .{ .allocator = std.heap.ArenaAllocator.init(allocator) };
 }
 
 /// Deinitializes the `StringInterner`, freeing all allocated resources.
@@ -56,26 +59,26 @@ pub fn toString(self: StringInterner, interned: Interned) ?[]const u8 {
 }
 
 test "interned strings are equal" {
-    var string_interner = StringInterner.init();
-    defer string_interner.deinit(std.testing.allocator);
-    const interned_a = try string_interner.intern(std.testing.allocator, "interned");
-    const interned_b = try string_interner.intern(std.testing.allocator, "interned");
-    try std.testing.expectEqualDeep(interned_a, interned_b);
+    var string_interner = StringInterner.init(testing.allocator);
+    defer string_interner.deinit(testing.allocator);
+    const interned_a = try string_interner.intern(testing.allocator, "interned");
+    const interned_b = try string_interner.intern(testing.allocator, "interned");
+    try testing.expectEqualDeep(interned_a, interned_b);
 }
 
 test "different strings are not equal" {
-    var string_interner = StringInterner.init();
-    defer string_interner.deinit(std.testing.allocator);
-    const interned_a = try string_interner.intern(std.testing.allocator, "interned_a");
-    const interned_b = try string_interner.intern(std.testing.allocator, "interned_b");
-    try std.testing.expect(!std.meta.eql(interned_a, interned_b));
+    var string_interner = StringInterner.init(testing.allocator);
+    defer string_interner.deinit(testing.allocator);
+    const interned_a = try string_interner.intern(testing.allocator, "interned_a");
+    const interned_b = try string_interner.intern(testing.allocator, "interned_b");
+    try testing.expect(!std.meta.eql(interned_a, interned_b));
 }
 
 test "interned string can convert back to string" {
-    var string_interner = StringInterner.init();
-    defer string_interner.deinit(std.testing.allocator);
-    const interned_a = try string_interner.intern(std.testing.allocator, "interned_a");
-    const interned_b = try string_interner.intern(std.testing.allocator, "interned_b");
-    try std.testing.expectEqualStrings(string_interner.toString(interned_a).?, "interned_a");
-    try std.testing.expectEqualStrings(string_interner.toString(interned_b).?, "interned_b");
+    var string_interner = StringInterner.init(testing.allocator);
+    defer string_interner.deinit(testing.allocator);
+    const interned_a = try string_interner.intern(testing.allocator, "interned_a");
+    const interned_b = try string_interner.intern(testing.allocator, "interned_b");
+    try testing.expectEqualStrings(string_interner.toString(interned_a).?, "interned_a");
+    try testing.expectEqualStrings(string_interner.toString(interned_b).?, "interned_b");
 }

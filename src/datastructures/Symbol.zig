@@ -25,6 +25,13 @@ pub const Interned = struct {
         const symbol_str = string_interner.toString(self.symbol) orelse return error.SymbolNotFound;
         return .{ .symbol = symbol_str };
     }
+
+    /// Formats self implementing the `std.fmt.Format` interface.
+    pub fn format(self: Interned, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("@symbol-{}", .{self.symbol.id});
+    }
 };
 
 /// Initialize a new symbol from `s`.
