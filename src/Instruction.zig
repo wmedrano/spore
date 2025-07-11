@@ -48,7 +48,7 @@ test "push val pushes to stack" {
     try testing.expectFmt(
         "42 43",
         "{}",
-        .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack())},
+        .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack.constSlice())},
     );
 }
 
@@ -63,6 +63,6 @@ test "get symbol pushes value referred to by symbol onto stack" {
     try testing.expectFmt(
         "123",
         "{}",
-        .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack())},
+        .{PrettyPrinter.initSlice(&vm, vm.execution_context.stack.constSlice())},
     );
 }
