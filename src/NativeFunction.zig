@@ -11,7 +11,7 @@ pub const Error = error{
     WrongArity,
     /// An argument to the function had an incorrect type.
     TypeError,
-};
+} || std.mem.Allocator.Error;
 
 /// The name of the function.
 name: []const u8,

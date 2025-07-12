@@ -61,7 +61,7 @@ fn executeEval(vm: *Vm, n: usize) !void {
             vm.execution_context.stack.set(function_idx, result);
             _ = vm.execution_context.call_frames.pop() orelse return error.StackUnderflow;
         },
-        else => return error.WrongType,
+        else => return error.TypeError,
     }
 }
 
@@ -108,12 +108,12 @@ test "eval calls function" {
     );
 }
 
-test "eval on non function produces WrongTypeError" {
+test "eval on non function produces TypeErrorError" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try init(.{ .push = Val.from(123) }).execute(&vm);
     try testing.expectError(
-        error.WrongType,
+        error.TypeError,
         init(.{ .eval = 1 }).execute(&vm),
     );
 }

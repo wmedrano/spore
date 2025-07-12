@@ -62,10 +62,11 @@ fn compileImpl(self: *Compiler, val: Val) CompileError!void {
             );
         },
         .symbol => |s| {
-            try self.instructions.append(
-                self.allocator,
-                Instruction.init(.{ .get = s }),
-            );
+            const instruction = if (s.unquote()) |interned_symbol|
+                Instruction.init(.{ .push = Val.from(interned_symbol) })
+            else
+                Instruction.init(.{ .get = s });
+            try self.instructions.append(self.allocator, instruction);
         },
         .cons => |cons_handle| try self.compileCons(cons_handle),
     }
@@ -138,7 +139,7 @@ test "compile simple list" {
     );
 }
 
-test add {
+test compile {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const plus_sym = try Symbol.init("plus").intern(
@@ -161,6 +162,30 @@ test add {
         Instruction.init(.{ .push = Val.from(3) }),
         Instruction.init(.{ .eval = 3 }),
         Instruction.init(.{ .eval = 3 }),
+    };
+    try testing.expectEqualDeep(
+        BytecodeFunction{ .instructions = &expected },
+        bytecode,
+    );
+}
+
+test "quoted symbol is unquoted" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const sym = try Symbol.init("sym").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
+    var compiler = init(testing.allocator, &vm);
+    var parser = try SexpParser.init("'sym");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+
+    try compiler.add(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const expected = [_]Instruction{
+        Instruction.init(.{ .push = Val.from(sym) }),
     };
     try testing.expectEqualDeep(
         BytecodeFunction{ .instructions = &expected },

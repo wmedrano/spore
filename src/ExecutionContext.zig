@@ -57,7 +57,7 @@ pub fn stackTopVal(self: ExecutionContext) ?Val {
 }
 
 /// Set a global value. `symbol` will refer to `val`.
-pub fn setGlobal(self: *ExecutionContext, allocator: std.mem.Allocator, symbol: Symbol.Interned, val: Val) !void {
+pub fn setGlobal(self: *ExecutionContext, allocator: std.mem.Allocator, symbol: Symbol.Interned, val: Val) std.mem.Allocator.Error!void {
     try self.global_values.put(allocator, symbol, val);
 }
 
