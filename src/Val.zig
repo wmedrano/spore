@@ -2,6 +2,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
@@ -35,6 +36,9 @@ pub fn from(val: anytype) Val {
         Handle(NativeFunction) => return init(Repr.newNativeFunction(val)),
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
+        Handle(BytecodeFunction) => return init(Repr.newBytecodeFunction(val)),
+        BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -71,7 +75,11 @@ pub fn to(self: Val, T: type) ToValError!T {
         ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell))),
         Handle(NativeFunction) => switch (self.repr) {
-            .function => |x| return x,
+            .native_function => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        Handle(BytecodeFunction) => switch (self.repr) {
+            .bytecode_function => |x| return x,
             else => return ToValError.WrongType,
         },
         else => @compileError("Unsupported type for Val.to: " ++ @typeName(T)),
@@ -96,8 +104,11 @@ pub const Repr = union(enum) {
     symbol: Symbol.Interned,
     /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
     cons: Handle(ConsCell),
-    /// A function. Stored as a handle to keep the size of `Repr` small.
-    function: Handle(NativeFunction),
+    /// A native_function. Stored as a handle to keep the size of `Repr` small.
+    native_function: Handle(NativeFunction),
+    /// A bytecode function. Stored as a handle to keep the size of `Repr`
+    /// small.
+    bytecode_function: Handle(BytecodeFunction),
 
     /// Create a new `Repr` that holds a nil value.
     pub fn newNil() Repr {
@@ -126,7 +137,12 @@ pub const Repr = union(enum) {
 
     /// Create a new `Repr` that holds a NativeFunction handle.
     pub fn newNativeFunction(handle: Handle(NativeFunction)) Repr {
-        return .{ .function = handle };
+        return .{ .native_function = handle };
+    }
+
+    /// Create a new `Repr` that holds a BytecodeFunction handle.
+    pub fn newBytecodeFunction(handle: Handle(BytecodeFunction)) Repr {
+        return .{ .bytecode_function = handle };
     }
 
     /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
@@ -143,9 +159,10 @@ pub const Repr = union(enum) {
             .nil => try writer.print("nil", .{}),
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
-            .symbol => |x| try writer.print("(symbol @{})", .{x}),
-            .cons => |handle| try writer.print("(cons @{})", .{handle.id}),
-            .function => |handle| try writer.print("(function @{})", .{handle.id}),
+            .symbol => |x| try writer.print("@symbol-{}", .{x}),
+            .cons => |handle| try writer.print("@cons-{}", .{handle.id}),
+            .native_function => |handle| try writer.print("@function-{}", .{handle.id}),
+            .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
         }
     }
 };

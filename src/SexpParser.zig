@@ -16,8 +16,25 @@ const SexpParser = @This();
 tokenizer: Tokenizer,
 
 /// Initialize a new `SexpParser`.
-pub fn init(source: []const u8) SexpParser {
+pub fn init(source: []const u8) !SexpParser {
+    try validateSource(source);
     return .{ .tokenizer = Tokenizer.init(source) };
+}
+
+fn validateSource(source: []const u8) !void {
+    var open_parens: i32 = 0;
+    var tokenizer = Tokenizer.init(source);
+    while (tokenizer.next()) |t| {
+        switch (t.token_type) {
+            .open_paren => open_parens += 1,
+            .close_paren => {
+                if (open_parens == 0) return error.ParseError;
+                open_parens -= 1;
+            },
+            else => {},
+        }
+    }
+    if (open_parens != 0) return error.ParseError;
 }
 
 /// Get the next s-expression or `null` if there are no more s-expressions.
@@ -75,7 +92,7 @@ fn listToVal(list: []const Val, vm: *Vm) !Val {
 test SexpParser {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("(+ 1 2) (- 1 2)");
+    var sexp_parser = try SexpParser.init("(+ 1 2) (- 1 2)");
     try std.testing.expectFmt(
         "(+ 1 2)",
         "{}",
@@ -95,21 +112,26 @@ test SexpParser {
 test "unclosed parenthesis produces error" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("(+ 1 2 (");
-    try std.testing.expectError(error.ParseError, sexp_parser.next(testing.allocator, &vm));
+    try std.testing.expectError(
+        error.ParseError,
+        SexpParser.init("(+ 1 2 ("),
+    );
 }
 
 test "unexpected close produces error" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("  ) ()");
-    try std.testing.expectError(error.ParseError, sexp_parser.next(testing.allocator, &vm));
+
+    try std.testing.expectError(
+        error.ParseError,
+        SexpParser.init("  ) ()"),
+    );
 }
 
 test "parse nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("nil");
+    var sexp_parser = try SexpParser.init("nil");
     try std.testing.expectEqualDeep(
         Val.from({}),
         try sexp_parser.next(testing.allocator, &vm),
@@ -119,7 +141,7 @@ test "parse nil" {
 test "parse integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("-1");
+    var sexp_parser = try SexpParser.init("-1");
     try std.testing.expectEqualDeep(
         Val.from(-1),
         try sexp_parser.next(testing.allocator, &vm),
@@ -129,7 +151,7 @@ test "parse integer" {
 test "parse float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = SexpParser.init("3.14");
+    var sexp_parser = try SexpParser.init("3.14");
     try std.testing.expectEqualDeep(
         Val.from(3.14),
         try sexp_parser.next(testing.allocator, &vm),

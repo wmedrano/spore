@@ -49,6 +49,13 @@ pub fn popVal(self: *ExecutionContext) !Val {
     return val;
 }
 
+/// Returns the value at the top of the stack without removing it, or `null` if
+/// the stack is empty.
+pub fn stackTopVal(self: ExecutionContext) ?Val {
+    if (self.stack.len == 0) return null;
+    return self.stack.buffer[self.stack.len - 1];
+}
+
 /// Set a global value. `symbol` will refer to `val`.
 pub fn setGlobal(self: *ExecutionContext, allocator: std.mem.Allocator, symbol: Symbol.Interned, val: Val) !void {
     try self.global_values.put(allocator, symbol, val);

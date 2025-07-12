@@ -1,3 +1,10 @@
+//! Implements a generic object pool for efficient storage and retrieval of
+//! objects.
+//!
+//! This module provides an `ObjectPool` data structure that allows for storing
+//! objects contiguously and accessing them via lightweight `Handle`s. It is
+//! designed for scenarios where frequent allocation and deallocation of objects
+//! can lead to performance overhead or fragmentation.
 const std = @import("std");
 const testing = std.testing;
 
@@ -8,6 +15,28 @@ pub fn Handle(comptime T: type) type {
     return struct {
         const _ = T;
         id: u32,
+    };
+}
+
+/// An iterator over the objects in an `ObjectPool`.
+pub fn Iterator(comptime T: type) type {
+    return struct {
+        const Self = @This();
+        /// The current index in the `items` array.
+        current_index: usize,
+        /// A slice of the objects in the pool.
+        items: []T,
+
+        /// Returns the next object in the iteration, or `null` if all objects
+        /// have been iterated.
+        pub fn next(self: *Self) ?*T {
+            if (self.current_index >= self.items.len) {
+                return null;
+            }
+            const obj = &self.items[self.current_index];
+            self.current_index += 1;
+            return obj;
+        }
     };
 }
 
@@ -46,6 +75,14 @@ pub fn ObjectPool(comptime T: type) type {
             if (idx >= self.objects.items.len) return error.ObjectNotFound;
             return self.objects.items[idx];
         }
+
+        /// Returns an iterator over the objects in the pool.
+        pub fn iter(self: Self) Iterator(T) {
+            return .{
+                .current_index = 0,
+                .items = self.objects.items,
+            };
+        }
     };
 }
 
@@ -57,4 +94,19 @@ test "create object can be returned with get" {
     _ = try pool.create(testing.allocator, 100);
 
     try testing.expectEqual(10, try pool.get(id));
+}
+
+test "iter iterates over all items in pool" {
+    var pool = ObjectPool(usize){};
+    defer pool.deinit(testing.allocator);
+
+    _ = try pool.create(testing.allocator, 10);
+    _ = try pool.create(testing.allocator, 20);
+    _ = try pool.create(testing.allocator, 30);
+
+    var iter = pool.iter();
+    try testing.expectEqual(10, iter.next().?.*);
+    try testing.expectEqual(20, iter.next().?.*);
+    try testing.expectEqual(30, iter.next().?.*);
+    try testing.expectEqual(null, iter.next());
 }

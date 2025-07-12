@@ -41,7 +41,7 @@ pub fn format(
 
 /// Add the function to a `Vm`'s global namespace.
 pub fn register(self: NativeFunction, vm: *Vm) !void {
-    const function_handle = try vm.heap.functions.create(vm.heap.allocator, self);
+    const function_handle = try vm.heap.native_functions.create(vm.heap.allocator, self);
     const function_val = Val.from(function_handle);
 
     const symbol = try Symbol.init(self.name).intern(

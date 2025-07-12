@@ -54,12 +54,12 @@ fn executeEval(vm: *Vm, n: usize) !void {
         .stack_start = function_idx + 1,
     }) catch return error.StackOverflow;
     switch (val.repr) {
-        .function => |handle| {
-            const function = try vm.heap.functions.get(handle);
+        .native_function => |handle| {
+            const function = try vm.heap.native_functions.get(handle);
             const result = try function.call(vm);
             try vm.execution_context.stack.resize(function_idx + 1);
             vm.execution_context.stack.set(function_idx, result);
-            vm.execution_context.call_frames.pop() orelse return error.StackUnderflow;
+            _ = vm.execution_context.call_frames.pop() orelse return error.StackUnderflow;
         },
         else => return error.WrongType,
     }
