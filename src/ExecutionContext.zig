@@ -66,21 +66,17 @@ pub fn getGlobal(self: ExecutionContext, symbol: Symbol.Interned) ?Val {
     return self.global_values.get(symbol);
 }
 
-/// Get the current call frame. If there are no active function calls, this
-/// returns a top-level call frame representing the global execution scope.
-pub fn currentCallFrame(self: ExecutionContext) CallFrame {
-    if (self.call_frames.len == 0) return .{
-        .instructions = &[_]Instruction{},
-        .instruction_index = 0,
-        .stack_start = 0,
-    };
-    return self.call_frames.get(self.call_frames.len - 1);
+/// Returns the current call frame, or `null` if there are no call frames.
+pub fn currentCallFrame(self: *ExecutionContext) ?*CallFrame {
+    if (self.call_frames.len == 0) return null;
+    return &self.call_frames.buffer[self.call_frames.len - 1];
 }
 
 /// Get the portion of the stack belonging to the current call frame. If in the
 /// global scope, this returns the entire stack.
 pub fn localStack(self: ExecutionContext) []const Val {
-    const call_frame = self.currentCallFrame();
+    if (self.call_frames.len == 0) return self.stack.constSlice();
+    const call_frame = self.call_frames.buffer[self.call_frames.len - 1];
     return self.stack.constSlice()[call_frame.stack_start..];
 }
 

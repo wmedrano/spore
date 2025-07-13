@@ -1,6 +1,6 @@
 //! Contains a single instruction for a `Vm` to execute.
 const std = @import("std");
-const testing = std.testing;
+const testing = @import("std").testing;
 
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -19,6 +19,11 @@ pub const Repr = union(enum) {
     push: Val,
     /// Get the value of the symbol and push it on the stack.
     get: Symbol.Interned,
+    /// Skip the next n instructions.
+    jump: usize,
+    /// Pop the top value of the stack and skip the next `n` instructions if the
+    /// value is truthy.
+    jump_if: usize,
     /// Evaluate the top n values of the stack as a function call.
     eval: usize,
 };
@@ -35,6 +40,17 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
         .get => |s| {
             const val = vm.execution_context.getGlobal(s) orelse return error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
+        },
+        .jump => |n| {
+            const call_frame = vm.execution_context.currentCallFrame() orelse return error.StackUnderflow;
+            call_frame.instruction_index += n;
+        },
+        .jump_if => |n| {
+            const val = vm.execution_context.stack.pop() orelse return error.StackUnderflow;
+            if (val.isTruthy()) {
+                const call_frame = vm.execution_context.currentCallFrame() orelse return error.StackUnderflow;
+                call_frame.instruction_index += n;
+            }
         },
         .eval => |n| try executeEval(vm, n),
     }
@@ -115,5 +131,83 @@ test "eval on non function produces TypeErrorError" {
     try testing.expectError(
         error.TypeError,
         init(.{ .eval = 1 }).execute(&vm),
+    );
+}
+
+test "jump instruction increments instruction_index in call frame" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try vm.execution_context.call_frames.append(.{
+        .instructions = &.{},
+        .instruction_index = 100,
+        .stack_start = 0,
+    });
+    try vm.execution_context.call_frames.append(.{
+        .instructions = &.{},
+        .instruction_index = 200,
+        .stack_start = 0,
+    });
+
+    try init(.{ .jump = 27 }).execute(&vm);
+    try testing.expectEqual(
+        227,
+        vm.execution_context.currentCallFrame().?.instruction_index,
+    );
+}
+
+test "jump with no call frame returns StackUnderflow" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectError(
+        error.StackUnderflow,
+        init(.{ .jump = 2 }).execute(&vm),
+    );
+}
+
+test "jump_if with truthy value pops value and increments instruction_index" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2) });
+    try vm.execution_context.call_frames.append(.{
+        .instructions = &.{},
+        .instruction_index = 100,
+        .stack_start = 0,
+    });
+
+    try init(.{ .jump_if = 20 }).execute(&vm);
+
+    try testing.expectEqualDeep(
+        &.{Val.from(1)},
+        vm.execution_context.stack.constSlice(),
+    );
+    try testing.expectEqual(
+        120,
+        vm.execution_context.currentCallFrame().?.instruction_index,
+    );
+}
+
+test "jump_if with falsey value pops value and does not increment instruction_index" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from({}) });
+    try vm.execution_context.call_frames.append(.{
+        .instructions = &.{},
+        .instruction_index = 100,
+        .stack_start = 0,
+    });
+
+    try init(.{ .jump_if = 20 }).execute(&vm);
+
+    try testing.expectEqualDeep(
+        &.{Val.from(1)},
+        vm.execution_context.stack.constSlice(),
+    );
+    try testing.expectEqual(
+        100,
+        vm.execution_context.currentCallFrame().?.instruction_index,
     );
 }

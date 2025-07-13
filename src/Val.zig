@@ -92,6 +92,16 @@ pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOption
     try self.repr.format(fmt, options, writer);
 }
 
+/// Returns `true` if `Val` is considered truthy.
+///
+/// Truthiness is used to determine branching in if statements.
+pub fn isTruthy(self: Val) bool {
+    switch (self.repr) {
+        .nil => return false,
+        else => return true,
+    }
+}
+
 /// The internal representation of a value.
 pub const Repr = union(enum) {
     /// The `nil` value. This is equivalent to an empty list.
@@ -210,4 +220,40 @@ test "Val.to Handle(ConsCell)" {
     const cons_val = Val.from(handle);
     try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
     try testing.expectError(ToValError.TypeError, cons_val.to(i64));
+}
+
+test "nil is falsey" {
+    const nil_val = Val.from({});
+    try testing.expectEqual(false, nil_val.isTruthy());
+}
+
+test "int is truthy" {
+    const int_val = Val.from(42);
+    try testing.expectEqual(true, int_val.isTruthy());
+}
+
+test "float is truthy" {
+    const float_val = Val.from(3.14);
+    try testing.expect(float_val.isTruthy());
+}
+
+test "symbol is truthy" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
+    const symbol_val = Val.from(symbol);
+    try testing.expect(symbol_val.isTruthy());
+}
+
+test "cons is truthy" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
+        ConsCell.init(Val.from(1), Val.from(2)),
+    );
+    const cons_val = Val.from(handle);
+    try testing.expect(cons_val.isTruthy());
 }
