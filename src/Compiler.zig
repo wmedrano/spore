@@ -13,7 +13,7 @@ const BytecodeFunction = @import("BytecodeFunction.zig");
 
 const Compiler = @This();
 
-pub const CompileError = error{
+pub const Error = error{
     /// A list form was not a proper list (did not end in nil).
     ImproperList,
     /// An error occurred while resolving a ConsCell handle.
@@ -23,119 +23,66 @@ pub const CompileError = error{
 /// The `Vm` for the compiler.
 vm: *Vm,
 /// The allocator to use for temporary items.
-allocator: std.mem.Allocator,
+arena: *std.heap.ArenaAllocator,
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
 
 /// Initialize a new compiler.
-pub fn init(allocator: std.mem.Allocator, vm: *Vm) Compiler {
+///
+/// The allocator to use for temporary items, such as instructions appended to
+/// the current compilation context.
+pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Compiler {
     return .{
         .vm = vm,
-        .allocator = allocator,
+        .arena = arena,
     };
 }
 
-/// Compiles a `Val` s-expression into a slice of `Instruction`s owned by the
-/// provided allocator.
-pub fn add(self: *Compiler, val: Val) !void {
-    try self.compileImpl(val);
-}
-
-// TODO: Document compile.
+/// Finalizes the compilation process, returning the compiled `BytecodeFunction`.
+/// The instructions accumulated during `addExpr` calls are duplicated using the VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
-    return .{
-        .instructions = try self.instructions.toOwnedSlice(self.vm.heap.allocator),
-    };
+    const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
+    return .{ .instructions = instructions };
 }
 
-// TODO: Document deinit.
-pub fn deinit(self: *Compiler) void {
-    self.instructions.deinit(self.allocator);
-}
-
-fn compileImpl(self: *Compiler, val: Val) CompileError!void {
-    switch (val.repr) {
+/// Compiles a `Val` and adds it to the current compilation context.
+pub fn addExpr(self: *Compiler, expr: Val) !void {
+    switch (expr.repr) {
         .nil, .int, .float, .native_function, .bytecode_function => {
-            try self.instructions.append(
-                self.allocator,
-                Instruction.init(.{ .push = val }),
-            );
+            const instruction = Instruction.init(.{ .push = expr });
+            try self.instructions.append(self.arena.allocator(), instruction);
         },
         .symbol => |s| {
             const instruction = if (s.unquote()) |interned_symbol|
                 Instruction.init(.{ .push = Val.from(interned_symbol) })
             else
                 Instruction.init(.{ .get = s });
-            try self.instructions.append(self.allocator, instruction);
+            try self.instructions.append(self.arena.allocator(), instruction);
         },
-        .cons => |cons_handle| try self.compileCons(cons_handle),
+        .cons => |cons_handle| try self.addCons(cons_handle),
     }
 }
 
-fn compileCons(self: *Compiler, cons: Handle(ConsCell)) CompileError!void {
+fn addCons(self: *Compiler, cons: Handle(ConsCell)) Error!void {
     var next_val: ?Val = Val.from(cons);
     var items: usize = 0;
     while (next_val) |val| {
         switch (val.repr) {
             .cons => |h| {
                 const cell = try self.vm.heap.cons_cells.get(h);
-                try self.compileImpl(cell.car);
+                try self.addExpr(cell.car);
                 next_val = cell.cdr;
                 items += 1;
             },
             .nil => next_val = null,
-            // TODO: Add a unit test once this is possible. At the moment, there
-            // is no way to create a cons cell that is not a list.
+
             else => return error.ImproperList,
         }
     }
 
     try self.instructions.append(
-        self.allocator,
+        self.arena.allocator(),
         Instruction.init(.{ .eval = items }),
-    );
-}
-
-test "compile atom" {
-    var vm = try Vm.init(testing.allocator);
-    defer vm.deinit();
-    var compiler = init(testing.allocator, &vm);
-
-    try compiler.add(Val.from(42));
-    var bytecode = try compiler.compile();
-    defer bytecode.deinit(testing.allocator);
-
-    const expected = [_]Instruction{Instruction.init(.{ .push = Val.from(42) })};
-    try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
-        bytecode,
-    );
-}
-
-test "compile simple list" {
-    var vm = try Vm.init(testing.allocator);
-    defer vm.deinit();
-    var compiler = init(testing.allocator, &vm);
-    var parser = try SexpParser.init("(plus 1 2)");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-    const plus_sym = try Symbol.init("plus").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
-
-    try compiler.add(parsed_val);
-    var bytecode = try compiler.compile();
-    defer bytecode.deinit(testing.allocator);
-
-    const expected = [_]Instruction{
-        Instruction.init(.{ .get = plus_sym }),
-        Instruction.init(.{ .push = Val.from(1) }),
-        Instruction.init(.{ .push = Val.from(2) }),
-        Instruction.init(.{ .eval = 3 }),
-    };
-    try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
-        bytecode,
     );
 }
 
@@ -146,11 +93,13 @@ test compile {
         testing.allocator,
         &vm.heap.string_interner,
     );
-    var compiler = init(testing.allocator, &vm);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = init(&arena, &vm);
     var parser = try SexpParser.init("(plus 1 (plus 2 3))");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
 
-    try compiler.add(parsed_val);
+    try compiler.addExpr(parsed_val);
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -169,6 +118,71 @@ test compile {
     );
 }
 
+test "compile improper list" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = init(&arena, &vm);
+    const cons = ConsCell{
+        .car = Val.from(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
+        .cdr = Val.from(42),
+    };
+    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons);
+
+    try testing.expectError(
+        Compiler.Error.ImproperList,
+        compiler.addExpr(Val.from(cons_handle)),
+    );
+}
+
+test "compile atom" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = init(&arena, &vm);
+
+    try compiler.addExpr(Val.from(42));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const expected = [_]Instruction{Instruction.init(.{ .push = Val.from(42) })};
+    try testing.expectEqualDeep(
+        BytecodeFunction{ .instructions = &expected },
+        bytecode,
+    );
+}
+
+test "compile simple list" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = init(&arena, &vm);
+    var parser = try SexpParser.init("(plus 1 2)");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+    const plus_sym = try Symbol.init("plus").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
+
+    try compiler.addExpr(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const expected = [_]Instruction{
+        Instruction.init(.{ .get = plus_sym }),
+        Instruction.init(.{ .push = Val.from(1) }),
+        Instruction.init(.{ .push = Val.from(2) }),
+        Instruction.init(.{ .eval = 3 }),
+    };
+    try testing.expectEqualDeep(
+        BytecodeFunction{ .instructions = &expected },
+        bytecode,
+    );
+}
+
 test "quoted symbol is unquoted" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
@@ -176,11 +190,13 @@ test "quoted symbol is unquoted" {
         testing.allocator,
         &vm.heap.string_interner,
     );
-    var compiler = init(testing.allocator, &vm);
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = init(&arena, &vm);
     var parser = try SexpParser.init("'sym");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
 
-    try compiler.add(parsed_val);
+    try compiler.addExpr(parsed_val);
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
