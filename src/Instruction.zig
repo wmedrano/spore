@@ -41,16 +41,10 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
             const val = vm.execution_context.getGlobal(s) orelse return error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
         },
-        .jump => |n| {
-            const call_frame = vm.execution_context.currentCallFrame() orelse return error.StackUnderflow;
-            call_frame.instruction_index += n;
-        },
+        .jump => |n| vm.execution_context.call_frame.instruction_index += n,
         .jump_if => |n| {
             const val = vm.execution_context.stack.pop() orelse return error.StackUnderflow;
-            if (val.isTruthy()) {
-                const call_frame = vm.execution_context.currentCallFrame() orelse return error.StackUnderflow;
-                call_frame.instruction_index += n;
-            }
+            if (val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
         },
         .eval => |n| try executeEval(vm, n),
     }
@@ -64,18 +58,17 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
 fn executeEval(vm: *Vm, n: usize) !void {
     const function_idx = vm.execution_context.stack.len - n;
     const val = vm.execution_context.stack.get(function_idx);
-    vm.execution_context.call_frames.append(ExecutionContext.CallFrame{
+    vm.execution_context.call_frame = ExecutionContext.CallFrame{
         .instructions = &.{},
         .instruction_index = 0,
         .stack_start = function_idx + 1,
-    }) catch return error.StackOverflow;
+    };
     switch (val.repr) {
         .native_function => |handle| {
             const function = try vm.heap.native_functions.get(handle);
             const result = try function.call(vm);
             try vm.execution_context.stack.resize(function_idx + 1);
             vm.execution_context.stack.set(function_idx, result);
-            _ = vm.execution_context.call_frames.pop() orelse return error.StackUnderflow;
         },
         else => return error.TypeError,
     }
@@ -137,32 +130,12 @@ test "eval on non function produces TypeErrorError" {
 test "jump instruction increments instruction_index in call frame" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-
-    try vm.execution_context.call_frames.append(.{
-        .instructions = &.{},
-        .instruction_index = 100,
-        .stack_start = 0,
-    });
-    try vm.execution_context.call_frames.append(.{
-        .instructions = &.{},
-        .instruction_index = 200,
-        .stack_start = 0,
-    });
+    vm.execution_context.call_frame.instruction_index = 200;
 
     try init(.{ .jump = 27 }).execute(&vm);
     try testing.expectEqual(
         227,
-        vm.execution_context.currentCallFrame().?.instruction_index,
-    );
-}
-
-test "jump with no call frame returns StackUnderflow" {
-    var vm = try Vm.init(testing.allocator);
-    defer vm.deinit();
-
-    try testing.expectError(
-        error.StackUnderflow,
-        init(.{ .jump = 2 }).execute(&vm),
+        vm.execution_context.call_frame.instruction_index,
     );
 }
 
@@ -171,11 +144,7 @@ test "jump_if with truthy value pops value and increments instruction_index" {
     defer vm.deinit();
 
     try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2) });
-    try vm.execution_context.call_frames.append(.{
-        .instructions = &.{},
-        .instruction_index = 100,
-        .stack_start = 0,
-    });
+    vm.execution_context.call_frame.instruction_index = 100;
 
     try init(.{ .jump_if = 20 }).execute(&vm);
 
@@ -185,7 +154,7 @@ test "jump_if with truthy value pops value and increments instruction_index" {
     );
     try testing.expectEqual(
         120,
-        vm.execution_context.currentCallFrame().?.instruction_index,
+        vm.execution_context.call_frame.instruction_index,
     );
 }
 
@@ -194,11 +163,7 @@ test "jump_if with falsey value pops value and does not increment instruction_in
     defer vm.deinit();
 
     try vm.execution_context.pushVals(&.{ Val.from(1), Val.from({}) });
-    try vm.execution_context.call_frames.append(.{
-        .instructions = &.{},
-        .instruction_index = 100,
-        .stack_start = 0,
-    });
+    vm.execution_context.call_frame.instruction_index = 100;
 
     try init(.{ .jump_if = 20 }).execute(&vm);
 
@@ -208,6 +173,6 @@ test "jump_if with falsey value pops value and does not increment instruction_in
     );
     try testing.expectEqual(
         100,
-        vm.execution_context.currentCallFrame().?.instruction_index,
+        vm.execution_context.call_frame.instruction_index,
     );
 }

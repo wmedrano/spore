@@ -2,22 +2,25 @@
 const std = @import("std");
 const testing = std.testing;
 
+const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
+const Symbol = @import("datastructures/Symbol.zig");
 const Instruction = @import("Instruction.zig");
 const SexpParser = @import("SexpParser.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const Symbol = @import("datastructures/Symbol.zig");
-const BytecodeFunction = @import("BytecodeFunction.zig");
 
 const Compiler = @This();
 
 pub const Error = error{
-    /// A list form was not a proper list (did not end in nil).
-    ImproperList,
+    /// A wrong type was supplied.
+    TypeError,
     /// An error occurred while resolving a ConsCell handle.
     ObjectNotFound,
+    /// An invalid expression. For example, an if statement without any
+    /// arguments.
+    InvalidExpression,
 } || std.mem.Allocator.Error;
 
 /// The `Vm` for the compiler.
@@ -26,15 +29,23 @@ vm: *Vm,
 arena: *std.heap.ArenaAllocator,
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
+/// Symbols.
+symbols: struct {
+    if_sym: Symbol.Interned,
+},
 
 /// Initialize a new compiler.
 ///
 /// The allocator to use for temporary items, such as instructions appended to
 /// the current compilation context.
-pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Compiler {
-    return .{
+pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) std.mem.Allocator.Error!Compiler {
+    const if_sym = try Symbol.init("if").intern(vm.heap.allocator, &vm.heap.string_interner);
+    return Compiler{
         .vm = vm,
         .arena = arena,
+        .symbols = .{
+            .if_sym = if_sym,
+        },
     };
 }
 
@@ -63,26 +74,53 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
     }
 }
 
-fn addCons(self: *Compiler, cons: Handle(ConsCell)) Error!void {
-    var next_val: ?Val = Val.from(cons);
+fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
+    const cons = try self.vm.heap.cons_cells.get(cons_handle);
+    var vals = cons.iterList();
     var items: usize = 0;
-    while (next_val) |val| {
-        switch (val.repr) {
-            .cons => |h| {
-                const cell = try self.vm.heap.cons_cells.get(h);
-                try self.addExpr(cell.car);
-                next_val = cell.cdr;
-                items += 1;
-            },
-            .nil => next_val = null,
-
-            else => return error.ImproperList,
+    while (try vals.next(self.vm)) |val| {
+        if (items == 0) {
+            if (std.meta.eql(val, Val.from(self.symbols.if_sym)))
+                return self.addIf(&vals);
         }
+        try self.addExpr(val);
+        items += 1;
     }
 
     try self.instructions.append(
         self.arena.allocator(),
         Instruction.init(.{ .eval = items }),
+    );
+}
+
+fn jumpDistance(from: usize, to: usize) usize {
+    return to - from;
+}
+
+fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const pred = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    const true_branch = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    const false_branch = (try exprs.next(self.vm)) orelse Val.from({});
+    if ((try exprs.next(self.vm)) != null) return Error.InvalidExpression;
+
+    try self.addExpr(pred);
+    const jump_if_idx = self.instructions.items.len;
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .jump_if = 0 }));
+
+    const false_branch_idx = self.instructions.items.len;
+    try self.addExpr(false_branch);
+    const false_jump_idx = self.instructions.items.len;
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .jump = 0 }));
+
+    const true_branch_idx = self.instructions.items.len;
+    try self.addExpr(true_branch);
+    const final_idx = self.instructions.items.len;
+
+    self.instructions.items[jump_if_idx] = Instruction.init(.{
+        .jump_if = jumpDistance(false_branch_idx, true_branch_idx),
+    });
+    self.instructions.items[false_jump_idx] = Instruction.init(
+        .{ .jump = jumpDistance(true_branch_idx, final_idx) },
     );
 }
 
@@ -95,7 +133,7 @@ test compile {
     );
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = init(&arena, &vm);
+    var compiler = try init(&arena, &vm);
     var parser = try SexpParser.init("(plus 1 (plus 2 3))");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
 
@@ -103,17 +141,16 @@ test compile {
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
-    const expected = [_]Instruction{
-        Instruction.init(.{ .get = plus_sym }),
-        Instruction.init(.{ .push = Val.from(1) }),
-        Instruction.init(.{ .get = plus_sym }),
-        Instruction.init(.{ .push = Val.from(2) }),
-        Instruction.init(.{ .push = Val.from(3) }),
-        Instruction.init(.{ .eval = 3 }),
-        Instruction.init(.{ .eval = 3 }),
-    };
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
+        BytecodeFunction{ .instructions = &[_]Instruction{
+            Instruction.init(.{ .get = plus_sym }),
+            Instruction.init(.{ .push = Val.from(1) }),
+            Instruction.init(.{ .get = plus_sym }),
+            Instruction.init(.{ .push = Val.from(2) }),
+            Instruction.init(.{ .push = Val.from(3) }),
+            Instruction.init(.{ .eval = 3 }),
+            Instruction.init(.{ .eval = 3 }),
+        } },
         bytecode,
     );
 }
@@ -123,7 +160,7 @@ test "compile improper list" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = init(&arena, &vm);
+    var compiler = try init(&arena, &vm);
     const cons = ConsCell{
         .car = Val.from(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
         .cdr = Val.from(42),
@@ -131,7 +168,7 @@ test "compile improper list" {
     const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons);
 
     try testing.expectError(
-        Compiler.Error.ImproperList,
+        Compiler.Error.TypeError,
         compiler.addExpr(Val.from(cons_handle)),
     );
 }
@@ -141,15 +178,14 @@ test "compile atom" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = init(&arena, &vm);
+    var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(Val.from(42));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
-    const expected = [_]Instruction{Instruction.init(.{ .push = Val.from(42) })};
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
+        BytecodeFunction{ .instructions = &[_]Instruction{Instruction.init(.{ .push = Val.from(42) })} },
         bytecode,
     );
 }
@@ -159,7 +195,7 @@ test "compile simple list" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = init(&arena, &vm);
+    var compiler = try init(&arena, &vm);
     var parser = try SexpParser.init("(plus 1 2)");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
     const plus_sym = try Symbol.init("plus").intern(
@@ -171,14 +207,13 @@ test "compile simple list" {
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
-    const expected = [_]Instruction{
-        Instruction.init(.{ .get = plus_sym }),
-        Instruction.init(.{ .push = Val.from(1) }),
-        Instruction.init(.{ .push = Val.from(2) }),
-        Instruction.init(.{ .eval = 3 }),
-    };
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
+        BytecodeFunction{ .instructions = &[_]Instruction{
+            Instruction.init(.{ .get = plus_sym }),
+            Instruction.init(.{ .push = Val.from(1) }),
+            Instruction.init(.{ .push = Val.from(2) }),
+            Instruction.init(.{ .eval = 3 }),
+        } },
         bytecode,
     );
 }
@@ -192,7 +227,7 @@ test "quoted symbol is unquoted" {
     );
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = init(&arena, &vm);
+    var compiler = try init(&arena, &vm);
     var parser = try SexpParser.init("'sym");
     const parsed_val = (try parser.next(testing.allocator, &vm)).?;
 
@@ -200,11 +235,87 @@ test "quoted symbol is unquoted" {
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
-    const expected = [_]Instruction{
-        Instruction.init(.{ .push = Val.from(sym) }),
-    };
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &expected },
+        BytecodeFunction{ .instructions = &[_]Instruction{
+            Instruction.init(.{ .push = Val.from(sym) }),
+        } },
+        bytecode,
+    );
+}
+
+test "compile if statement" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const plus_sym = try Symbol.init("+").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    var parser = try SexpParser.init("(if (+ 1 2) (+ 3 4) (+ 5 6))");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+
+    try compiler.addExpr(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .push = Val.from(1) }),
+                Instruction.init(.{ .push = Val.from(2) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .jump_if = 5 }),
+                Instruction.init(.{ .get = plus_sym }), // false branch starts here
+                Instruction.init(.{ .push = Val.from(5) }),
+                Instruction.init(.{ .push = Val.from(6) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .jump = 4 }),
+                Instruction.init(.{ .get = plus_sym }), // true branch starts here
+                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction.init(.{ .push = Val.from(4) }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+        },
+        bytecode,
+    );
+}
+
+test "compile if statement without false branch uses nil false branch" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const plus_sym = try Symbol.init("+").intern(
+        testing.allocator,
+        &vm.heap.string_interner,
+    );
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    var parser = try SexpParser.init("(if (+ 1 2) (+ 3 4))");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+
+    try compiler.addExpr(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .push = Val.from(1) }),
+                Instruction.init(.{ .push = Val.from(2) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .jump_if = 2 }),
+                Instruction.init(.{ .push = Val.from({}) }),
+                Instruction.init(.{ .jump = 4 }),
+                Instruction.init(.{ .get = plus_sym }), // true branch starts here
+                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction.init(.{ .push = Val.from(4) }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+        },
         bytecode,
     );
 }

@@ -12,6 +12,7 @@ const Heap = @import("Heap.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const SexpParser = @import("SexpParser.zig");
 const Val = @import("Val.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const Vm = @This();
 
@@ -43,13 +44,19 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var sexp_parser = try SexpParser.init(source);
     var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
     defer arena.deinit();
-    var compiler = Compiler.init(&arena, self);
+    var compiler = try Compiler.init(&arena, self);
     while (try sexp_parser.next(self.heap.allocator, self)) |expr| {
         try compiler.addExpr(expr);
     }
     var bytecode = try compiler.compile();
     defer bytecode.deinit(self.heap.allocator);
-    for (bytecode.instructions) |instruction| {
+
+    self.execution_context.call_frame = ExecutionContext.CallFrame{
+        .instructions = bytecode.instructions,
+        .instruction_index = 0,
+        .stack_start = self.execution_context.stack.len,
+    };
+    while (self.execution_context.nextInstruction()) |instruction| {
         try instruction.execute(self);
     }
     return self.execution_context.stackTopVal() orelse Val.from({});
@@ -58,9 +65,9 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
 test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const return_val = try vm.evalStr("(+ 1 2 3 4)");
+    const return_val = try vm.evalStr("(if nil (+ 1 2 3 4) (+ 10 20 30 40))");
     try testing.expectEqualDeep(
-        Val.from(10),
+        Val.from(100),
         return_val,
     );
 }

@@ -25,8 +25,12 @@ pub const CallFrame = struct {
 global_values: std.AutoHashMapUnmanaged(Symbol.Interned, Val) = .{},
 /// The backing array for the stack.
 stack: std.BoundedArray(Val, 1024) = .{},
-/// Holds information on which functions are being called.
-call_frames: std.BoundedArray(CallFrame, 64) = .{},
+/// Holds the current call frame.
+call_frame: CallFrame = .{
+    .instructions = &.{},
+    .instruction_index = 0,
+    .stack_start = 0,
+},
 
 /// Deinitialize self and free all memory.
 pub fn deinit(self: *ExecutionContext, allocator: std.mem.Allocator) void {
@@ -66,18 +70,20 @@ pub fn getGlobal(self: ExecutionContext, symbol: Symbol.Interned) ?Val {
     return self.global_values.get(symbol);
 }
 
-/// Returns the current call frame, or `null` if there are no call frames.
-pub fn currentCallFrame(self: *ExecutionContext) ?*CallFrame {
-    if (self.call_frames.len == 0) return null;
-    return &self.call_frames.buffer[self.call_frames.len - 1];
+/// Retrieves the next instruction from the current call frame and advances the
+/// instruction pointer. Returns `null` if there is no current call frame or
+/// if all instructions in the current frame have been executed.
+pub fn nextInstruction(self: *ExecutionContext) ?Instruction {
+    if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return null;
+    const instruction = self.call_frame.instructions[self.call_frame.instruction_index];
+    self.call_frame.instruction_index += 1;
+    return instruction;
 }
 
 /// Get the portion of the stack belonging to the current call frame. If in the
 /// global scope, this returns the entire stack.
 pub fn localStack(self: ExecutionContext) []const Val {
-    if (self.call_frames.len == 0) return self.stack.constSlice();
-    const call_frame = self.call_frames.buffer[self.call_frames.len - 1];
-    return self.stack.constSlice()[call_frame.stack_start..];
+    return self.stack.constSlice()[self.call_frame.stack_start..];
 }
 
 test "initial stack is empty" {

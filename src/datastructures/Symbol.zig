@@ -60,7 +60,7 @@ pub fn init(s: []const u8) Symbol {
 }
 
 /// Intern the symbol using the given `string_interner`.
-pub fn intern(self: Symbol, allocator: std.mem.Allocator, string_interner: *StringInterner) !Interned {
+pub fn intern(self: Symbol, allocator: std.mem.Allocator, string_interner: *StringInterner) std.mem.Allocator.Error!Interned {
     const interned_string = try string_interner.intern(allocator, self.symbol);
     return .{ .symbol = interned_string, .quoted = self.quoted };
 }
