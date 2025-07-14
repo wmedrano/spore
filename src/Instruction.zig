@@ -13,19 +13,39 @@ const Instruction = @This();
 /// The internal representation of an instruction.
 repr: Repr,
 
-/// An instruction for a `Vm` to execute.
-pub const Repr = union(enum) {
+pub const Error = error{
+    ObjectNotFound,
+    StackOverflow,
+    StackUnderflow,
+    SymbolNotFound,
+    TypeError,
+    WrongArity,
+} || std.mem.Allocator.Error;
+
+pub const Code = enum {
     /// Push a new value onto the stack.
-    push: Val,
+    push,
     /// Get the value of the symbol and push it on the stack.
-    get: Symbol.Interned,
+    get,
     /// Skip the next n instructions.
-    jump: usize,
+    jump,
     /// Pop the top value of the stack and skip the next `n` instructions if the
     /// value is truthy.
-    jump_if: usize,
+    jump_if,
     /// Evaluate the top n values of the stack as a function call.
+    eval,
+    /// Return from the current function call.
+    ret,
+};
+
+/// An instruction for a `Vm` to execute.
+pub const Repr = union(Code) {
+    push: Val,
+    get: Symbol.Interned,
+    jump: usize,
+    jump_if: usize,
     eval: usize,
+    ret,
 };
 
 /// Intialize an instruction from its internal representation.
@@ -34,19 +54,20 @@ pub fn init(repr: Repr) Instruction {
 }
 
 /// Execute `self` on `vm`.
-pub fn execute(self: Instruction, vm: *Vm) !void {
+pub fn execute(self: Instruction, vm: *Vm) Error!void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
         .get => |s| {
-            const val = vm.execution_context.getGlobal(s) orelse return error.SymbolNotFound;
+            const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
         },
         .jump => |n| vm.execution_context.call_frame.instruction_index += n,
         .jump_if => |n| {
-            const val = vm.execution_context.stack.pop() orelse return error.StackUnderflow;
+            const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
             if (val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
         },
         .eval => |n| try executeEval(vm, n),
+        .ret => try executeRet(vm),
     }
 }
 
@@ -58,19 +79,34 @@ pub fn execute(self: Instruction, vm: *Vm) !void {
 fn executeEval(vm: *Vm, n: usize) !void {
     const function_idx = vm.execution_context.stack.len - n;
     const val = vm.execution_context.stack.get(function_idx);
-    vm.execution_context.call_frame = ExecutionContext.CallFrame{
+    try vm.execution_context.pushCallFrame(ExecutionContext.CallFrame{
         .instructions = &.{},
         .instruction_index = 0,
         .stack_start = function_idx + 1,
-    };
+    });
     switch (val.repr) {
         .native_function => |handle| {
             const function = try vm.heap.native_functions.get(handle);
-            const result = try function.call(vm);
-            try vm.execution_context.stack.resize(function_idx + 1);
-            vm.execution_context.stack.set(function_idx, result);
+            vm.execution_context.stack.append(try function.call(vm)) catch return Error.StackOverflow;
+            try Instruction.init(.{ .ret = {} }).execute(vm);
         },
-        else => return error.TypeError,
+        else => return Error.TypeError,
+    }
+}
+
+fn returnVal(vm: *Vm) Val {
+    const local_stack = vm.execution_context.localStack();
+    if (local_stack.len == 0) return Val.from({});
+    return local_stack[local_stack.len - 1];
+}
+
+fn executeRet(vm: *Vm) !void {
+    const return_val = returnVal(vm);
+    const previous_stack_len = vm.execution_context.call_frame.stack_start;
+    vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return Error.StackUnderflow;
+    vm.execution_context.stack.len = previous_stack_len;
+    if (vm.execution_context.localStack().len > 0) {
+        vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
     }
 }
 
@@ -122,7 +158,7 @@ test "eval on non function produces TypeErrorError" {
     defer vm.deinit();
     try init(.{ .push = Val.from(123) }).execute(&vm);
     try testing.expectError(
-        error.TypeError,
+        Error.TypeError,
         init(.{ .eval = 1 }).execute(&vm),
     );
 }

@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-/// A simple tokenizer for S-expressions.
+/// A simple tokenizer for s-expressions.
 const Tokenizer = @This();
 
 /// The input text being tokenized.

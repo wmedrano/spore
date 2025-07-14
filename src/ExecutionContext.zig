@@ -31,6 +31,8 @@ call_frame: CallFrame = .{
     .instruction_index = 0,
     .stack_start = 0,
 },
+/// Holds the previous call frames.
+previous_call_frames: std.BoundedArray(CallFrame, 64) = .{},
 
 /// Deinitialize self and free all memory.
 pub fn deinit(self: *ExecutionContext, allocator: std.mem.Allocator) void {
@@ -53,13 +55,6 @@ pub fn popVal(self: *ExecutionContext) !Val {
     return val;
 }
 
-/// Returns the value at the top of the stack without removing it, or `null` if
-/// the stack is empty.
-pub fn stackTopVal(self: ExecutionContext) ?Val {
-    if (self.stack.len == 0) return null;
-    return self.stack.buffer[self.stack.len - 1];
-}
-
 /// Set a global value. `symbol` will refer to `val`.
 pub fn setGlobal(self: *ExecutionContext, allocator: std.mem.Allocator, symbol: Symbol.Interned, val: Val) std.mem.Allocator.Error!void {
     try self.global_values.put(allocator, symbol, val);
@@ -70,20 +65,33 @@ pub fn getGlobal(self: ExecutionContext, symbol: Symbol.Interned) ?Val {
     return self.global_values.get(symbol);
 }
 
+/// Get the portion of the stack belonging to the current call frame. If in the
+/// global scope, this returns the entire stack.
+pub fn localStack(self: ExecutionContext) []const Val {
+    return self.stack.constSlice()[self.call_frame.stack_start..];
+}
+
 /// Retrieves the next instruction from the current call frame and advances the
 /// instruction pointer. Returns `null` if there is no current call frame or
 /// if all instructions in the current frame have been executed.
-pub fn nextInstruction(self: *ExecutionContext) ?Instruction {
-    if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return null;
+pub fn nextInstruction(self: *ExecutionContext) Instruction {
+    if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return Instruction.init(.{ .ret = {} });
     const instruction = self.call_frame.instructions[self.call_frame.instruction_index];
     self.call_frame.instruction_index += 1;
     return instruction;
 }
 
-/// Get the portion of the stack belonging to the current call frame. If in the
-/// global scope, this returns the entire stack.
-pub fn localStack(self: ExecutionContext) []const Val {
-    return self.stack.constSlice()[self.call_frame.stack_start..];
+/// Pushes the current call frame onto the `previous_call_frames` stack and makes `call_frame` the new current call frame.
+/// This is used when entering a new function call, saving the context of the caller.
+///
+/// Parameters:
+///   `call_frame`: The new call frame to be made active.
+///
+/// Returns:
+///   `error.StackOverflow` if the `previous_call_frames` stack is full.
+pub fn pushCallFrame(self: *ExecutionContext, call_frame: CallFrame) !void {
+    self.previous_call_frames.append(self.call_frame) catch return error.StackOverflow;
+    self.call_frame = call_frame;
 }
 
 test "initial stack is empty" {

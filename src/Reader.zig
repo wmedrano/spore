@@ -9,14 +9,14 @@ const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 
-const SexpParser = @This();
+const Reader = @This();
 
 /// The underlying tokenizer. Produces a stream of tokens/substrings that are
 /// parsed.
 tokenizer: Tokenizer,
 
-/// Initialize a new `SexpParser`.
-pub fn init(source: []const u8) !SexpParser {
+/// Initialize a new `Reader`.
+pub fn init(source: []const u8) !Reader {
     try validateSource(source);
     return .{ .tokenizer = Tokenizer.init(source) };
 }
@@ -38,7 +38,7 @@ fn validateSource(source: []const u8) !void {
 }
 
 /// Get the next s-expression or `null` if there are no more s-expressions.
-pub fn next(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !?Val {
+pub fn next(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !?Val {
     const initial_token = self.tokenizer.next() orelse return null;
     switch (initial_token.token_type) {
         .close_paren => return error.ParseError,
@@ -49,7 +49,7 @@ pub fn next(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !?Val {
 
 /// Parses a list expression, consuming tokens until a matching `)` is found.
 /// Assumes the initial `(` has already been consumed.
-fn nextExpr(self: *SexpParser, allocator: std.mem.Allocator, vm: *Vm) !Val {
+fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
     var vals = std.ArrayList(Val).init(allocator);
     defer vals.deinit();
     while (self.tokenizer.next()) |token| {
@@ -89,10 +89,10 @@ fn listToVal(list: []const Val, vm: *Vm) !Val {
     return Val.from(cons_handle);
 }
 
-test SexpParser {
+test Reader {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = try SexpParser.init("(+ 1 2) (- 1 2)");
+    var sexp_parser = try Reader.init("(+ 1 2) (- 1 2)");
     try std.testing.expectFmt(
         "(+ 1 2)",
         "{}",
@@ -114,7 +114,7 @@ test "unclosed parenthesis produces error" {
     defer vm.deinit();
     try std.testing.expectError(
         error.ParseError,
-        SexpParser.init("(+ 1 2 ("),
+        Reader.init("(+ 1 2 ("),
     );
 }
 
@@ -124,14 +124,14 @@ test "unexpected close produces error" {
 
     try std.testing.expectError(
         error.ParseError,
-        SexpParser.init("  ) ()"),
+        Reader.init("  ) ()"),
     );
 }
 
 test "parse nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = try SexpParser.init("nil");
+    var sexp_parser = try Reader.init("nil");
     try std.testing.expectEqualDeep(
         Val.from({}),
         try sexp_parser.next(testing.allocator, &vm),
@@ -141,7 +141,7 @@ test "parse nil" {
 test "parse integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = try SexpParser.init("-1");
+    var sexp_parser = try Reader.init("-1");
     try std.testing.expectEqualDeep(
         Val.from(-1),
         try sexp_parser.next(testing.allocator, &vm),
@@ -151,7 +151,7 @@ test "parse integer" {
 test "parse float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    var sexp_parser = try SexpParser.init("3.14");
+    var sexp_parser = try Reader.init("3.14");
     try std.testing.expectEqualDeep(
         Val.from(3.14),
         try sexp_parser.next(testing.allocator, &vm),

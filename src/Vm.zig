@@ -10,7 +10,7 @@ const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const Heap = @import("Heap.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
-const SexpParser = @import("SexpParser.zig");
+const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 
@@ -41,7 +41,7 @@ pub fn deinit(self: *Vm) void {
 
 /// Evaluates a string of source code.
 pub fn evalStr(self: *Vm, source: []const u8) !Val {
-    var sexp_parser = try SexpParser.init(source);
+    var sexp_parser = try Reader.init(source);
     var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
     defer arena.deinit();
     var compiler = try Compiler.init(&arena, self);
@@ -51,15 +51,20 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     var bytecode = try compiler.compile();
     defer bytecode.deinit(self.heap.allocator);
 
-    self.execution_context.call_frame = ExecutionContext.CallFrame{
+    const initial_call_stack_size = self.execution_context.previous_call_frames.len;
+    try self.execution_context.pushVal(Val.from({}));
+    try self.execution_context.pushCallFrame(ExecutionContext.CallFrame{
         .instructions = bytecode.instructions,
         .instruction_index = 0,
         .stack_start = self.execution_context.stack.len,
-    };
-    while (self.execution_context.nextInstruction()) |instruction| {
+    });
+    while (initial_call_stack_size < self.execution_context.previous_call_frames.len) {
+        const instruction = self.execution_context.nextInstruction();
         try instruction.execute(self);
     }
-    return self.execution_context.stackTopVal() orelse Val.from({});
+
+    const return_val = try self.execution_context.popVal();
+    return return_val;
 }
 
 test evalStr {
