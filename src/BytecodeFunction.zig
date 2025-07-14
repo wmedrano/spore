@@ -10,6 +10,8 @@ const BytecodeFunction = @This();
 
 /// The instructions to execute.
 instructions: []const Instruction,
+/// The number of arguments the function takes.
+args: usize = 0,
 
 /// Deinitialize the bytecode function, freeing allocated memory.
 pub fn deinit(self: *BytecodeFunction, allocator: std.mem.Allocator) void {

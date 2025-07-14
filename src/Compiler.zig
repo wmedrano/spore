@@ -27,19 +27,46 @@ pub const Error = error{
 vm: *Vm,
 /// The allocator to use for temporary items.
 arena: *std.heap.ArenaAllocator,
-/// The compiled expression.
-instructions: std.ArrayListUnmanaged(Instruction) = .{},
 /// Symbols.
 symbols: struct {
     @"if": Symbol.Interned,
     function: Symbol.Interned,
 },
+/// The compiled expression.
+instructions: std.ArrayListUnmanaged(Instruction) = .{},
+/// The number of arguments as input.
+args: usize = 0,
 
 /// Initialize a new compiler.
 ///
 /// The allocator to use for temporary items, such as instructions appended to
 /// the current compilation context.
-pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) std.mem.Allocator.Error!Compiler {
+pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
+    return try initFunction(arena, vm, Val.from({}));
+}
+
+/// Initializes a new compiler for compiling a function.
+///
+/// This function sets up a `Compiler` instance specifically for generating bytecode for a function.
+/// It takes the allocator, the VM, and a `Val` representing the function's arguments.
+/// The `args` `Val` is used to determine the number of arguments the function expects.
+///
+/// Args:
+///     arena: The allocator to use for temporary items during compilation.
+///     vm: The virtual machine instance.
+///     args: A `Val` representing the function's arguments (e.g., `(a b)`).
+///
+/// Returns:
+///     A new `Compiler` instance configured for function compilation.
+fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compiler {
+    const arg_count = blk: {
+        if (std.meta.eql(args, Val.from({}))) break :blk 0;
+        const args_list = try vm.heap.cons_cells.get(args.to(Handle(ConsCell)) catch return Error.InvalidExpression);
+        var args_iter = args_list.iterList();
+        var arg_counter: usize = 0;
+        while (try args_iter.next(vm)) |_| arg_counter += 1;
+        break :blk arg_counter;
+    };
     return Compiler{
         .vm = vm,
         .arena = arena,
@@ -47,6 +74,8 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) std.mem.Allocator.Error!Co
             .@"if" = try Symbol.init("if").intern(vm.heap.allocator, &vm.heap.string_interner),
             .function = try Symbol.init("function").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
+        .instructions = .{},
+        .args = arg_count,
     };
 }
 
@@ -56,7 +85,7 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) std.mem.Allocator.Error!Co
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
-    return .{ .instructions = instructions };
+    return .{ .instructions = instructions, .args = self.args };
 }
 
 /// Returns true if the compiler has no instructions compiled yet, false
@@ -156,9 +185,8 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// current compilation context's instructions.
 fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const args = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    if (!std.meta.eql(args, Val.from({}))) return Error.InvalidExpression;
 
-    var function_compiler = try init(self.arena, self.vm);
+    var function_compiler = try initFunction(self.arena, self.vm, args);
     while (try exprs.next(self.vm)) |expr| try function_compiler.addExpr(expr);
     if (function_compiler.isEmpty()) try function_compiler.addExpr(Val.from({}));
 
@@ -188,15 +216,18 @@ test compile {
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &[_]Instruction{
-            Instruction.init(.{ .get = plus_sym }),
-            Instruction.init(.{ .push = Val.from(1) }),
-            Instruction.init(.{ .get = plus_sym }),
-            Instruction.init(.{ .push = Val.from(2) }),
-            Instruction.init(.{ .push = Val.from(3) }),
-            Instruction.init(.{ .eval = 3 }),
-            Instruction.init(.{ .eval = 3 }),
-        } },
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .push = Val.from(1) }),
+                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .push = Val.from(2) }),
+                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+            .args = 0,
+        },
         bytecode,
     );
 }
@@ -449,5 +480,27 @@ test "compile function without body has nil body" {
             },
         },
         function_bytecode,
+    );
+}
+
+test "compile function with args has correct number of args" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    var parser = try Reader.init("(function (a b c))");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+
+    try compiler.addExpr(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const function_bytecode = try vm.heap.bytecode_functions.get(
+        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+    );
+    try testing.expectEqualDeep(
+        3,
+        function_bytecode.args,
     );
 }

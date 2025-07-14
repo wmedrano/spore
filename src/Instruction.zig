@@ -76,7 +76,8 @@ pub fn execute(self: Instruction, vm: *Vm) Error!void {
 /// The first of the `n` items is the function to be called, and the remaining
 /// `n - 1` items are the arguments. After the call, the function and its
 /// arguments are replaced on the stack with the single return value.
-fn executeEval(vm: *Vm, n: usize) !void {
+fn executeEval(vm: *Vm, n: usize) Error!void {
+    if (n == 0) return Error.StackUnderflow;
     const function_idx = vm.execution_context.stack.len - n;
     const val = vm.execution_context.stack.get(function_idx);
     try vm.execution_context.pushCallFrame(ExecutionContext.CallFrame{
@@ -85,6 +86,12 @@ fn executeEval(vm: *Vm, n: usize) !void {
         .stack_start = function_idx + 1,
     });
     switch (val.repr) {
+        .bytecode_function => |handle| {
+            const function = try vm.heap.bytecode_functions.get(handle);
+            const got_args = vm.execution_context.localStack().len;
+            const want_args = function.args;
+            if (got_args != want_args) return Error.WrongArity;
+        },
         .native_function => |handle| {
             const function = try vm.heap.native_functions.get(handle);
             vm.execution_context.stack.append(try function.call(vm)) catch return Error.StackOverflow;
