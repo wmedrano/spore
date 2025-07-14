@@ -105,7 +105,7 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
             const instruction = if (s.unquote()) |interned_symbol|
                 Instruction.init(.{ .push = Val.from(interned_symbol) })
             else
-                Instruction.init(.{ .get = s });
+                Instruction.init(.{ .deref = s });
             try self.instructions.append(self.arena.allocator(), instruction);
         },
         .cons => |cons_handle| try self.addCons(cons_handle),
@@ -218,9 +218,9 @@ test compile {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .deref = plus_sym }),
                 Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .deref = plus_sym }),
                 Instruction.init(.{ .push = Val.from(2) }),
                 Instruction.init(.{ .push = Val.from(3) }),
                 Instruction.init(.{ .eval = 3 }),
@@ -286,7 +286,7 @@ test "compile simple list" {
 
     try testing.expectEqualDeep(
         BytecodeFunction{ .instructions = &[_]Instruction{
-            Instruction.init(.{ .get = plus_sym }),
+            Instruction.init(.{ .deref = plus_sym }),
             Instruction.init(.{ .push = Val.from(1) }),
             Instruction.init(.{ .push = Val.from(2) }),
             Instruction.init(.{ .eval = 3 }),
@@ -340,17 +340,17 @@ test "compile if statement" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .deref = plus_sym }),
                 Instruction.init(.{ .push = Val.from(1) }),
                 Instruction.init(.{ .push = Val.from(2) }),
                 Instruction.init(.{ .eval = 3 }),
                 Instruction.init(.{ .jump_if = 5 }),
-                Instruction.init(.{ .get = plus_sym }), // false branch starts here
+                Instruction.init(.{ .deref = plus_sym }), // false branch starts here
                 Instruction.init(.{ .push = Val.from(5) }),
                 Instruction.init(.{ .push = Val.from(6) }),
                 Instruction.init(.{ .eval = 3 }),
                 Instruction.init(.{ .jump = 4 }),
-                Instruction.init(.{ .get = plus_sym }), // true branch starts here
+                Instruction.init(.{ .deref = plus_sym }), // true branch starts here
                 Instruction.init(.{ .push = Val.from(3) }),
                 Instruction.init(.{ .push = Val.from(4) }),
                 Instruction.init(.{ .eval = 3 }),
@@ -380,14 +380,14 @@ test "compile if statement without false branch uses nil false branch" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .get = plus_sym }),
+                Instruction.init(.{ .deref = plus_sym }),
                 Instruction.init(.{ .push = Val.from(1) }),
                 Instruction.init(.{ .push = Val.from(2) }),
                 Instruction.init(.{ .eval = 3 }),
                 Instruction.init(.{ .jump_if = 2 }),
                 Instruction.init(.{ .push = Val.from({}) }), // false branch starts here
                 Instruction.init(.{ .jump = 4 }),
-                Instruction.init(.{ .get = plus_sym }), // true branch starts here
+                Instruction.init(.{ .deref = plus_sym }), // true branch starts here
                 Instruction.init(.{ .push = Val.from(3) }),
                 Instruction.init(.{ .push = Val.from(4) }),
                 Instruction.init(.{ .eval = 3 }),

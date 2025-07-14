@@ -26,7 +26,7 @@ pub const Code = enum {
     /// Push a new value onto the stack.
     push,
     /// Get the value of the symbol and push it on the stack.
-    get,
+    deref,
     /// Skip the next n instructions.
     jump,
     /// Pop the top value of the stack and skip the next `n` instructions if the
@@ -41,7 +41,7 @@ pub const Code = enum {
 /// An instruction for a `Vm` to execute.
 pub const Repr = union(Code) {
     push: Val,
-    get: Symbol.Interned,
+    deref: Symbol.Interned,
     jump: usize,
     jump_if: usize,
     eval: usize,
@@ -57,7 +57,7 @@ pub fn init(repr: Repr) Instruction {
 pub fn execute(self: Instruction, vm: *Vm) Error!void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
-        .get => |s| {
+        .deref => |s| {
             const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
         },
@@ -136,7 +136,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
     const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.from(123));
 
-    try init(.{ .get = symbol }).execute(&vm);
+    try init(.{ .deref = symbol }).execute(&vm);
 
     try testing.expectFmt(
         "123",
@@ -149,7 +149,7 @@ test "eval calls function" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const plus = try Symbol.init("+").intern(vm.heap.allocator, &vm.heap.string_interner);
-    try init(.{ .get = plus }).execute(&vm);
+    try init(.{ .deref = plus }).execute(&vm);
     try init(.{ .push = Val.from(10) }).execute(&vm);
     try init(.{ .push = Val.from(20) }).execute(&vm);
     try init(.{ .eval = 3 }).execute(&vm);
