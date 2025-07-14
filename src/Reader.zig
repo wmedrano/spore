@@ -7,7 +7,6 @@ const Symbol = @import("datastructures/Symbol.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const Reader = @This();
 
@@ -96,12 +95,12 @@ test Reader {
     try std.testing.expectFmt(
         "(+ 1 2)",
         "{}",
-        .{PrettyPrinter.init(&vm, (try sexp_parser.next(testing.allocator, &vm)).?)},
+        .{vm.prettyPrint((try sexp_parser.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectFmt(
         "(- 1 2)",
         "{}",
-        .{PrettyPrinter.init(&vm, (try sexp_parser.next(testing.allocator, &vm)).?)},
+        .{vm.prettyPrint((try sexp_parser.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectEqualDeep(
         null,

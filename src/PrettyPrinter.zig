@@ -19,16 +19,16 @@ pub fn init(vm: *const Vm, val: Val) PrettyPrinter {
 }
 
 /// Create a new pretty printer for `vals`.
-pub fn initSlice(vm: *const Vm, vals: []const Val) SlicePrettyPrinter {
+pub fn initSlice(vm: *const Vm, vals: []const Val) Slice {
     return .{ .vm = vm, .vals = vals };
 }
 
 /// A struct for pretty-printing multiple `Val`.
-pub const SlicePrettyPrinter = struct {
+pub const Slice = struct {
     vm: *const Vm,
     vals: []const Val,
 
-    pub fn format(self: SlicePrettyPrinter, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: Slice, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
         for (self.vals, 0..self.vals.len) |v, idx| {

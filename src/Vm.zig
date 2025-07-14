@@ -67,6 +67,16 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     return return_val;
 }
 
+/// Return an object that can pretty print `val` when formatted.
+pub fn prettyPrint(self: *const Vm, val: Val) PrettyPrinter {
+    return PrettyPrinter.init(self, val);
+}
+
+/// Return an object that can pretty print `vals` when formatted.
+pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice {
+    return PrettyPrinter.initSlice(self, vals);
+}
+
 test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
