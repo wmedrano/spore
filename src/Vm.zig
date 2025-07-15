@@ -41,11 +41,11 @@ pub fn deinit(self: *Vm) void {
 
 /// Evaluates a string of source code.
 pub fn evalStr(self: *Vm, source: []const u8) !Val {
-    var sexp_parser = try Reader.init(source);
+    var reader = try Reader.init(source);
     var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
     defer arena.deinit();
     var compiler = try Compiler.init(&arena, self);
-    while (try sexp_parser.next(self.heap.allocator, self)) |expr| {
+    while (try reader.next(self.heap.allocator, self)) |expr| {
         try compiler.addExpr(expr);
     }
     var bytecode = try compiler.compile();

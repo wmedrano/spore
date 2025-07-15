@@ -31,6 +31,7 @@ arena: *std.heap.ArenaAllocator,
 symbols: struct {
     @"if": Symbol.Interned,
     function: Symbol.Interned,
+    @"return": Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -91,6 +92,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
         .symbols = .{
             .@"if" = try Symbol.init("if").intern(vm.heap.allocator, &vm.heap.string_interner),
             .function = try Symbol.init("function").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"return" = try Symbol.init("return").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .scoped_variables = scoped_variables,
@@ -186,6 +188,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addIf(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.function)))
                 return self.addFunction(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.@"return")))
+                return self.addReturn(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -236,6 +240,29 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     );
 }
 
+/// Compiles a `return` expression.
+///
+/// It expects at most one argument. If no argument is given, `nil` is used as
+/// the return value. It generates code to evaluate the argument (if any) and
+/// then a `ret` instruction. An error is returned if more than one argument is
+/// provided.
+fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const return_val = try exprs.next(self.vm);
+    if ((try exprs.next(self.vm)) != null) return Error.InvalidExpression;
+
+    if (return_val) |val|
+        try self.addExpr(val)
+    else
+        try self.instructions.append(
+            self.arena.allocator(),
+            Instruction.init(.{ .push = Val.from({}) }),
+        );
+    try self.instructions.append(
+        self.arena.allocator(),
+        Instruction.init(.{ .ret = {} }),
+    );
+}
+
 /// Compiles a `function` expression.
 ///
 /// It expects the function arguments (currently only `()` is supported) and
@@ -267,10 +294,7 @@ test compile {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(+ 1 (+ 2 3))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(+ 1 (+ 2 3))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -332,14 +356,12 @@ test "compile simple list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(plus 1 2)");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
     const plus_sym = try Symbol.init("plus").intern(
         testing.allocator,
         &vm.heap.string_interner,
     );
 
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(plus 1 2)", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -364,10 +386,7 @@ test "quoted symbol is unquoted" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("'sym");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("'sym", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -389,10 +408,7 @@ test "compile if statement" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(if (+ 1 2) (+ 3 4) (+ 5 6))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4) (+ 5 6))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -429,10 +445,7 @@ test "compile if statement without false branch uses nil false branch" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(if (+ 1 2) (+ 3 4))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -462,10 +475,7 @@ test "compile function makes function" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function () (+ 1 2))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(function () (+ 1 2))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -479,12 +489,9 @@ test "compile function without args is compile error" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function no-args (+ 1 2))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
     try testing.expectError(
         error.InvalidExpression,
-        compiler.addExpr(parsed_val),
+        compiler.addExpr(try Reader.readOne("(function no-args (+ 1 2))", testing.allocator, &vm)),
     );
 }
 
@@ -494,10 +501,7 @@ test "compile function body is compiled" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function () 1 2 3)");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(function () 1 2 3)", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -522,10 +526,7 @@ test "compile function without body has nil body" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function ())");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(function ())", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -548,10 +549,7 @@ test "compile function with args has correct number of args" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function (a b c))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(function (a b c))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -570,10 +568,7 @@ test "compile function with reference to arg resolves to correct reference" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    var parser = try Reader.init("(function (func a b) (func a b))");
-    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
-
-    try compiler.addExpr(parsed_val);
+    try compiler.addExpr(try Reader.readOne("(function (func a b) (func a b))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
 
@@ -591,5 +586,61 @@ test "compile function with reference to arg resolves to correct reference" {
             .args = 3,
         },
         function_bytecode,
+    );
+}
+
+test "compile return with value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(return 10)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .push = Val.from(10) }),
+                Instruction.init(.{ .ret = {} }),
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "compile return without value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(return)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .push = Val.from({}) }),
+                Instruction.init(.{ .ret = {} }),
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "compile return with too many args" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try testing.expectError(
+        error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(return 10 20)", testing.allocator, &vm)),
     );
 }
