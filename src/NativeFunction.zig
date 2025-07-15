@@ -11,6 +11,8 @@ pub const Error = error{
     WrongArity,
     /// An argument to the function had an incorrect type.
     TypeError,
+    /// An object was not found, likely due to being garbage collected.
+    ObjectNotFound,
 } || std.mem.Allocator.Error;
 
 /// The name of the function.

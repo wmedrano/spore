@@ -120,7 +120,7 @@ pub fn isEmpty(self: Compiler) bool {
 /// Compiles a `Val` and adds it to the current compilation context.
 pub fn addExpr(self: *Compiler, expr: Val) !void {
     switch (expr.repr) {
-        .nil, .int, .float, .native_function, .bytecode_function => {
+        .nil, .true_bool, .int, .float, .native_function, .bytecode_function => {
             const instruction = Instruction.init(.{ .push = expr });
             try self.instructions.append(self.arena.allocator(), instruction);
         },

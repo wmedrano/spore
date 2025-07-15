@@ -27,6 +27,7 @@ pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
         void => return init(Repr.newNil()),
+        bool => return init(Repr.newBool(val)),
         i64, comptime_int => return init(Repr.newInt(val)),
         f64, comptime_float => return init(Repr.newFloat(val)),
         Symbol.Interned => return init(Repr.newSymbol(val)),
@@ -52,6 +53,11 @@ pub fn to(self: Val, T: type) ToValError!T {
     switch (T) {
         void => switch (self.repr) {
             .nil => return {},
+            else => return ToValError.TypeError,
+        },
+        bool => switch (self.repr) {
+            .nil => return false,
+            .true_bool => return true,
             else => return ToValError.TypeError,
         },
         i64 => switch (self.repr) {
@@ -106,6 +112,8 @@ pub fn isTruthy(self: Val) bool {
 pub const Repr = union(enum) {
     /// The `nil` value. This is equivalent to an empty list.
     nil,
+    /// The true value. There is only one.
+    true_bool,
     /// An integer.
     int: i64,
     /// A floating point number.
@@ -123,6 +131,11 @@ pub const Repr = union(enum) {
     /// Create a new `Repr` that holds a nil value.
     pub fn newNil() Repr {
         return .{ .nil = {} };
+    }
+
+    /// Create a new `Repr` that holds a bool value.
+    pub fn newBool(b: bool) Repr {
+        return if (b) .{ .true_bool = {} } else newNil();
     }
 
     /// Create a new `Repr` that holds an integer.
@@ -167,6 +180,7 @@ pub const Repr = union(enum) {
         _ = options;
         switch (self) {
             .nil => try writer.print("nil", .{}),
+            .true_bool => try writer.print("true", .{}),
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("@symbol-{}", .{x}),
