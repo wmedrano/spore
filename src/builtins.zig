@@ -14,6 +14,7 @@ pub fn registerAll(vm: *Vm) !void {
     try symbol_q.register(vm);
     try null_q.register(vm);
     try add.register(vm);
+    try subtract.register(vm);
     try define.register(vm);
     try cons.register(vm);
     try car.register(vm);
@@ -76,11 +77,11 @@ const add = NativeFunction{
     .ptr = addImpl,
 };
 
-fn addImpl(vm: *Vm) NativeFunction.Error!Val {
+fn addSlice(vals: []const Val) NativeFunction.Error!Val {
     var int_sum: i64 = 0;
     var float_sum: f64 = 0.0;
     var has_float = false;
-    for (vm.execution_context.localStack()) |val| {
+    for (vals) |val| {
         switch (val.repr) {
             .int => |x| int_sum += x,
             .float => |x| {
@@ -95,6 +96,60 @@ fn addImpl(vm: *Vm) NativeFunction.Error!Val {
         return Val.from(sum_as_float);
     }
     return Val.from(int_sum);
+}
+
+fn addImpl(vm: *Vm) NativeFunction.Error!Val {
+    return try addSlice(vm.execution_context.localStack());
+}
+
+const subtract = NativeFunction{
+    .name = "-",
+    .docstring = "Subtracts values. With one argument, negates it. With two, subtracts the second from the first. With more, subtracts the sum of the rest from the first.",
+    .ptr = subtractImpl,
+};
+
+fn negate(val: Val) !Val {
+    switch (val.repr) {
+        .int => |x| return Val.from(-x),
+        .float => |x| return Val.from(-x),
+        else => return NativeFunction.Error.TypeError,
+    }
+}
+
+fn subtractTwo(val1: Val, val2: Val) NativeFunction.Error!Val {
+    const x1 = val1.repr;
+    const x2 = val2.repr;
+
+    switch (x1) {
+        .int => |int1| {
+            switch (x2) {
+                .int => |int2| return Val.from(int1 - int2),
+                .float => |f2| return Val.from(@as(f64, @floatFromInt(int1)) - f2),
+                else => return NativeFunction.Error.TypeError,
+            }
+        },
+        .float => |f1| {
+            switch (x2) {
+                .int => |int2| return Val.from(f1 - @as(f64, @floatFromInt(int2))),
+                .float => |f2| return Val.from(f1 - f2),
+                else => return NativeFunction.Error.TypeError,
+            }
+        },
+        else => return NativeFunction.Error.TypeError,
+    }
+}
+
+fn subtractImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    switch (args.len) {
+        0 => return NativeFunction.Error.WrongArity,
+        1 => return try negate(args[0]),
+        2 => return try subtractTwo(args[0], args[1]),
+        else => return try subtractTwo(
+            args[0],
+            try addSlice(args[1..]),
+        ),
+    }
 }
 
 const define = NativeFunction{
@@ -354,5 +409,73 @@ test "null? returns false for symbol" {
     try testing.expectEqualDeep(
         Val.from(false),
         try vm.evalStr("(null? 'a)"),
+    );
+}
+
+test "- with no arguments is wrong arity" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(-)"),
+    );
+}
+
+test "- with one argument negates number" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(-5),
+        try vm.evalStr("(- 5)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(5),
+        try vm.evalStr("(- -5)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(-3.5),
+        try vm.evalStr("(- 3.5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(- 'a)"),
+    );
+}
+
+test "- with two arguments subtracts args[1] from args[0]" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(3),
+        try vm.evalStr("(- 5 2)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(3.25),
+        try vm.evalStr("(- 5.5 2.25)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(2.5),
+        try vm.evalStr("(- 5 2.5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(- 5 'a)"),
+    );
+}
+
+test "- with multiple arguments subtracts args[1..] from args[0]." {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(4),
+        try vm.evalStr("(- 10 1 2 3)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(13.0),
+        try vm.evalStr("(- 20.5 5 2.5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(- 10 1 'a)"),
     );
 }
