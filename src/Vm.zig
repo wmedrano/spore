@@ -55,7 +55,6 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     try self.execution_context.pushVal(Val.from({}));
     try self.execution_context.pushCallFrame(ExecutionContext.CallFrame{
         .instructions = bytecode.instructions,
-        .instruction_index = 0,
         .stack_start = self.execution_context.stack.len,
     });
     while (initial_call_stack_size < self.execution_context.previous_call_frames.len) {
@@ -116,5 +115,14 @@ test "evalStr with bad syntax doesn't evaluate any code" {
     try testing.expectEqualDeep(
         &.{},
         vm.execution_context.stack.constSlice(),
+    );
+}
+
+test "can eval function" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(3),
+        vm.evalStr("((function (a b) (+ a b)) 1 2)"),
     );
 }

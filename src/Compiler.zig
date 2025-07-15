@@ -34,8 +34,19 @@ symbols: struct {
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
-/// The number of arguments as input.
-args: usize = 0,
+/// The variables that are in scope.
+scoped_variables: std.ArrayListUnmanaged(ScopedVariable) = .{},
+
+/// Represents a variable defined within the current compilation scope.
+///
+/// It tracks the variable's symbol and its corresponding index on the local
+/// stack where its value will be stored or retrieved.
+const ScopedVariable = struct {
+    /// The symbol of the scoped variable.
+    symbol: Symbol.Interned,
+    /// The location of the symbol on the local stack.
+    index: usize,
+};
 
 /// Initialize a new compiler.
 ///
@@ -59,13 +70,20 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
 /// Returns:
 ///     A new `Compiler` instance configured for function compilation.
 fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compiler {
-    const arg_count = blk: {
-        if (std.meta.eql(args, Val.from({}))) break :blk 0;
+    const scoped_variables = blk: {
+        if (std.meta.eql(args, Val.from({}))) break :blk std.ArrayListUnmanaged(ScopedVariable){};
         const args_list = try vm.heap.cons_cells.get(args.to(Handle(ConsCell)) catch return Error.InvalidExpression);
         var args_iter = args_list.iterList();
-        var arg_counter: usize = 0;
-        while (try args_iter.next(vm)) |_| arg_counter += 1;
-        break :blk arg_counter;
+
+        var scoped_variables = std.ArrayListUnmanaged(ScopedVariable){};
+        while (try args_iter.next(vm)) |val| {
+            const scoped_variable = ScopedVariable{
+                .symbol = val.to(Symbol.Interned) catch return Error.InvalidExpression,
+                .index = scoped_variables.items.len,
+            };
+            try scoped_variables.append(arena.allocator(), scoped_variable);
+        }
+        break :blk scoped_variables;
     };
     return Compiler{
         .vm = vm,
@@ -75,7 +93,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .function = try Symbol.init("function").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
-        .args = arg_count,
+        .scoped_variables = scoped_variables,
     };
 }
 
@@ -85,7 +103,10 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
-    return .{ .instructions = instructions, .args = self.args };
+    return .{
+        .instructions = instructions,
+        .args = self.scoped_variables.items.len,
+    };
 }
 
 /// Returns true if the compiler has no instructions compiled yet, false
@@ -102,14 +123,52 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
             try self.instructions.append(self.arena.allocator(), instruction);
         },
         .symbol => |s| {
-            const instruction = if (s.unquote()) |interned_symbol|
-                Instruction.init(.{ .push = Val.from(interned_symbol) })
+            if (s.unquote()) |interned_symbol|
+                try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = Val.from(interned_symbol) }))
             else
-                Instruction.init(.{ .deref = s });
-            try self.instructions.append(self.arena.allocator(), instruction);
+                try self.deref(s);
         },
         .cons => |cons_handle| try self.addCons(cons_handle),
     }
+}
+
+/// Dereferences a symbol, generating the appropriate instruction.
+///
+/// If the symbol refers to a variable in the current compilation scope (a local
+/// variable), a `.get` instruction is emitted to retrieve its value from the
+/// local stack. Otherwise, a `.deref` instruction is emitted, indicating that
+/// the symbol should be looked up in the global environment during runtime.
+fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
+    if (self.getVariable(symbol)) |scoped_variable| {
+        try self.instructions.append(
+            self.arena.allocator(),
+            Instruction.init(.{ .get = scoped_variable.index }),
+        );
+    } else {
+        try self.instructions.append(
+            self.arena.allocator(),
+            Instruction.init(.{ .deref = symbol }),
+        );
+    }
+}
+
+/// Searches for a symbol within the currently defined scoped variables.
+///
+/// It iterates through the `scoped_variables` in reverse order (most recently
+/// defined first) to find a `ScopedVariable` whose symbol matches the
+/// provided `symbol`. This ensures that inner scopes shadow outer scopes.
+///
+/// Args:
+///     symbol: The interned symbol to search for.
+///
+/// Returns:
+///     The `ScopedVariable` if found, otherwise `null`.
+fn getVariable(self: Compiler, symbol: Symbol.Interned) ?ScopedVariable {
+    for (0..self.scoped_variables.items.len) |idx| {
+        const variable = self.scoped_variables.items[self.scoped_variables.items.len - 1 - idx];
+        if (std.meta.eql(variable.symbol, symbol)) return variable;
+    }
+    return null;
 }
 
 /// Compiles a `ConsCell` expression.
@@ -502,5 +561,35 @@ test "compile function with args has correct number of args" {
     try testing.expectEqualDeep(
         3,
         function_bytecode.args,
+    );
+}
+
+test "compile function with reference to arg resolves to correct reference" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    var parser = try Reader.init("(function (func a b) (func a b))");
+    const parsed_val = (try parser.next(testing.allocator, &vm)).?;
+
+    try compiler.addExpr(parsed_val);
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const function_bytecode = try vm.heap.bytecode_functions.get(
+        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+    );
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .get = 0 }),
+                Instruction.init(.{ .get = 1 }),
+                Instruction.init(.{ .get = 2 }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+            .args = 3,
+        },
+        function_bytecode,
     );
 }

@@ -14,11 +14,11 @@ const ExecutionContext = @This();
 /// Holds information about a single function call.
 pub const CallFrame = struct {
     /// The sequence of instructions to be executed for this function call.
-    instructions: []const Instruction,
+    instructions: []const Instruction = &.{},
     /// The index of the next instruction to be executed.
-    instruction_index: usize,
+    instruction_index: usize = 0,
     /// The index in the main stack where this function's local stack starts.
-    stack_start: usize,
+    stack_start: usize = 0,
 };
 
 /// A map from symbol to its value in the global namespace.
@@ -26,11 +26,7 @@ global_values: std.AutoHashMapUnmanaged(Symbol.Interned, Val) = .{},
 /// The backing array for the stack.
 stack: std.BoundedArray(Val, 1024) = .{},
 /// Holds the current call frame.
-call_frame: CallFrame = .{
-    .instructions = &.{},
-    .instruction_index = 0,
-    .stack_start = 0,
-},
+call_frame: CallFrame = .{},
 /// Holds the previous call frames.
 previous_call_frames: std.BoundedArray(CallFrame, 64) = .{},
 

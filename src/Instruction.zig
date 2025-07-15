@@ -25,6 +25,8 @@ pub const Error = error{
 pub const Code = enum {
     /// Push a new value onto the stack.
     push,
+    /// Get the value from the local stack.
+    get,
     /// Get the value of the symbol and push it on the stack.
     deref,
     /// Skip the next n instructions.
@@ -41,6 +43,7 @@ pub const Code = enum {
 /// An instruction for a `Vm` to execute.
 pub const Repr = union(Code) {
     push: Val,
+    get: usize,
     deref: Symbol.Interned,
     jump: usize,
     jump_if: usize,
@@ -57,6 +60,10 @@ pub fn init(repr: Repr) Instruction {
 pub fn execute(self: Instruction, vm: *Vm) Error!void {
     switch (self.repr) {
         .push => |v| try vm.execution_context.pushVal(v),
+        .get => |idx| {
+            const val = vm.execution_context.localStack()[idx];
+            try vm.execution_context.pushVal(val);
+        },
         .deref => |s| {
             const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
@@ -79,20 +86,23 @@ pub fn execute(self: Instruction, vm: *Vm) Error!void {
 fn executeEval(vm: *Vm, n: usize) Error!void {
     if (n == 0) return Error.StackUnderflow;
     const function_idx = vm.execution_context.stack.len - n;
+    const stack_start = function_idx + 1;
     const val = vm.execution_context.stack.get(function_idx);
-    try vm.execution_context.pushCallFrame(ExecutionContext.CallFrame{
-        .instructions = &.{},
-        .instruction_index = 0,
-        .stack_start = function_idx + 1,
-    });
     switch (val.repr) {
         .bytecode_function => |handle| {
             const function = try vm.heap.bytecode_functions.get(handle);
+            try vm.execution_context.pushCallFrame(ExecutionContext.CallFrame{
+                .instructions = function.instructions,
+                .stack_start = stack_start,
+            });
             const got_args = vm.execution_context.localStack().len;
             const want_args = function.args;
             if (got_args != want_args) return Error.WrongArity;
         },
         .native_function => |handle| {
+            try vm.execution_context.pushCallFrame(
+                ExecutionContext.CallFrame{ .stack_start = stack_start },
+            );
             const function = try vm.heap.native_functions.get(handle);
             vm.execution_context.stack.append(try function.call(vm)) catch return Error.StackOverflow;
             try Instruction.init(.{ .ret = {} }).execute(vm);
@@ -115,6 +125,68 @@ fn executeRet(vm: *Vm) !void {
     if (vm.execution_context.localStack().len > 0) {
         vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
     }
+}
+
+/// Formats self implementing the `std.fmt.Format` interface.
+pub fn format(self: Instruction, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    _ = fmt;
+    _ = options;
+    switch (self.repr) {
+        .push => |val| try writer.print("(push {})", .{val}),
+        .get => |idx| try writer.print("(get {})", .{idx}),
+        .deref => |symbol| try writer.print("(deref {})", .{symbol}),
+        .jump => |n| try writer.print("(jump {})", .{n}),
+        .jump_if => |n| try writer.print("(jump_if {})", .{n}),
+        .eval => |n| try writer.print("(eval {})", .{n}),
+        .ret => try writer.print("(ret)", .{}),
+    }
+}
+
+test "format push instruction" {
+    const instruction = Instruction.init(.{ .push = Val.from(123) });
+    try testing.expectFmt("(push 123)", "{}", .{instruction});
+}
+
+test "format get instruction" {
+    const instruction = Instruction.init(.{ .get = 5 });
+    try testing.expectFmt("(get 5)", "{}", .{instruction});
+}
+
+test "format deref instruction" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const symbol = try Symbol.init("my-var").intern(
+        std.testing.allocator,
+        &vm.heap.string_interner,
+    );
+    const instruction = Instruction.init(.{ .deref = symbol });
+    var buf: [64]u8 = undefined;
+    try testing.expectFmt(
+        try std.fmt.bufPrint(&buf, "(deref {any})", .{symbol}),
+        "{}",
+        .{instruction},
+    );
+}
+
+test "format jump instruction" {
+    const instruction = Instruction.init(.{ .jump = 10 });
+    try testing.expectFmt("(jump 10)", "{}", .{instruction});
+}
+
+test "format jump_if instruction" {
+    const instruction = Instruction.init(.{ .jump_if = 20 });
+    try testing.expectFmt("(jump_if 20)", "{}", .{instruction});
+}
+
+test "format eval instruction" {
+    const instruction = Instruction.init(.{ .eval = 3 });
+    try testing.expectFmt("(eval 3)", "{}", .{instruction});
+}
+
+test "format ret instruction" {
+    const instruction = Instruction.init(.{ .ret = {} });
+    try testing.expectFmt("(ret)", "{}", .{instruction});
 }
 
 test "push val pushes to stack" {
