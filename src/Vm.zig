@@ -28,8 +28,7 @@ pub fn init(allocator: std.mem.Allocator) !Vm {
         .heap = Heap.init(allocator),
     };
     const builtins = @import("builtins.zig");
-    try builtins.AddFunction.register(&vm);
-    try builtins.DefineFunction.register(&vm);
+    try builtins.registerAll(&vm);
     return vm;
 }
 
