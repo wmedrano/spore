@@ -48,8 +48,11 @@ pub fn Iterator(comptime T: type) type {
 pub fn ObjectPool(comptime T: type) type {
     return struct {
         const Self = @This();
+        const Object = struct {
+            value: T,
+        };
         /// The list of objects stored in the pool.
-        objects: std.ArrayListUnmanaged(T) = .{},
+        objects: std.MultiArrayList(Object) = .{},
 
         /// Deinitialize `self`, freeing all allocated resources.
         /// This must be called when the pool is no longer needed.
@@ -61,9 +64,9 @@ pub fn ObjectPool(comptime T: type) type {
         /// appended to the internal storage.
         ///
         /// Returns an error if memory allocation fails.
-        pub fn create(self: *Self, allocator: std.mem.Allocator, obj: T) !Handle(T) {
-            const id = Handle(T){ .id = @intCast(self.objects.items.len) };
-            try self.objects.append(allocator, obj);
+        pub fn create(self: *Self, allocator: std.mem.Allocator, value: T) !Handle(T) {
+            const id = Handle(T){ .id = @intCast(self.objects.len) };
+            try self.objects.append(allocator, .{ .value = value });
             return id;
         }
 
@@ -72,15 +75,15 @@ pub fn ObjectPool(comptime T: type) type {
         /// Returns an error `error.ObjectNotFound` if the handle's ID is out of bounds.
         pub fn get(self: Self, handle: Handle(T)) !T {
             const idx = handle.id;
-            if (idx >= self.objects.items.len) return error.ObjectNotFound;
-            return self.objects.items[idx];
+            if (idx >= self.objects.len) return error.ObjectNotFound;
+            return self.objects.items(.value)[idx];
         }
 
         /// Returns an iterator over the objects in the pool.
         pub fn iter(self: Self) Iterator(T) {
             return .{
                 .current_index = 0,
-                .items = self.objects.items,
+                .items = self.objects.items(.value),
             };
         }
     };
