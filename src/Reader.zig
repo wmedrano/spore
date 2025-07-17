@@ -100,7 +100,11 @@ fn listToVal(list: []const Val, vm: *Vm) !Val {
     const head = list[0];
     const tail = try listToVal(list[1..], vm);
     const cons = ConsCell.init(head, tail);
-    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons);
+    const cons_handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
+        cons,
+        vm.heap.dead_color,
+    );
     return Val.from(cons_handle);
 }
 

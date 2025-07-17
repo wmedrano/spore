@@ -230,6 +230,7 @@ test "Val.to Handle(ConsCell)" {
     const handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
         ConsCell.init(Val.from(1), Val.from(2)),
+        vm.heap.dead_color,
     );
     const cons_val = Val.from(handle);
     try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
@@ -267,6 +268,7 @@ test "cons is truthy" {
     const handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
         ConsCell.init(Val.from(1), Val.from(2)),
+        vm.heap.dead_color,
     );
     const cons_val = Val.from(handle);
     try testing.expect(cons_val.isTruthy());

@@ -178,7 +178,11 @@ fn consImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 2) return NativeFunction.Error.WrongArity;
     const cons_cell = ConsCell.init(args[0], args[1]);
-    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons_cell);
+    const cons_handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
+        cons_cell,
+        vm.heap.dead_color,
+    );
     return Val.from(cons_handle);
 }
 
@@ -227,7 +231,11 @@ fn buildListFromVals(vals: []const Val, vm: *Vm) NativeFunction.Error!Val {
     const head = vals[0];
     const tail = try buildListFromVals(vals[1..], vm); // Recursive call for the rest of the list
     const cons_cell = ConsCell.init(head, tail);
-    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons_cell);
+    const cons_handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
+        cons_cell,
+        vm.heap.dead_color,
+    );
     return Val.from(cons_handle);
 }
 

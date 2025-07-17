@@ -106,6 +106,7 @@ test "pretty print cons pair" {
         try vm.heap.cons_cells.create(
             vm.heap.allocator,
             ConsCell.init(Val.from(1), Val.from(2)),
+            vm.heap.dead_color,
         ),
     );
     try testing.expectFmt("(1 . 2)", "{}", .{PrettyPrinter.init(&vm, cons)});
@@ -118,6 +119,7 @@ test "pretty print cons list" {
         try vm.heap.cons_cells.create(
             vm.heap.allocator,
             ConsCell.init(Val.from(1), Val.from({})),
+            vm.heap.dead_color,
         ),
     );
     try testing.expectFmt("(1)", "{}", .{PrettyPrinter.init(&vm, cons)});

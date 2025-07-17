@@ -2,16 +2,19 @@
 //cells, strings, and functions.
 const std = @import("std");
 
+const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
+const Color = @import("datastructures/object_pool.zig").Color;
 const StringInterner = @import("datastructures/StringInterner.zig");
 const NativeFunction = @import("NativeFunction.zig");
-const BytecodeFunction = @import("BytecodeFunction.zig");
 
 const Heap = @This();
 
 /// The allocator used for the Vms objects and metadata.
 allocator: std.mem.Allocator,
+/// The color for live objects.
+dead_color: Color = .red,
 /// The string interner used by the Vm. This should also be used when creating
 /// symbols through `Symbols.intern`.
 string_interner: StringInterner,

@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const BytecodeFunction = @import("BytecodeFunction.zig");
 const Compiler = @import("Compiler.zig");
 const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
@@ -8,11 +9,12 @@ const Handle = @import("datastructures/object_pool.zig").Handle;
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
+const GarbageCollector = @import("GarbageCollector.zig");
 const Heap = @import("Heap.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
 const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
 
 const Vm = @This();
 
@@ -75,6 +77,12 @@ pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice 
     return PrettyPrinter.initSlice(self, vals);
 }
 
+/// Triggers a garbage collection cycle to clean up unused memory.
+pub fn garbageCollect(self: *Vm) !void {
+    var gc = GarbageCollector.init(self);
+    try gc.run();
+}
+
 test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
@@ -123,5 +131,17 @@ test "can eval function" {
     try testing.expectEqualDeep(
         Val.from(3),
         vm.evalStr("((function (a b) (+ a b)) 1 2)"),
+    );
+}
+
+test garbageCollect {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const val = try vm.evalStr("(function (a b) (+ a b))");
+    const func = try val.to(Handle(BytecodeFunction));
+    try vm.garbageCollect();
+    try testing.expectError(
+        error.ObjectNotFound,
+        vm.heap.bytecode_functions.get(func),
     );
 }

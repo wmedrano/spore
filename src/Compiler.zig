@@ -277,7 +277,11 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     if (function_compiler.isEmpty()) try function_compiler.addExpr(Val.from({}));
 
     const bytecode = try function_compiler.compile();
-    const bytecode_handle = try self.vm.heap.bytecode_functions.create(self.vm.heap.allocator, bytecode);
+    const bytecode_handle = try self.vm.heap.bytecode_functions.create(
+        self.vm.heap.allocator,
+        bytecode,
+        self.vm.heap.dead_color,
+    );
     try self.instructions.append(
         self.arena.allocator(),
         Instruction.init(.{ .push = Val.from(bytecode_handle) }),
@@ -325,7 +329,11 @@ test "compile improper list" {
         .car = Val.from(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
         .cdr = Val.from(42),
     };
-    const cons_handle = try vm.heap.cons_cells.create(vm.heap.allocator, cons);
+    const cons_handle = try vm.heap.cons_cells.create(
+        vm.heap.allocator,
+        cons,
+        vm.heap.dead_color,
+    );
 
     try testing.expectError(
         Compiler.Error.TypeError,
