@@ -63,8 +63,7 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
         try instruction.execute(self);
     }
 
-    const return_val = try self.execution_context.popVal();
-    return return_val;
+    return try self.execution_context.popVal();
 }
 
 /// Return an object that can pretty print `val` when formatted.
@@ -79,27 +78,24 @@ pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice 
 
 /// Triggers a garbage collection cycle to clean up unused memory.
 pub fn garbageCollect(self: *Vm) !void {
-    var gc = GarbageCollector.init(self);
-    try gc.run();
+    try GarbageCollector.init(self).run();
 }
 
 test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const return_val = try vm.evalStr("(if nil (+ 1 2 3 4) (+ 10 20 30 40))");
     try testing.expectEqualDeep(
-        Val.from(100),
-        return_val,
+        Val.from(24),
+        try vm.evalStr("(def x 12) (+ x x)"),
     );
 }
 
 test "evalStr returns last expression value for multiple expressions" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const return_val = try vm.evalStr("1 2 3");
     try testing.expectEqualDeep(
         Val.from(3),
-        return_val,
+        try vm.evalStr("1 2 3"),
     );
 }
 
@@ -137,8 +133,7 @@ test "can eval function" {
 test garbageCollect {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const val = try vm.evalStr("(function (a b) (+ a b))");
-    const func = try val.to(Handle(BytecodeFunction));
+    const func = try (try vm.evalStr("(function (a b) (+ a b))")).to(Handle(BytecodeFunction));
     try vm.garbageCollect();
     try testing.expectError(
         error.ObjectNotFound,

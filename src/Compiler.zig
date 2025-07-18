@@ -21,6 +21,8 @@ pub const Error = error{
     /// An invalid expression. For example, an if statement without any
     /// arguments.
     InvalidExpression,
+    /// An attempt to define a variable with a non-symbol name.
+    InvalidDefinitionName,
 } || std.mem.Allocator.Error;
 
 /// The `Vm` for the compiler.
@@ -32,6 +34,9 @@ symbols: struct {
     @"if": Symbol.Interned,
     function: Symbol.Interned,
     @"return": Symbol.Interned,
+    internal_define: Symbol.Interned,
+    def: Symbol.Interned,
+    defun: Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -93,6 +98,9 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .@"if" = try Symbol.init("if").intern(vm.heap.allocator, &vm.heap.string_interner),
             .function = try Symbol.init("function").intern(vm.heap.allocator, &vm.heap.string_interner),
             .@"return" = try Symbol.init("return").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .internal_define = try Symbol.init("internal-define").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .def = try Symbol.init("def").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .defun = try Symbol.init("defun").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .scoped_variables = scoped_variables,
@@ -190,6 +198,10 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addFunction(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.@"return")))
                 return self.addReturn(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.def)))
+                return self.addDef(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.defun)))
+                return self.addDefun(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -261,6 +273,30 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         self.arena.allocator(),
         Instruction.init(.{ .ret = {} }),
     );
+}
+
+fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    const expr = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
+    if (interned_symbol.quoted) return Error.InvalidExpression;
+    if (try exprs.next(self.vm)) |_| return Error.InvalidExpression;
+
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .deref = self.symbols.internal_define }));
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = symbol }));
+    try self.addExpr(expr);
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .eval = 3 }));
+}
+
+fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
+    if (interned_symbol.quoted) return Error.InvalidExpression;
+
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .deref = self.symbols.internal_define }));
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = symbol }));
+    try self.addFunction(exprs);
+    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .eval = 3 }));
 }
 
 /// Compiles a `function` expression.
@@ -650,5 +686,149 @@ test "compile return with too many args" {
     try testing.expectError(
         error.InvalidExpression,
         compiler.addExpr(try Reader.readOne("(return 10 20)", testing.allocator, &vm)),
+    );
+}
+
+test "compile def turns to define" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try compiler.addExpr(try Reader.readOne("(def my-var 123)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const define_sym = try Symbol.init("internal-define").intern(testing.allocator, &vm.heap.string_interner);
+    const my_var_sym = try Symbol.init("my-var").intern(testing.allocator, &vm.heap.string_interner);
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .deref = define_sym }),
+                Instruction.init(.{ .push = Val.from(my_var_sym) }),
+                Instruction.init(.{ .push = Val.from(123) }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "compile def with quoted symbol fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(def 'my-var 123)", testing.allocator, &vm)),
+    );
+}
+
+test "compile def with multiple exprs fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(def my-var 10 20)", testing.allocator, &vm)),
+    );
+}
+
+test "compile defun turns to define with correct function bytecode" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try compiler.addExpr(try Reader.readOne("(defun my-func (a) a)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const define_sym = try Symbol.init("internal-define").intern(testing.allocator, &vm.heap.string_interner);
+    const my_func_sym = try Symbol.init("my-func").intern(testing.allocator, &vm.heap.string_interner);
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .deref = define_sym }),
+                Instruction.init(.{ .push = Val.from(my_func_sym) }),
+                bytecode.instructions[2],
+                Instruction.init(.{ .eval = 3 }),
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+    const function_bytecode = try vm.heap.bytecode_functions.get(
+        try bytecode.instructions[2].repr.push.to(Handle(BytecodeFunction)),
+    );
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .get = 0 }),
+            },
+            .args = 1,
+        },
+        function_bytecode,
+    );
+}
+
+test "compile defun with non-symbol name fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(defun 123 () 1)", testing.allocator, &vm)),
+    );
+}
+
+test "compile defun with quoted symbol fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(defun 'my-func () 1)", testing.allocator, &vm)),
+    );
+}
+
+test "compile defun with atom as args fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(defun my-func 1 2 3)", testing.allocator, &vm)),
+    );
+}
+
+test "compile defun with missing args fails" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try testing.expectError(
+        Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(defun my-func)", testing.allocator, &vm)),
     );
 }

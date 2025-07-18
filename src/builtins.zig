@@ -15,7 +15,7 @@ pub fn registerAll(vm: *Vm) !void {
     try null_q.register(vm);
     try add.register(vm);
     try subtract.register(vm);
-    try define.register(vm);
+    try internal_define.register(vm);
     try cons.register(vm);
     try car.register(vm);
     try cdr.register(vm);
@@ -152,14 +152,14 @@ fn subtractImpl(vm: *Vm) NativeFunction.Error!Val {
     }
 }
 
-const define = NativeFunction{
-    .name = "define",
+const internal_define = NativeFunction{
+    .name = "internal-define",
     .docstring = "Defines a global variable. It expects two arguments: a symbol " ++
         "(the name of the variable) and a value.",
-    .ptr = defineImpl,
+    .ptr = internalDefineImpl,
 };
 
-fn defineImpl(vm: *Vm) NativeFunction.Error!Val {
+fn internalDefineImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 2) return NativeFunction.Error.WrongArity;
     const symbol = try args[0].to(Symbol.Interned);
@@ -281,7 +281,7 @@ test "define sets global variable" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    _ = try vm.evalStr("(define 'x 42)");
+    _ = try vm.evalStr("(internal-define 'x 42)");
     try testing.expectEqualDeep(
         Val.from(42),
         vm.evalStr("x"),
