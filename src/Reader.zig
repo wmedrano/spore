@@ -7,6 +7,7 @@ const Symbol = @import("datastructures/Symbol.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
+const String = @import("String.zig");
 
 const Reader = @This();
 
@@ -59,6 +60,7 @@ pub fn next(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !?Val {
         .close_paren => return error.ParseError,
         .open_paren => return try self.nextExpr(allocator, vm),
         .identifier => return try identifierToVal(self.tokenizer.substr(initial_token), vm),
+        .string => return try stringToVal(self.tokenizer.substr(initial_token), vm),
     }
 }
 
@@ -78,6 +80,10 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
                 const identifier = try identifierToVal(self.tokenizer.substr(token), vm);
                 try vals.append(identifier);
             },
+            .string => {
+                const string = try stringToVal(self.tokenizer.substr(token), vm);
+                try vals.append(string);
+            },
         }
     }
     return error.ParseError;
@@ -91,6 +97,36 @@ fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     const symbol = Symbol.init(identifier);
     const interned_symbol = try symbol.intern(vm.heap.allocator, &vm.heap.string_interner);
     return Val.from(interned_symbol);
+}
+
+/// Converts a string representation into a Lisp string.
+fn stringToVal(identifier: []const u8, vm: *Vm) !Val {
+    if (identifier.len < 2) return error.ParseError;
+    if (identifier[0] != '"') return error.ParseError;
+    if (identifier[identifier.len - 1] != '"') return error.ParseError;
+
+    var string = std.ArrayList(u8).init(vm.heap.allocator);
+    defer string.deinit();
+    var escaped = false;
+    for (identifier[1 .. identifier.len - 1]) |ch| {
+        if (escaped) {
+            escaped = false;
+            try string.append(ch);
+        } else {
+            switch (ch) {
+                '\\' => escaped = true,
+                '"' => return error.ParseError,
+                else => try string.append(ch),
+            }
+        }
+    }
+    if (escaped) return error.ParseError;
+    const string_handle = try vm.heap.strings.create(
+        vm.heap.allocator,
+        try String.init(vm.heap.allocator, string.items),
+        vm.heap.dead_color,
+    );
+    return Val.from(string_handle);
 }
 
 /// Recursively constructs a Lisp list (a chain of `ConsCell`s) from a slice of

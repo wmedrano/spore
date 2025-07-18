@@ -10,7 +10,7 @@ text: []const u8,
 start: usize = 0,
 
 /// The types of tokens that can be produced.
-pub const TokenType = enum { open_paren, close_paren, identifier };
+pub const TokenType = enum { open_paren, close_paren, identifier, string };
 
 /// Represents a span of text within the original input.
 pub const Token = struct {
@@ -47,7 +47,7 @@ pub fn substr(self: Tokenizer, token: Token) []const u8 {
 pub fn next(self: *Tokenizer) ?Token {
     if (self.isDone()) return null;
     self.eatWhitespace();
-    if (self.isDone()) return null; // Check again after eating whitespace
+    if (self.isDone()) return null;
     const next_ch = self.text[self.start];
     if (isParen(next_ch)) {
         const ret = Token{
@@ -59,6 +59,10 @@ pub fn next(self: *Tokenizer) ?Token {
         return ret;
     }
     const start = self.start;
+    if (next_ch == '"') {
+        self.eatString();
+        return .{ .start = start, .end = self.start, .token_type = .string };
+    }
     self.eatIdentifier();
     return .{ .start = start, .end = self.start, .token_type = .identifier };
 }
@@ -91,6 +95,27 @@ fn eatIdentifier(self: *Tokenizer) void {
         if (std.ascii.isWhitespace(next_ch)) return;
         if (isParen(next_ch)) return;
         self.start += 1;
+    }
+}
+
+/// Advances the tokenizer's `start` pointer past a quoted string literal.
+/// It skips the opening quote, then consumes characters until it finds the closing quote.
+/// If no closing quote is found, it consumes until the end of the input.
+fn eatString(self: *Tokenizer) void {
+    self.start += 1;
+    var escaped = false;
+    while (!self.isDone()) {
+        const next_ch = self.text[self.start];
+        self.start += 1;
+        switch (next_ch) {
+            '\\' => escaped = !escaped,
+            '"' => if (escaped) {
+                escaped = false;
+            } else {
+                return;
+            },
+            else => escaped = false,
+        }
     }
 }
 
@@ -137,4 +162,13 @@ test "complex s-expression returns each token" {
     try testing.expectEqualStrings("tree", tokenizer.nextStr().?);
     try testing.expectEqualStrings(")", tokenizer.nextStr().?);
     try testing.expectEqualDeep(null, tokenizer.nextStr());
+}
+
+test "quoted string is parsed as single string" {
+    var tokenizer = Tokenizer.init("\"hello world\n...\"");
+    try testing.expectEqualDeep(
+        Token{ .start = 0, .end = 17, .token_type = .string },
+        tokenizer.next(),
+    );
+    try testing.expectEqualDeep(null, tokenizer.next());
 }

@@ -8,6 +8,7 @@ const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
 const Color = @import("datastructures/object_pool.zig").Color;
 const StringInterner = @import("datastructures/StringInterner.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const String = @import("String.zig");
 
 const Heap = @This();
 
@@ -20,6 +21,8 @@ dead_color: Color = .red,
 string_interner: StringInterner,
 /// Stores all cons cell objects.
 cons_cells: ObjectPool(ConsCell) = .{},
+/// Stores all string objects.
+strings: ObjectPool(String) = .{},
 /// Stores all native function objects.
 native_functions: ObjectPool(NativeFunction) = .{},
 /// Stores all bytecode function objects.
@@ -38,9 +41,11 @@ pub fn deinit(self: *Heap) void {
     self.string_interner.deinit(self.allocator);
     self.cons_cells.deinit(self.allocator);
     self.native_functions.deinit(self.allocator);
+
+    var string_iter = self.strings.iter();
+    while (string_iter.next()) |s| s.deinit(self.allocator);
+
     var bytecode_iter = self.bytecode_functions.iter();
-    while (bytecode_iter.next()) |bytecode| {
-        bytecode.deinit(self.allocator);
-    }
+    while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.allocator);
     self.bytecode_functions.deinit(self.allocator);
 }

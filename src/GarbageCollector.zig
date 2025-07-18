@@ -9,6 +9,7 @@ const ExecutionContext = @import("ExecutionContext.zig");
 const Heap = @import("Heap.zig");
 const Instruction = @import("Instruction.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const repr = @import("repr.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -60,6 +61,9 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
                 try self.markOne(cons.cdr);
             }
         },
+        .string => |handle| {
+            _ = self.vm.heap.strings.setColor(handle, alive_color);
+        },
         .native_function => |handle| {
             _ = self.vm.heap.native_functions.setColor(handle, alive_color);
         },
@@ -93,6 +97,9 @@ fn sweep(self: *GarbageCollector) !void {
 
     var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.vm.heap.allocator);
+
+    var string_iter = try self.vm.heap.strings.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
+    while (string_iter.next()) |string| string.deinit(self.vm.heap.allocator);
 
     self.vm.heap.dead_color = self.vm.heap.dead_color.swap();
 }

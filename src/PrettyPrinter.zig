@@ -63,6 +63,10 @@ pub fn format(
             const cons = try self.vm.heap.cons_cells.get(handle);
             try formatCons(cons, self.vm, writer);
         },
+        .string => |handle| {
+            const string = try self.vm.heap.strings.get(handle);
+            try writer.print("{s}", .{string});
+        },
         .native_function => |handle| {
             const func = try self.vm.heap.native_functions.get(handle);
             try writer.print("{any}", .{func});

@@ -9,6 +9,7 @@ const Symbol = @import("datastructures/Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const ValRepr = @import("repr.zig").ValRepr;
+const String = @import("String.zig");
 const Vm = @import("Vm.zig");
 
 const Val = @This();
@@ -23,7 +24,7 @@ fn init(repr: ValRepr) Val {
 }
 
 /// Create a new `Val` from a given value, deducing its type.
-/// Supports `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
+/// Supports `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
 pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
@@ -35,6 +36,9 @@ pub fn from(val: anytype) Val {
         Handle(ConsCell) => return init(ValRepr.newCons(val)),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
+        Handle(String) => return init(ValRepr.newString(val)),
+        String => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(String)) ++ ")"),
         Handle(NativeFunction) => return init(ValRepr.newNativeFunction(val)),
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
@@ -49,7 +53,7 @@ pub fn from(val: anytype) Val {
 pub const ToValError = error{TypeError};
 
 /// Convert `Val` into a value of type `T`.
-/// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, and `Handle(ConsCell)`.
+/// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
 pub fn to(self: Val, T: type) ToValError!T {
     switch (T) {
         void => switch (self.repr) {
@@ -81,6 +85,12 @@ pub fn to(self: Val, T: type) ToValError!T {
         },
         ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell))),
+        Handle(String) => switch (self.repr) {
+            .string => |x| return x,
+            else => return ToValError.TypeError,
+        },
+        String => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(String))),
         Handle(NativeFunction) => switch (self.repr) {
             .native_function => |x| return x,
             else => return ToValError.TypeError,
