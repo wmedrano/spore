@@ -8,16 +8,17 @@ const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
+const ValRepr = @import("repr.zig").ValRepr;
 const Vm = @import("Vm.zig");
 
 const Val = @This();
 
 /// The internal representation of the `Val` object. This is optimized to be
 /// small.
-repr: Repr,
+repr: ValRepr,
 
 /// Create a new `Val` from its internal representation. For internal use only.
-fn init(repr: Repr) Val {
+fn init(repr: ValRepr) Val {
     return .{ .repr = repr };
 }
 
@@ -26,18 +27,18 @@ fn init(repr: Repr) Val {
 pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
-        void => return init(Repr.newNil()),
-        bool => return init(Repr.newBool(val)),
-        i64, comptime_int => return init(Repr.newInt(val)),
-        f64, comptime_float => return init(Repr.newFloat(val)),
-        Symbol.Interned => return init(Repr.newSymbol(val)),
-        Handle(ConsCell) => return init(Repr.newCons(val)),
+        void => return init(ValRepr.newNil()),
+        bool => return init(ValRepr.newBool(val)),
+        i64, comptime_int => return init(ValRepr.newInt(val)),
+        f64, comptime_float => return init(ValRepr.newFloat(val)),
+        Symbol.Interned => return init(ValRepr.newSymbol(val)),
+        Handle(ConsCell) => return init(ValRepr.newCons(val)),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
-        Handle(NativeFunction) => return init(Repr.newNativeFunction(val)),
+        Handle(NativeFunction) => return init(ValRepr.newNativeFunction(val)),
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
-        Handle(BytecodeFunction) => return init(Repr.newBytecodeFunction(val)),
+        Handle(BytecodeFunction) => return init(ValRepr.newBytecodeFunction(val)),
         BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
@@ -107,89 +108,6 @@ pub fn isTruthy(self: Val) bool {
         else => return true,
     }
 }
-
-/// The internal representation of a value.
-pub const Repr = union(enum) {
-    /// The `nil` value. This is equivalent to an empty list.
-    nil,
-    /// The true value. There is only one.
-    true_bool,
-    /// An integer.
-    int: i64,
-    /// A floating point number.
-    float: f64,
-    /// A symbol. Interned to keep the size of `Repr` small.
-    symbol: Symbol.Interned,
-    /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
-    cons: Handle(ConsCell),
-    /// A native_function. Stored as a handle to keep the size of `Repr` small.
-    native_function: Handle(NativeFunction),
-    /// A bytecode function. Stored as a handle to keep the size of `Repr`
-    /// small.
-    bytecode_function: Handle(BytecodeFunction),
-
-    /// Create a new `Repr` that holds a nil value.
-    pub fn newNil() Repr {
-        return .{ .nil = {} };
-    }
-
-    /// Create a new `Repr` that holds a bool value.
-    pub fn newBool(b: bool) Repr {
-        return if (b) .{ .true_bool = {} } else newNil();
-    }
-
-    /// Create a new `Repr` that holds an integer.
-    pub fn newInt(int: i64) Repr {
-        return .{ .int = int };
-    }
-
-    /// Create a new `Repr` that holds a float.
-    pub fn newFloat(float: f64) Repr {
-        return .{ .float = float };
-    }
-
-    /// Create a new `Repr` that holds a symbol.
-    pub fn newSymbol(val: Symbol.Interned) Repr {
-        return .{ .symbol = val };
-    }
-
-    /// Create a new `Repr` that holds a ConsCell handle.
-    pub fn newCons(handle: Handle(ConsCell)) Repr {
-        return .{ .cons = handle };
-    }
-
-    /// Create a new `Repr` that holds a NativeFunction handle.
-    pub fn newNativeFunction(handle: Handle(NativeFunction)) Repr {
-        return .{ .native_function = handle };
-    }
-
-    /// Create a new `Repr` that holds a BytecodeFunction handle.
-    pub fn newBytecodeFunction(handle: Handle(BytecodeFunction)) Repr {
-        return .{ .bytecode_function = handle };
-    }
-
-    /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
-    /// interface.
-    pub fn format(
-        self: Repr,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-        switch (self) {
-            .nil => try writer.print("nil", .{}),
-            .true_bool => try writer.print("true", .{}),
-            .int => |x| try writer.print("{}", .{x}),
-            .float => |x| try writer.print("{d}", .{x}),
-            .symbol => |x| try writer.print("@symbol-{}", .{x}),
-            .cons => |handle| try writer.print("@cons-{}", .{handle.id}),
-            .native_function => |handle| try writer.print("@function-{}", .{handle.id}),
-            .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
-        }
-    }
-};
 
 test "Val is small" {
     try testing.expectEqual(2 * @sizeOf(usize), @sizeOf(Val));

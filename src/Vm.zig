@@ -78,7 +78,8 @@ pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice 
 
 /// Triggers a garbage collection cycle to clean up unused memory.
 pub fn garbageCollect(self: *Vm) !void {
-    try GarbageCollector.init(self).run();
+    var gc = GarbageCollector.init(self);
+    try gc.run();
 }
 
 test evalStr {
