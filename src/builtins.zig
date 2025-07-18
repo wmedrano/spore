@@ -7,12 +7,16 @@ const Symbol = @import("datastructures/Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
+const String = @import("String.zig");
 
 /// Registers all built-in native functions with the provided Vm.
 pub fn registerAll(vm: *Vm) !void {
     try number_q.register(vm);
     try symbol_q.register(vm);
     try null_q.register(vm);
+    try string_q.register(vm);
+    try to_string.register(vm);
+    try print.register(vm);
     try add.register(vm);
     try subtract.register(vm);
     try internal_define.register(vm);
@@ -68,6 +72,56 @@ fn nullQImpl(vm: *Vm) NativeFunction.Error!Val {
         .nil => return Val.from(true),
         else => return Val.from(false),
     }
+}
+
+const string_q = NativeFunction{
+    .name = "string?",
+    .docstring = "Returns true if the argument is a string, false otherwise.",
+    .ptr = stringQImpl,
+};
+
+fn stringQImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    switch (args[0].repr) {
+        .string => return Val.from(true),
+        else => return Val.from(false),
+    }
+}
+
+const to_string = NativeFunction{
+    .name = "->string",
+    .docstring = "Converts the argument to its string representation.",
+    .ptr = toStringImpl,
+};
+
+fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    var buffer = std.ArrayList(u8).init(vm.heap.allocator);
+    defer buffer.deinit();
+    const val = vm.prettyPrint(args[0]);
+    try val.format("any", .{}, buffer.writer());
+    const string = try String.init(vm.heap.allocator, buffer.items);
+    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);
+    return Val.from(handle);
+}
+
+const print = NativeFunction{
+    .name = "print",
+    .docstring = "Converts all arguments to their string representation, concatenates them, and returns the resulting string.",
+    .ptr = printImpl,
+};
+
+fn printImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    var buffer = std.ArrayList(u8).init(vm.heap.allocator);
+    defer buffer.deinit();
+    const vals = vm.prettyPrintSlice(args);
+    try vals.format("any", .{}, buffer.writer());
+    const string = try String.init(vm.heap.allocator, buffer.items);
+    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);
+    return Val.from(handle);
 }
 
 const add = NativeFunction{
@@ -417,6 +471,33 @@ test "null? returns false for symbol" {
     try testing.expectEqualDeep(
         Val.from(false),
         try vm.evalStr("(null? 'a)"),
+    );
+}
+
+test "string? returns true for string" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(string? \"hello\")"),
+    );
+}
+
+test "string? returns false for symbol" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(string? 'hello)"),
+    );
+}
+
+test "string? returns false for number" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(string? 123)"),
     );
 }
 

@@ -44,6 +44,7 @@ pub fn deinit(self: *Heap) void {
 
     var string_iter = self.strings.iter();
     while (string_iter.next()) |s| s.deinit(self.allocator);
+    self.strings.deinit(self.allocator);
 
     var bytecode_iter = self.bytecode_functions.iter();
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.allocator);

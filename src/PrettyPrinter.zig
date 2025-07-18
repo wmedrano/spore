@@ -56,23 +56,23 @@ pub fn format(
         .int => |x| try writer.print("{}", .{x}),
         .float => |x| try writer.print("{d}", .{x}),
         .symbol => |x| {
-            const symbol = try x.get(self.vm.heap.string_interner);
+            const symbol = x.get(self.vm.heap.string_interner) catch return writer.print("@bad-symbol", .{});
             try writer.print("{}", .{symbol});
         },
         .cons => |handle| {
-            const cons = try self.vm.heap.cons_cells.get(handle);
+            const cons = self.vm.heap.cons_cells.get(handle) catch return writer.print("@bad-cons", .{});
             try formatCons(cons, self.vm, writer);
         },
         .string => |handle| {
-            const string = try self.vm.heap.strings.get(handle);
+            const string = self.vm.heap.strings.get(handle) catch return writer.print("@bad-string", .{});
             try writer.print("{s}", .{string});
         },
         .native_function => |handle| {
-            const func = try self.vm.heap.native_functions.get(handle);
+            const func = self.vm.heap.native_functions.get(handle) catch return writer.print("@bad-native-function", .{});
             try writer.print("{any}", .{func});
         },
         .bytecode_function => |handle| {
-            const func = try self.vm.heap.bytecode_functions.get(handle);
+            const func = self.vm.heap.bytecode_functions.get(handle) catch return writer.print("@bad-function", .{});
             try writer.print("{any}", .{func});
         },
     }
