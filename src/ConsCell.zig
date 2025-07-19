@@ -57,3 +57,10 @@ pub fn iterList(self: ConsCell) ListIter {
         .cons = self,
     };
 }
+
+/// Creates and returns a new `ListIter` for an empty list.
+pub fn iterEmpty() ListIter {
+    return ListIter{
+        .cons = null,
+    };
+}

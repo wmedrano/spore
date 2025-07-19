@@ -37,6 +37,7 @@ symbols: struct {
     internal_define: Symbol.Interned,
     def: Symbol.Interned,
     defun: Symbol.Interned,
+    let: Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -52,6 +53,13 @@ const ScopedVariable = struct {
     symbol: Symbol.Interned,
     /// The location of the symbol on the local stack.
     index: usize,
+    /// The type of value this is.
+    value_type: enum {
+        /// A function argument.
+        arg,
+        /// A local let bound value.
+        local_let,
+    },
 };
 
 /// Initialize a new compiler.
@@ -86,6 +94,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             const scoped_variable = ScopedVariable{
                 .symbol = val.to(Symbol.Interned) catch return Error.InvalidExpression,
                 .index = scoped_variables.items.len,
+                .value_type = .arg,
             };
             try scoped_variables.append(arena.allocator(), scoped_variable);
         }
@@ -101,6 +110,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .internal_define = try Symbol.init("internal-define").intern(vm.heap.allocator, &vm.heap.string_interner),
             .def = try Symbol.init("def").intern(vm.heap.allocator, &vm.heap.string_interner),
             .defun = try Symbol.init("defun").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .let = try Symbol.init("let").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .scoped_variables = scoped_variables,
@@ -113,9 +123,15 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
+    var args: usize = 0;
+    for (self.scoped_variables.items) |v| {
+        if (v.value_type == .arg) args += 1;
+    }
+
     return .{
         .instructions = instructions,
-        .args = self.scoped_variables.items.len,
+        .args = args,
+        .initial_local_stack_size = self.scoped_variables.items.len,
     };
 }
 
@@ -202,6 +218,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addDef(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.defun)))
                 return self.addDefun(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.let)))
+                return self.addLet(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -324,6 +342,54 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     );
 }
 
+// Compiles a `let` expression.
+// A `let` expression introduces new local variables within its scope.
+// It takes a list of bindings, where each binding is a pair of a variable name
+// (a symbol) and an expression to evaluate for that variable's initial value.
+// After evaluating and setting the bindings, it evaluates the body of the `let`
+// expression. If the `let` body has multiple expressions, they are compiled
+// with a `squash` instruction to return the value of the last expression.
+// If there are no expressions in the body, `nil` is returned.
+//  * Args:
+//     exprs: An iterator over the expressions in the `let` expression.
+//  * Returns:
+//     An error if the `let` expression is malformed or if there is an issue
+//     during compilation.
+fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    var bindings_iter = try self.vm.listIter(bindings);
+    while (try bindings_iter.next(self.vm)) |binding| {
+        var binding_parts = try self.vm.listIter(binding);
+        const binding_name = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
+        const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
+        if (try binding_parts.next(self.vm)) |_| return Error.InvalidExpression;
+        try self.addExpr(binding_expr);
+        const idx = self.scoped_variables.items.len;
+        const name = binding_name.to(Symbol.Interned) catch return Error.InvalidExpression;
+        try self.scoped_variables.append(
+            self.arena.allocator(),
+            ScopedVariable{ .symbol = name, .index = idx, .value_type = .local_let },
+        );
+        try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .set = idx }));
+    }
+    var exprs_count: usize = 0;
+    while (try exprs.next(self.vm)) |expr| {
+        exprs_count += 1;
+        try self.addExpr(expr);
+    }
+    switch (exprs_count) {
+        0 => try self.instructions.append(
+            self.arena.allocator(),
+            Instruction.init(.{ .push = Val.from({}) }),
+        ),
+        1 => {},
+        else => try self.instructions.append(
+            self.arena.allocator(),
+            Instruction.init(.{ .squash = exprs_count }),
+        ),
+    }
+}
+
 test compile {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
@@ -349,7 +415,6 @@ test compile {
                 Instruction.init(.{ .eval = 3 }),
                 Instruction.init(.{ .eval = 3 }),
             },
-            .args = 0,
         },
         bytecode,
     );
@@ -628,6 +693,7 @@ test "compile function with reference to arg resolves to correct reference" {
                 Instruction.init(.{ .eval = 3 }),
             },
             .args = 3,
+            .initial_local_stack_size = 3,
         },
         function_bytecode,
     );
@@ -776,6 +842,7 @@ test "compile defun turns to define with correct function bytecode" {
                 Instruction.init(.{ .get = 0 }),
             },
             .args = 1,
+            .initial_local_stack_size = 1,
         },
         function_bytecode,
     );
@@ -830,5 +897,67 @@ test "compile defun with missing args fails" {
     try testing.expectError(
         Error.InvalidExpression,
         compiler.addExpr(try Reader.readOne("(defun my-func)", testing.allocator, &vm)),
+    );
+}
+
+test "let evaluates bindings" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try compiler.addExpr(try Reader.readOne("(let ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+    const plus_sym = try Symbol.init("+").intern(testing.allocator, &vm.heap.string_interner);
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .deref = plus_sym }),
+                Instruction.init(.{ .push = Val.from(1) }),
+                Instruction.init(.{ .push = Val.from(2) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .set = 0 }),
+                Instruction.init(.{ .deref = plus_sym }),
+                Instruction.init(.{ .get = 0 }),
+                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction.init(.{ .eval = 3 }),
+                Instruction.init(.{ .set = 1 }),
+                Instruction.init(.{ .deref = plus_sym }),
+                Instruction.init(.{ .get = 0 }),
+                Instruction.init(.{ .get = 1 }),
+                Instruction.init(.{ .eval = 3 }),
+            },
+            .args = 0,
+            .initial_local_stack_size = 2,
+        },
+        bytecode,
+    );
+}
+
+test "multiple expressions in let squashed to single" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+
+    try compiler.addExpr(try Reader.readOne("(let () 1 2 3 4)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction.init(.{ .push = Val.from(1) }),
+                Instruction.init(.{ .push = Val.from(2) }),
+                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction.init(.{ .push = Val.from(4) }),
+                Instruction.init(.{ .squash = 4 }),
+            },
+            .args = 0,
+            .initial_local_stack_size = 0,
+        },
+        bytecode,
     );
 }

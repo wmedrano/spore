@@ -63,8 +63,8 @@ pub fn getGlobal(self: ExecutionContext, symbol: Symbol.Interned) ?Val {
 
 /// Get the portion of the stack belonging to the current call frame. If in the
 /// global scope, this returns the entire stack.
-pub fn localStack(self: ExecutionContext) []const Val {
-    return self.stack.constSlice()[self.call_frame.stack_start..];
+pub fn localStack(self: *ExecutionContext) []Val {
+    return self.stack.slice()[self.call_frame.stack_start..];
 }
 
 /// Retrieves the next instruction from the current call frame and advances the

@@ -27,6 +27,9 @@ pub const Code = enum {
     push,
     /// Get the value from the local stack.
     get,
+    /// Pop the top value from the stack and set it as the value of the
+    /// local variable at the given index.
+    set,
     /// Get the value of the symbol and push it on the stack.
     deref,
     /// Skip the next n instructions.
@@ -36,6 +39,11 @@ pub const Code = enum {
     jump_if,
     /// Evaluate the top n values of the stack as a function call.
     eval,
+    /// Remove the top n values and only keep the top. For example:
+    ///   - stack: [1 2 3 4 5]
+    ///   - squash: 3
+    ///   - after: [1 2 5]
+    squash,
     /// Return from the current function call.
     ret,
 };
@@ -44,10 +52,12 @@ pub const Code = enum {
 pub const Repr = union(Code) {
     push: Val,
     get: usize,
+    set: usize,
     deref: Symbol.Interned,
     jump: usize,
     jump_if: usize,
     eval: usize,
+    squash: usize,
     ret,
 };
 
@@ -64,6 +74,10 @@ pub fn execute(self: Instruction, vm: *Vm) Error!void {
             const val = vm.execution_context.localStack()[idx];
             try vm.execution_context.pushVal(val);
         },
+        .set => |idx| {
+            const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
+            vm.execution_context.localStack()[idx] = val;
+        },
         .deref => |s| {
             const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
             try vm.execution_context.pushVal(val);
@@ -74,6 +88,7 @@ pub fn execute(self: Instruction, vm: *Vm) Error!void {
             if (val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
         },
         .eval => |n| try executeEval(vm, n),
+        .squash => |n| try executeSquash(vm, n),
         .ret => try executeRet(vm),
     }
 }
@@ -98,6 +113,13 @@ fn executeEval(vm: *Vm, n: usize) Error!void {
             const got_args = vm.execution_context.localStack().len;
             const want_args = function.args;
             if (got_args != want_args) return Error.WrongArity;
+            const extra_slots_size = function.initial_local_stack_size - function.args;
+            if (extra_slots_size > 0) {
+                const extra_slots =
+                    vm.execution_context.stack.addManyAsSlice(extra_slots_size) catch
+                        return Error.StackOverflow;
+                for (extra_slots) |*v| v.* = Val.from({});
+            }
         },
         .native_function => |handle| {
             try vm.execution_context.pushCallFrame(
@@ -127,6 +149,13 @@ fn executeRet(vm: *Vm) !void {
     }
 }
 
+fn executeSquash(vm: *Vm, n: usize) Error!void {
+    const stack_len = vm.execution_context.stack.len;
+    const top_val = vm.execution_context.stack.constSlice()[stack_len - 1];
+    vm.execution_context.stack.len = stack_len - n + 1;
+    vm.execution_context.stack.slice()[stack_len - n] = top_val;
+}
+
 /// Formats self implementing the `std.fmt.Format` interface.
 pub fn format(self: Instruction, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
     _ = fmt;
@@ -134,10 +163,12 @@ pub fn format(self: Instruction, comptime fmt: []const u8, options: std.fmt.Form
     switch (self.repr) {
         .push => |val| try writer.print("(push {})", .{val}),
         .get => |idx| try writer.print("(get {})", .{idx}),
+        .set => |idx| try writer.print("(set {})", .{idx}),
         .deref => |symbol| try writer.print("(deref {})", .{symbol}),
         .jump => |n| try writer.print("(jump {})", .{n}),
         .jump_if => |n| try writer.print("(jump_if {})", .{n}),
         .eval => |n| try writer.print("(eval {})", .{n}),
+        .squash => |n| try writer.print("(squash {})", .{n}),
         .ret => try writer.print("(ret)", .{}),
     }
 }

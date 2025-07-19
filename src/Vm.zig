@@ -76,6 +76,18 @@ pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice 
     return PrettyPrinter.initSlice(self, vals);
 }
 
+/// Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
+pub fn listIter(self: *const Vm, val: Val) !ConsCell.ListIter {
+    switch (val.repr) {
+        .nil => return ConsCell.iterEmpty(),
+        .cons => |handle| {
+            const cons = try self.heap.cons_cells.get(handle);
+            return cons.iterList();
+        },
+        else => return error.TypeError,
+    }
+}
+
 /// Triggers a garbage collection cycle to clean up unused memory.
 pub fn garbageCollect(self: *Vm) !void {
     var gc = GarbageCollector.init(self);
@@ -86,8 +98,8 @@ test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(24),
-        try vm.evalStr("(def x 12) (+ x x)"),
+        Val.from(36),
+        try vm.evalStr("(def x 12) (let ((double (+ x x))) (+ double x))"),
     );
 }
 

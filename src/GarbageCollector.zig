@@ -83,7 +83,7 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
 fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) !void {
     for (instructions) |instruction| switch (instruction.repr) {
         .push => |v| try self.markOne(v),
-        .get, .deref, .jump, .jump_if, .eval, .ret => {},
+        .get, .set, .deref, .jump, .jump_if, .eval, .squash, .ret => {},
     };
 }
 
