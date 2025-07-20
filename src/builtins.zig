@@ -18,6 +18,7 @@ pub fn registerAll(vm: *Vm) !void {
     try to_string.register(vm);
     try print.register(vm);
     try add.register(vm);
+    try multiply.register(vm);
     try subtract.register(vm);
     try internal_define.register(vm);
     try cons.register(vm);
@@ -204,6 +205,38 @@ fn subtractImpl(vm: *Vm) NativeFunction.Error!Val {
             try addSlice(args[1..]),
         ),
     }
+}
+
+const multiply = NativeFunction{
+    .name = "*",
+    .docstring = "Multiplies all values on the local stack. It can handle integers, " ++
+        "floats, or a mix of both. If any floats are present, the result will be a float.",
+    .ptr = multiplyImpl,
+};
+
+fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
+    var int_product: i64 = 1;
+    var float_product: f64 = 1.0;
+    var has_float = false;
+    for (vals) |val| {
+        switch (val.repr) {
+            .int => |x| int_product *= x,
+            .float => |x| {
+                has_float = true;
+                float_product *= x;
+            },
+            else => return NativeFunction.Error.TypeError,
+        }
+    }
+    if (has_float) {
+        const product_as_float: f64 = float_product * @as(f64, @floatFromInt(int_product));
+        return Val.from(product_as_float);
+    }
+    return Val.from(int_product);
+}
+
+fn multiplyImpl(vm: *Vm) NativeFunction.Error!Val {
+    return try multiplySlice(vm.execution_context.localStack());
 }
 
 const internal_define = NativeFunction{

@@ -11,6 +11,7 @@ const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const GarbageCollector = @import("GarbageCollector.zig");
 const Heap = @import("Heap.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const Tokenizer = @import("parser/Tokenizer.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Reader = @import("Reader.zig");
@@ -49,15 +50,15 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     while (try reader.next(self.heap.allocator, self)) |expr| {
         try compiler.addExpr(expr);
     }
-    var bytecode = try compiler.compile();
-    defer bytecode.deinit(self.heap.allocator);
+    const bytecode_handle = try self.heap.bytecode_functions.create(
+        self.heap.allocator,
+        try compiler.compile(),
+        self.heap.dead_color,
+    );
 
     const initial_call_stack_size = self.execution_context.previous_call_frames.len;
-    try self.execution_context.pushVal(Val.from({}));
-    try self.execution_context.pushCallFrame(ExecutionContext.CallFrame{
-        .instructions = bytecode.instructions,
-        .stack_start = self.execution_context.stack.len,
-    });
+    try self.execution_context.pushVal(Val.from(bytecode_handle));
+    try (Instruction{ .eval = 1 }).execute(self);
     while (initial_call_stack_size < self.execution_context.previous_call_frames.len) {
         const instruction = self.execution_context.nextInstruction();
         try instruction.execute(self);
@@ -97,9 +98,17 @@ pub fn garbageCollect(self: *Vm) !void {
 test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
+    const source =
+        \\ (def squared-sum 0)
+        \\ (for (x (list 1 2 3 4))
+        \\   (let ((squared (* x x))
+        \\         (new-sum (+ squared squared-sum)))
+        \\     (def squared-sum new-sum)))
+        \\ squared-sum
+    ;
     try testing.expectEqualDeep(
-        Val.from(36),
-        try vm.evalStr("(def x 12) (let ((double (+ x x))) (+ double x))"),
+        Val.from(30),
+        try vm.evalStr(source),
     );
 }
 

@@ -18,6 +18,7 @@ pub const Error = error{
 
 pub const Code = enum {
     push,
+    pop,
     get,
     set,
     deref,
@@ -33,27 +34,29 @@ pub const Code = enum {
 pub const Instruction = union(Code) {
     /// Push a new value onto the stack.
     push: Val,
+    /// Pop the top n elements from the stack.
+    pop: i32,
     /// Get the value from the local stack at the given index and push it onto the main stack.
-    get: usize,
+    get: i32,
     /// Pop the top value from the main stack and set it as the value of the local variable at the given index.
-    set: usize,
+    set: i32,
     /// Get the value of the symbol from the global scope and push it onto the stack.
     deref: Symbol.Interned,
     /// Skip the next n instructions.
-    jump: usize,
+    jump: i32,
     /// Pop the top value of the stack and skip the next `n` instructions if the
     /// value is truthy.
-    jump_if: usize,
+    jump_if: i32,
     /// Pop the top value of the stack and skip the next `n` instructions if the
     /// value is falsey.
-    jump_if_not: usize,
+    jump_if_not: i32,
     ///Evaluate the top n values of the stack as a function call.
-    eval: usize,
+    eval: i32,
     /// Remove the top n values and only keep the top. For example:
     ///   - stack: [1 2 3 4 5]
     ///   - squash: 3
     ///   - after: [1 2 5]
-    squash: usize,
+    squash: i32,
     /// Return from the current function call.
     ret,
 
@@ -61,13 +64,16 @@ pub const Instruction = union(Code) {
     pub fn execute(self: Instruction, vm: *Vm) Error!void {
         switch (self) {
             .push => |v| try vm.execution_context.pushVal(v),
+            .pop => |n| for (0..@intCast(n)) |_| {
+                _ = try vm.execution_context.popVal();
+            },
             .get => |idx| {
-                const val = vm.execution_context.localStack()[idx];
+                const val = vm.execution_context.localStack()[@intCast(idx)];
                 try vm.execution_context.pushVal(val);
             },
             .set => |idx| {
                 const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
-                vm.execution_context.localStack()[idx] = val;
+                vm.execution_context.localStack()[@intCast(idx)] = val;
             },
             .deref => |s| {
                 const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
@@ -82,8 +88,8 @@ pub const Instruction = union(Code) {
                 const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
                 if (!val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
             },
-            .eval => |n| try executeEval(vm, n),
-            .squash => |n| try executeSquash(vm, n),
+            .eval => |n| try executeEval(vm, @intCast(n)),
+            .squash => |n| try executeSquash(vm, @intCast(n)),
             .ret => try executeRet(vm),
         }
     }
@@ -111,7 +117,7 @@ pub const Instruction = union(Code) {
                 const extra_slots_size = function.initial_local_stack_size - function.args;
                 if (extra_slots_size > 0) {
                     const extra_slots =
-                        vm.execution_context.stack.addManyAsSlice(extra_slots_size) catch
+                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch
                             return Error.StackOverflow;
                     for (extra_slots) |*v| v.* = Val.from({});
                 }
@@ -151,6 +157,10 @@ pub const Instruction = union(Code) {
         vm.execution_context.stack.slice()[stack_len - n] = top_val;
     }
 };
+
+test "instruction is small" {
+    try testing.expectEqual(3 * @sizeOf(usize), @sizeOf(Instruction));
+}
 
 test "push val pushes to stack" {
     var vm = try Vm.init(testing.allocator);

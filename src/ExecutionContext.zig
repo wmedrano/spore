@@ -16,7 +16,7 @@ pub const CallFrame = struct {
     /// The sequence of instructions to be executed for this function call.
     instructions: []const Instruction = &.{},
     /// The index of the next instruction to be executed.
-    instruction_index: usize = 0,
+    instruction_index: i32 = 0,
     /// The index in the main stack where this function's local stack starts.
     stack_start: usize = 0,
 };
@@ -72,7 +72,7 @@ pub fn localStack(self: *ExecutionContext) []Val {
 /// if all instructions in the current frame have been executed.
 pub fn nextInstruction(self: *ExecutionContext) Instruction {
     if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return Instruction{ .ret = {} };
-    const instruction = self.call_frame.instructions[self.call_frame.instruction_index];
+    const instruction = self.call_frame.instructions[@intCast(self.call_frame.instruction_index)];
     self.call_frame.instruction_index += 1;
     return instruction;
 }

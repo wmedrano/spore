@@ -11,10 +11,10 @@ const BytecodeFunction = @This();
 /// The instructions to execute.
 instructions: []const Instruction,
 /// The number of arguments the function takes.
-args: usize = 0,
+args: i32 = 0,
 /// The size of the initial local stack. This is the space used up by the `args`
 /// and local values.
-initial_local_stack_size: usize = 0,
+initial_local_stack_size: i32 = 0,
 
 /// Deinitialize the bytecode function, freeing allocated memory.
 pub fn deinit(self: *BytecodeFunction, allocator: std.mem.Allocator) void {

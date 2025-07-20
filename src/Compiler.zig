@@ -38,27 +38,32 @@ symbols: struct {
     def: Symbol.Interned,
     defun: Symbol.Interned,
     let: Symbol.Interned,
+    @"for": Symbol.Interned,
+    car: Symbol.Interned,
+    cdr: Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
 /// The variables that are in scope.
-scoped_variables: std.ArrayListUnmanaged(ScopedVariable) = .{},
+lexical_scope: std.ArrayListUnmanaged(LexicalBinding) = .{},
 
 /// Represents a variable defined within the current compilation scope.
 ///
 /// It tracks the variable's symbol and its corresponding index on the local
 /// stack where its value will be stored or retrieved.
-const ScopedVariable = struct {
+const LexicalBinding = struct {
     /// The symbol of the scoped variable.
-    symbol: Symbol.Interned,
+    symbol: ?Symbol.Interned,
     /// The location of the symbol on the local stack.
-    index: usize,
+    index: i32,
     /// The type of value this is.
     value_type: enum {
         /// A function argument.
         arg,
         /// A local let bound value.
         local_let,
+        /// An anonymous value. This is accessible, though not named.
+        anonymous,
     },
 };
 
@@ -84,21 +89,21 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
 /// Returns:
 ///     A new `Compiler` instance configured for function compilation.
 fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compiler {
-    const scoped_variables = blk: {
-        if (std.meta.eql(args, Val.from({}))) break :blk std.ArrayListUnmanaged(ScopedVariable){};
+    const lexical_scope = blk: {
+        if (std.meta.eql(args, Val.from({}))) break :blk std.ArrayListUnmanaged(LexicalBinding){};
         const args_list = try vm.heap.cons_cells.get(args.to(Handle(ConsCell)) catch return Error.InvalidExpression);
         var args_iter = args_list.iterList();
 
-        var scoped_variables = std.ArrayListUnmanaged(ScopedVariable){};
+        var lexical_scope = std.ArrayListUnmanaged(LexicalBinding){};
         while (try args_iter.next(vm)) |val| {
-            const scoped_variable = ScopedVariable{
+            const scoped_variable = LexicalBinding{
                 .symbol = val.to(Symbol.Interned) catch return Error.InvalidExpression,
-                .index = scoped_variables.items.len,
+                .index = @intCast(lexical_scope.items.len),
                 .value_type = .arg,
             };
-            try scoped_variables.append(arena.allocator(), scoped_variable);
+            try lexical_scope.append(arena.allocator(), scoped_variable);
         }
-        break :blk scoped_variables;
+        break :blk lexical_scope;
     };
     return Compiler{
         .vm = vm,
@@ -111,9 +116,12 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .def = try Symbol.init("def").intern(vm.heap.allocator, &vm.heap.string_interner),
             .defun = try Symbol.init("defun").intern(vm.heap.allocator, &vm.heap.string_interner),
             .let = try Symbol.init("let").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"for" = try Symbol.init("for").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .car = try Symbol.init("car").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
-        .scoped_variables = scoped_variables,
+        .lexical_scope = lexical_scope,
     };
 }
 
@@ -123,15 +131,17 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
-    var args: usize = 0;
-    for (self.scoped_variables.items) |v| {
+    var args: i32 = 0;
+    var local_stack_end_idx: i32 = -1;
+    for (self.lexical_scope.items) |v| {
         if (v.value_type == .arg) args += 1;
+        local_stack_end_idx = @max(local_stack_end_idx, v.index);
     }
 
     return .{
         .instructions = instructions,
         .args = args,
-        .initial_local_stack_size = self.scoped_variables.items.len,
+        .initial_local_stack_size = local_stack_end_idx + 1,
     };
 }
 
@@ -168,7 +178,7 @@ fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
     if (self.getVariable(symbol)) |scoped_variable| {
         try self.instructions.append(
             self.arena.allocator(),
-            Instruction{ .get = scoped_variable.index },
+            Instruction{ .get = @intCast(scoped_variable.index) },
         );
     } else {
         try self.instructions.append(
@@ -180,18 +190,18 @@ fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
 
 /// Searches for a symbol within the currently defined scoped variables.
 ///
-/// It iterates through the `scoped_variables` in reverse order (most recently
-/// defined first) to find a `ScopedVariable` whose symbol matches the
+/// It iterates through the `lexical_scope` in reverse order (most recently
+/// defined first) to find a `LexicalBinding` whose symbol matches the
 /// provided `symbol`. This ensures that inner scopes shadow outer scopes.
 ///
 /// Args:
 ///     symbol: The interned symbol to search for.
 ///
 /// Returns:
-///     The `ScopedVariable` if found, otherwise `null`.
-fn getVariable(self: Compiler, symbol: Symbol.Interned) ?ScopedVariable {
-    for (0..self.scoped_variables.items.len) |idx| {
-        const variable = self.scoped_variables.items[self.scoped_variables.items.len - 1 - idx];
+///     The `LexicalBinding` if found, otherwise `null`.
+fn getVariable(self: Compiler, symbol: Symbol.Interned) ?LexicalBinding {
+    for (0..self.lexical_scope.items.len) |idx| {
+        const variable = self.lexical_scope.items[self.lexical_scope.items.len - 1 - idx];
         if (std.meta.eql(variable.symbol, symbol)) return variable;
     }
     return null;
@@ -205,7 +215,7 @@ fn getVariable(self: Compiler, symbol: Symbol.Interned) ?ScopedVariable {
 fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
     const cons = try self.vm.heap.cons_cells.get(cons_handle);
     var vals = cons.iterList();
-    var items: usize = 0;
+    var items: i32 = 0;
     while (try vals.next(self.vm)) |val| {
         if (items == 0) {
             if (std.meta.eql(val, Val.from(self.symbols.@"if")))
@@ -220,6 +230,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addDefun(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.let)))
                 return self.addLet(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.@"for")))
+                return self.addFor(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -234,8 +246,10 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
 /// Calculates the distance between two instruction indices.
 ///
 /// Used for computing offsets for jump instructions.
-fn jumpDistance(from: usize, to: usize) usize {
-    return to - from;
+fn jumpDistance(from: usize, to: usize) i32 {
+    const from_int: i32 = @intCast(from);
+    const to_int: i32 = @intCast(to);
+    return to_int - from_int;
 }
 
 /// Compiles an `if` expression.
@@ -357,21 +371,29 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.listIter(bindings);
+    var lexical_binds = std.ArrayList(usize).init(self.arena.allocator());
+    defer {
+        for (lexical_binds.items) |idx| self.lexical_scope.items[idx].symbol = null;
+        lexical_binds.deinit();
+    }
     while (try bindings_iter.next(self.vm)) |binding| {
         var binding_parts = try self.vm.listIter(binding);
         const binding_name = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         if (try binding_parts.next(self.vm)) |_| return Error.InvalidExpression;
         try self.addExpr(binding_expr);
-        const idx = self.scoped_variables.items.len;
+        const idx = self.lexical_scope.items.len;
         const name = binding_name.to(Symbol.Interned) catch return Error.InvalidExpression;
-        try self.scoped_variables.append(
+        try self.lexical_scope.append(
             self.arena.allocator(),
-            ScopedVariable{ .symbol = name, .index = idx, .value_type = .local_let },
+            LexicalBinding{ .symbol = name, .index = @intCast(idx), .value_type = .local_let },
         );
-        try self.instructions.append(self.arena.allocator(), Instruction{ .set = idx });
+        try self.instructions.append(
+            self.arena.allocator(),
+            Instruction{ .set = @intCast(idx) },
+        );
     }
-    var exprs_count: usize = 0;
+    var exprs_count: i32 = 0;
     while (try exprs.next(self.vm)) |expr| {
         exprs_count += 1;
         try self.addExpr(expr);
@@ -387,6 +409,65 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
             Instruction{ .squash = exprs_count },
         ),
     }
+}
+
+fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    // Get bindings
+    const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    var bindings_iter = try self.vm.listIter(bindings);
+    const binding_name_val = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
+    const binding_name = binding_name_val.to(Symbol.Interned) catch return Error.InvalidExpression;
+    const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
+    if (try bindings_iter.next(self.vm)) |_| return Error.InvalidExpression;
+    const car_idx = self.lexical_scope.items.len;
+    try self.lexical_scope.append(
+        self.arena.allocator(),
+        LexicalBinding{ .symbol = binding_name, .index = @intCast(car_idx), .value_type = .local_let },
+    );
+    const cons_idx = self.lexical_scope.items.len;
+    try self.lexical_scope.append(
+        self.arena.allocator(),
+        LexicalBinding{ .symbol = null, .index = @intCast(cons_idx), .value_type = .anonymous },
+    );
+
+    // Initial cons bind.
+    try self.addExpr(iterable_expr);
+    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(cons_idx) });
+
+    // Loop: Check exit criteria
+    const loop_start_idx = self.instructions.items.len;
+    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
+    const loop_exit_idx = self.instructions.items.len;
+    try self.instructions.append(self.arena.allocator(), Instruction{ .jump_if_not = 0 }); // Fixed at end.
+
+    // Loop: Get next car
+    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.car });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 2 });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(car_idx) });
+    // Loop: Get next cdr
+    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.cdr });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 2 });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(cons_idx) });
+    // Loop: Eval expressions
+    var expr_count: i32 = 0;
+    while (try exprs.next(self.vm)) |expr| {
+        expr_count += 1;
+        try self.addExpr(expr);
+    }
+    if (expr_count > 0)
+        try self.instructions.append(self.arena.allocator(), Instruction{ .pop = expr_count });
+    // Loop: Jump to next iteration
+    const loop_jump_to_start_idx = self.instructions.items.len;
+    try self.instructions.append(
+        self.arena.allocator(),
+        Instruction{ .jump = jumpDistance(loop_jump_to_start_idx + 1, loop_start_idx) },
+    );
+    const loop_end_idx = self.instructions.items.len;
+
+    self.instructions.items[loop_exit_idx].jump_if_not = jumpDistance(loop_exit_idx + 1, loop_end_idx);
+    self.lexical_scope.items[car_idx].symbol = null;
 }
 
 test compile {

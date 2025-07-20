@@ -83,7 +83,7 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
 fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) !void {
     for (instructions) |instruction| switch (instruction) {
         .push => |v| try self.markOne(v),
-        .get, .set, .deref, .jump, .jump_if, .jump_if_not, .eval, .squash, .ret => {},
+        .pop, .get, .set, .deref, .jump, .jump_if, .jump_if_not, .eval, .squash, .ret => {},
     };
 }
 
@@ -107,11 +107,14 @@ fn sweep(self: *GarbageCollector) !void {
 test "run GC reuseses function slot" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
+    // Allocates 2 functions.
+    // 1. Function that stores the entire evaluation of evalStr.
+    // 2. Inner function.
     _ = try vm.evalStr("((function (a b) (+ a b)) 1 2)");
     const free_bytecode_functions = vm.heap.bytecode_functions.free_list.items.len;
     try vm.garbageCollect();
     try testing.expectEqual(
-        free_bytecode_functions + 1,
+        free_bytecode_functions + 2,
         vm.heap.bytecode_functions.free_list.items.len,
     );
 }
