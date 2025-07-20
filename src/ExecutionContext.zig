@@ -3,7 +3,7 @@ const testing = std.testing;
 
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -71,7 +71,7 @@ pub fn localStack(self: *ExecutionContext) []Val {
 /// instruction pointer. Returns `null` if there is no current call frame or
 /// if all instructions in the current frame have been executed.
 pub fn nextInstruction(self: *ExecutionContext) Instruction {
-    if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return Instruction.init(.{ .ret = {} });
+    if (self.call_frame.instruction_index >= self.call_frame.instructions.len) return Instruction{ .ret = {} };
     const instruction = self.call_frame.instructions[self.call_frame.instruction_index];
     self.call_frame.instruction_index += 1;
     return instruction;

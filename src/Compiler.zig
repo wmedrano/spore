@@ -6,7 +6,7 @@ const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -145,12 +145,12 @@ pub fn isEmpty(self: Compiler) bool {
 pub fn addExpr(self: *Compiler, expr: Val) !void {
     switch (expr.repr) {
         .nil, .true_bool, .int, .float, .string, .native_function, .bytecode_function => {
-            const instruction = Instruction.init(.{ .push = expr });
+            const instruction = Instruction{ .push = expr };
             try self.instructions.append(self.arena.allocator(), instruction);
         },
         .symbol => |s| {
             if (s.unquote()) |interned_symbol|
-                try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = Val.from(interned_symbol) }))
+                try self.instructions.append(self.arena.allocator(), Instruction{ .push = Val.from(interned_symbol) })
             else
                 try self.deref(s);
         },
@@ -168,12 +168,12 @@ fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
     if (self.getVariable(symbol)) |scoped_variable| {
         try self.instructions.append(
             self.arena.allocator(),
-            Instruction.init(.{ .get = scoped_variable.index }),
+            Instruction{ .get = scoped_variable.index },
         );
     } else {
         try self.instructions.append(
             self.arena.allocator(),
-            Instruction.init(.{ .deref = symbol }),
+            Instruction{ .deref = symbol },
         );
     }
 }
@@ -227,7 +227,7 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
 
     try self.instructions.append(
         self.arena.allocator(),
-        Instruction.init(.{ .eval = items }),
+        Instruction{ .eval = items },
     );
 }
 
@@ -251,23 +251,22 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 
     try self.addExpr(pred);
     const jump_if_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .jump_if = 0 }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .jump_if = 0 });
 
     const false_branch_idx = self.instructions.items.len;
     try self.addExpr(false_branch);
     const false_jump_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .jump = 0 }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .jump = 0 });
 
     const true_branch_idx = self.instructions.items.len;
     try self.addExpr(true_branch);
     const final_idx = self.instructions.items.len;
 
-    self.instructions.items[jump_if_idx] = Instruction.init(.{
+    self.instructions.items[jump_if_idx] = Instruction{
         .jump_if = jumpDistance(false_branch_idx, true_branch_idx),
-    });
-    self.instructions.items[false_jump_idx] = Instruction.init(
-        .{ .jump = jumpDistance(true_branch_idx, final_idx) },
-    );
+    };
+    self.instructions.items[false_jump_idx] =
+        Instruction{ .jump = jumpDistance(true_branch_idx, final_idx) };
 }
 
 /// Compiles a `return` expression.
@@ -285,11 +284,11 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     else
         try self.instructions.append(
             self.arena.allocator(),
-            Instruction.init(.{ .push = Val.from({}) }),
+            Instruction{ .push = Val.from({}) },
         );
     try self.instructions.append(
         self.arena.allocator(),
-        Instruction.init(.{ .ret = {} }),
+        Instruction{ .ret = {} },
     );
 }
 
@@ -300,10 +299,10 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     if (interned_symbol.quoted) return Error.InvalidExpression;
     if (try exprs.next(self.vm)) |_| return Error.InvalidExpression;
 
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .deref = self.symbols.internal_define }));
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = symbol }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.internal_define });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .push = symbol });
     try self.addExpr(expr);
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .eval = 3 }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 3 });
 }
 
 fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
@@ -311,10 +310,10 @@ fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
     if (interned_symbol.quoted) return Error.InvalidExpression;
 
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .deref = self.symbols.internal_define }));
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .push = symbol }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.internal_define });
+    try self.instructions.append(self.arena.allocator(), Instruction{ .push = symbol });
     try self.addFunction(exprs);
-    try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .eval = 3 }));
+    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 3 });
 }
 
 /// Compiles a `function` expression.
@@ -338,7 +337,7 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     );
     try self.instructions.append(
         self.arena.allocator(),
-        Instruction.init(.{ .push = Val.from(bytecode_handle) }),
+        Instruction{ .push = Val.from(bytecode_handle) },
     );
 }
 
@@ -370,7 +369,7 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
             self.arena.allocator(),
             ScopedVariable{ .symbol = name, .index = idx, .value_type = .local_let },
         );
-        try self.instructions.append(self.arena.allocator(), Instruction.init(.{ .set = idx }));
+        try self.instructions.append(self.arena.allocator(), Instruction{ .set = idx });
     }
     var exprs_count: usize = 0;
     while (try exprs.next(self.vm)) |expr| {
@@ -380,12 +379,12 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     switch (exprs_count) {
         0 => try self.instructions.append(
             self.arena.allocator(),
-            Instruction.init(.{ .push = Val.from({}) }),
+            Instruction{ .push = Val.from({}) },
         ),
         1 => {},
         else => try self.instructions.append(
             self.arena.allocator(),
-            Instruction.init(.{ .squash = exprs_count }),
+            Instruction{ .squash = exprs_count },
         ),
     }
 }
@@ -407,13 +406,13 @@ test compile {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .push = Val.from(3) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .deref = plus_sym },
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .deref = plus_sym },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .push = Val.from(3) },
+                Instruction{ .eval = 3 },
+                Instruction{ .eval = 3 },
             },
         },
         bytecode,
@@ -454,7 +453,7 @@ test "compile atom" {
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &[_]Instruction{Instruction.init(.{ .push = Val.from(42) })} },
+        BytecodeFunction{ .instructions = &[_]Instruction{Instruction{ .push = Val.from(42) }} },
         bytecode,
     );
 }
@@ -476,10 +475,10 @@ test "compile simple list" {
 
     try testing.expectEqualDeep(
         BytecodeFunction{ .instructions = &[_]Instruction{
-            Instruction.init(.{ .deref = plus_sym }),
-            Instruction.init(.{ .push = Val.from(1) }),
-            Instruction.init(.{ .push = Val.from(2) }),
-            Instruction.init(.{ .eval = 3 }),
+            Instruction{ .deref = plus_sym },
+            Instruction{ .push = Val.from(1) },
+            Instruction{ .push = Val.from(2) },
+            Instruction{ .eval = 3 },
         } },
         bytecode,
     );
@@ -501,7 +500,7 @@ test "quoted symbol is unquoted" {
 
     try testing.expectEqualDeep(
         BytecodeFunction{ .instructions = &[_]Instruction{
-            Instruction.init(.{ .push = Val.from(sym) }),
+            Instruction{ .push = Val.from(sym) },
         } },
         bytecode,
     );
@@ -524,20 +523,20 @@ test "compile if statement" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .jump_if = 5 }),
-                Instruction.init(.{ .deref = plus_sym }), // false branch starts here
-                Instruction.init(.{ .push = Val.from(5) }),
-                Instruction.init(.{ .push = Val.from(6) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .jump = 4 }),
-                Instruction.init(.{ .deref = plus_sym }), // true branch starts here
-                Instruction.init(.{ .push = Val.from(3) }),
-                Instruction.init(.{ .push = Val.from(4) }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .deref = plus_sym },
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .eval = 3 },
+                Instruction{ .jump_if = 5 },
+                Instruction{ .deref = plus_sym }, // false branch starts here
+                Instruction{ .push = Val.from(5) },
+                Instruction{ .push = Val.from(6) },
+                Instruction{ .eval = 3 },
+                Instruction{ .jump = 4 },
+                Instruction{ .deref = plus_sym }, // true branch starts here
+                Instruction{ .push = Val.from(3) },
+                Instruction{ .push = Val.from(4) },
+                Instruction{ .eval = 3 },
             },
         },
         bytecode,
@@ -561,17 +560,17 @@ test "compile if statement without false branch uses nil false branch" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .jump_if = 2 }),
-                Instruction.init(.{ .push = Val.from({}) }), // false branch starts here
-                Instruction.init(.{ .jump = 4 }),
-                Instruction.init(.{ .deref = plus_sym }), // true branch starts here
-                Instruction.init(.{ .push = Val.from(3) }),
-                Instruction.init(.{ .push = Val.from(4) }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .deref = plus_sym },
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .eval = 3 },
+                Instruction{ .jump_if = 2 },
+                Instruction{ .push = Val.from({}) }, // false branch starts here
+                Instruction{ .jump = 4 },
+                Instruction{ .deref = plus_sym }, // true branch starts here
+                Instruction{ .push = Val.from(3) },
+                Instruction{ .push = Val.from(4) },
+                Instruction{ .eval = 3 },
             },
         },
         bytecode,
@@ -589,7 +588,7 @@ test "compile function makes function" {
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqual(1, bytecode.instructions.len);
-    _ = try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction));
+    _ = try bytecode.instructions[0].push.to(Handle(BytecodeFunction));
 }
 
 test "compile function without args is compile error" {
@@ -615,14 +614,14 @@ test "compile function body is compiled" {
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
-        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+        try bytecode.instructions[0].push.to(Handle(BytecodeFunction)),
     );
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .push = Val.from(3) }),
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .push = Val.from(3) },
             },
         },
         function_bytecode,
@@ -640,12 +639,12 @@ test "compile function without body has nil body" {
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
-        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+        try bytecode.instructions[0].push.to(Handle(BytecodeFunction)),
     );
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .push = Val.from({}) }),
+                Instruction{ .push = Val.from({}) },
             },
         },
         function_bytecode,
@@ -663,7 +662,7 @@ test "compile function with args has correct number of args" {
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
-        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+        try bytecode.instructions[0].push.to(Handle(BytecodeFunction)),
     );
     try testing.expectEqualDeep(
         3,
@@ -682,15 +681,15 @@ test "compile function with reference to arg resolves to correct reference" {
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
-        try bytecode.instructions[0].repr.push.to(Handle(BytecodeFunction)),
+        try bytecode.instructions[0].push.to(Handle(BytecodeFunction)),
     );
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .get = 0 }),
-                Instruction.init(.{ .get = 1 }),
-                Instruction.init(.{ .get = 2 }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .get = 0 },
+                Instruction{ .get = 1 },
+                Instruction{ .get = 2 },
+                Instruction{ .eval = 3 },
             },
             .args = 3,
             .initial_local_stack_size = 3,
@@ -712,8 +711,8 @@ test "compile return with value" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .push = Val.from(10) }),
-                Instruction.init(.{ .ret = {} }),
+                Instruction{ .push = Val.from(10) },
+                Instruction{ .ret = {} },
             },
             .args = 0,
         },
@@ -734,8 +733,8 @@ test "compile return without value" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .push = Val.from({}) }),
-                Instruction.init(.{ .ret = {} }),
+                Instruction{ .push = Val.from({}) },
+                Instruction{ .ret = {} },
             },
             .args = 0,
         },
@@ -771,10 +770,10 @@ test "compile def turns to define" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = define_sym }),
-                Instruction.init(.{ .push = Val.from(my_var_sym) }),
-                Instruction.init(.{ .push = Val.from(123) }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .deref = define_sym },
+                Instruction{ .push = Val.from(my_var_sym) },
+                Instruction{ .push = Val.from(123) },
+                Instruction{ .eval = 3 },
             },
             .args = 0,
         },
@@ -824,22 +823,22 @@ test "compile defun turns to define with correct function bytecode" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = define_sym }),
-                Instruction.init(.{ .push = Val.from(my_func_sym) }),
+                Instruction{ .deref = define_sym },
+                Instruction{ .push = Val.from(my_func_sym) },
                 bytecode.instructions[2],
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .eval = 3 },
             },
             .args = 0,
         },
         bytecode,
     );
     const function_bytecode = try vm.heap.bytecode_functions.get(
-        try bytecode.instructions[2].repr.push.to(Handle(BytecodeFunction)),
+        try bytecode.instructions[2].push.to(Handle(BytecodeFunction)),
     );
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .get = 0 }),
+                Instruction{ .get = 0 },
             },
             .args = 1,
             .initial_local_stack_size = 1,
@@ -914,20 +913,20 @@ test "let evaluates bindings" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .set = 0 }),
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .get = 0 }),
-                Instruction.init(.{ .push = Val.from(3) }),
-                Instruction.init(.{ .eval = 3 }),
-                Instruction.init(.{ .set = 1 }),
-                Instruction.init(.{ .deref = plus_sym }),
-                Instruction.init(.{ .get = 0 }),
-                Instruction.init(.{ .get = 1 }),
-                Instruction.init(.{ .eval = 3 }),
+                Instruction{ .deref = plus_sym },
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .eval = 3 },
+                Instruction{ .set = 0 },
+                Instruction{ .deref = plus_sym },
+                Instruction{ .get = 0 },
+                Instruction{ .push = Val.from(3) },
+                Instruction{ .eval = 3 },
+                Instruction{ .set = 1 },
+                Instruction{ .deref = plus_sym },
+                Instruction{ .get = 0 },
+                Instruction{ .get = 1 },
+                Instruction{ .eval = 3 },
             },
             .args = 0,
             .initial_local_stack_size = 2,
@@ -949,11 +948,11 @@ test "multiple expressions in let squashed to single" {
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
-                Instruction.init(.{ .push = Val.from(1) }),
-                Instruction.init(.{ .push = Val.from(2) }),
-                Instruction.init(.{ .push = Val.from(3) }),
-                Instruction.init(.{ .push = Val.from(4) }),
-                Instruction.init(.{ .squash = 4 }),
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .push = Val.from(3) },
+                Instruction{ .push = Val.from(4) },
+                Instruction{ .squash = 4 },
             },
             .args = 0,
             .initial_local_stack_size = 0,

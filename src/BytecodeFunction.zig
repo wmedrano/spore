@@ -3,7 +3,7 @@ const std = @import("std");
 const Vm = @import("Vm.zig");
 const Val = @import("Val.zig");
 const Symbol = @import("datastructures/Symbol.zig");
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 
 /// A function that is implemented in bytecode.
 const BytecodeFunction = @This();

@@ -7,7 +7,7 @@ const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const ExecutionContext = @import("ExecutionContext.zig");
 const Heap = @import("Heap.zig");
-const Instruction = @import("Instruction.zig");
+const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
 const repr = @import("repr.zig");
 const Val = @import("Val.zig");
@@ -81,9 +81,9 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
 /// Args:
 ///     instructions: A slice of `Instruction`s to traverse.
 fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) !void {
-    for (instructions) |instruction| switch (instruction.repr) {
+    for (instructions) |instruction| switch (instruction) {
         .push => |v| try self.markOne(v),
-        .get, .set, .deref, .jump, .jump_if, .eval, .squash, .ret => {},
+        .get, .set, .deref, .jump, .jump_if, .jump_if_not, .eval, .squash, .ret => {},
     };
 }
 
