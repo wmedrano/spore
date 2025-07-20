@@ -145,9 +145,9 @@ pub const Instruction = union(Code) {
         const previous_stack_len = vm.execution_context.call_frame.stack_start;
         vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return Error.StackUnderflow;
         vm.execution_context.stack.len = previous_stack_len;
-        if (vm.execution_context.localStack().len > 0) {
-            vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
-        }
+        if (vm.execution_context.localStack().len == 0)
+            return Error.StackUnderflow;
+        vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
     }
 
     fn executeSquash(vm: *Vm, n: usize) Error!void {

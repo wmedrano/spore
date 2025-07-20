@@ -10,6 +10,7 @@ const Instruction = @import("instruction.zig").Instruction;
 const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
+const LexicalScope = @import("LexicalScope.zig");
 
 const Compiler = @This();
 
@@ -45,27 +46,9 @@ symbols: struct {
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
 /// The variables that are in scope.
-lexical_scope: std.ArrayListUnmanaged(LexicalBinding) = .{},
-
-/// Represents a variable defined within the current compilation scope.
-///
-/// It tracks the variable's symbol and its corresponding index on the local
-/// stack where its value will be stored or retrieved.
-const LexicalBinding = struct {
-    /// The symbol of the scoped variable.
-    symbol: ?Symbol.Interned,
-    /// The location of the symbol on the local stack.
-    index: i32,
-    /// The type of value this is.
-    value_type: enum {
-        /// A function argument.
-        arg,
-        /// A local let bound value.
-        local_let,
-        /// An anonymous value. This is accessible, though not named.
-        anonymous,
-    },
-};
+lexical_scope: LexicalScope = .{},
+/// The number of arguments.
+arg_count: i32,
 
 /// Initialize a new compiler.
 ///
@@ -89,22 +72,12 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
 /// Returns:
 ///     A new `Compiler` instance configured for function compilation.
 fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compiler {
-    const lexical_scope = blk: {
-        if (std.meta.eql(args, Val.from({}))) break :blk std.ArrayListUnmanaged(LexicalBinding){};
-        const args_list = try vm.heap.cons_cells.get(args.to(Handle(ConsCell)) catch return Error.InvalidExpression);
-        var args_iter = args_list.iterList();
-
-        var lexical_scope = std.ArrayListUnmanaged(LexicalBinding){};
-        while (try args_iter.next(vm)) |val| {
-            const scoped_variable = LexicalBinding{
-                .symbol = val.to(Symbol.Interned) catch return Error.InvalidExpression,
-                .index = @intCast(lexical_scope.items.len),
-                .value_type = .arg,
-            };
-            try lexical_scope.append(arena.allocator(), scoped_variable);
-        }
-        break :blk lexical_scope;
+    var args_iter = switch (args.repr) {
+        .nil => ConsCell.iterEmpty(),
+        .cons => |handle| (try vm.heap.cons_cells.get(handle)).iterList(),
+        else => return Error.InvalidExpression,
     };
+    const lexical_scope = try LexicalScope.initWithArgs(arena.allocator(), vm, &args_iter);
     return Compiler{
         .vm = vm,
         .arena = arena,
@@ -122,6 +95,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
+        .arg_count = lexical_scope.minimumLocalStackSize(),
     };
 }
 
@@ -131,17 +105,11 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
-    var args: i32 = 0;
-    var local_stack_end_idx: i32 = -1;
-    for (self.lexical_scope.items) |v| {
-        if (v.value_type == .arg) args += 1;
-        local_stack_end_idx = @max(local_stack_end_idx, v.index);
-    }
 
     return .{
         .instructions = instructions,
-        .args = args,
-        .initial_local_stack_size = local_stack_end_idx + 1,
+        .args = self.arg_count,
+        .initial_local_stack_size = self.lexical_scope.minimumLocalStackSize(),
     };
 }
 
@@ -168,6 +136,37 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
     }
 }
 
+/// Compiles a series of expressions and adds them to the current compilation context.
+///
+/// This function iterates through a list of expressions, compiling each one.
+/// The `top_val` parameter controls how the results of these expressions are
+/// handled on the stack. If `top_val` is `.last`, only the result of the
+/// last expression remains on the stack. If `top_val` is `.none`, all
+/// results are popped.
+///
+/// Args:
+///     exprs: An iterator over the expressions to compile.
+///     top_val: An enum indicating whether to keep the last expression's value
+///              on the stack (`.last`) or pop all values (`.none`).
+fn addExprs(self: *Compiler, exprs: *ConsCell.ListIter, comptime top_val: enum { none, last }) !void {
+    var exprs_count: i32 = 0;
+    while (try exprs.next(self.vm)) |expr| {
+        exprs_count += 1;
+        try self.addExpr(expr);
+    }
+    if (top_val == .last) {
+        switch (exprs_count) {
+            0 => try self.addInstruction(Instruction{ .push = Val.from({}) }),
+            1 => {},
+            else => try self.addInstruction(Instruction{ .squash = exprs_count }),
+        }
+    }
+    if (top_val == .none) {
+        if (exprs_count > 0)
+            try self.addInstruction(Instruction{ .pop = exprs_count });
+    }
+}
+
 /// Appends a single instruction to the compiler's instruction list.
 ///
 /// Args:
@@ -191,30 +190,11 @@ fn addInstructions(self: *Compiler, instructions: []const Instruction) !void {
 /// local stack. Otherwise, a `.deref` instruction is emitted, indicating that
 /// the symbol should be looked up in the global environment during runtime.
 fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
-    if (self.getVariable(symbol)) |scoped_variable| {
-        try self.addInstruction(Instruction{ .get = @intCast(scoped_variable.index) });
+    if (self.lexical_scope.get(symbol)) |binding| {
+        try self.addInstruction(Instruction{ .get = binding.local_index });
     } else {
         try self.addInstruction(Instruction{ .deref = symbol });
     }
-}
-
-/// Searches for a symbol within the currently defined scoped variables.
-///
-/// It iterates through the `lexical_scope` in reverse order (most recently
-/// defined first) to find a `LexicalBinding` whose symbol matches the
-/// provided `symbol`. This ensures that inner scopes shadow outer scopes.
-///
-/// Args:
-///     symbol: The interned symbol to search for.
-///
-/// Returns:
-///     The `LexicalBinding` if found, otherwise `null`.
-fn getVariable(self: Compiler, symbol: Symbol.Interned) ?LexicalBinding {
-    for (0..self.lexical_scope.items.len) |idx| {
-        const variable = self.lexical_scope.items[self.lexical_scope.items.len - 1 - idx];
-        if (std.meta.eql(variable.symbol, symbol)) return variable;
-    }
-    return null;
 }
 
 /// Compiles a `ConsCell` expression.
@@ -307,6 +287,19 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     try self.addInstruction(Instruction{ .ret = {} });
 }
 
+/// Compiles a `def` expression.
+///
+/// This special form defines a global variable. It expects two arguments:
+/// a symbol representing the variable's name, and an expression whose
+/// evaluated result will be the variable's value. This function emits
+/// instructions to call the `internal-define` function to set the global variable.
+///
+/// Args:
+///     exprs: An iterator over the expressions in the `def` expression.
+///
+/// Returns:
+///     An error if the `def` expression is malformed (e.g., incorrect number
+///     of arguments, non-symbol name, or a quoted symbol).
 fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const expr = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
@@ -322,6 +315,20 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     try self.addInstruction(Instruction{ .eval = 3 });
 }
 
+/// Compiles a `defun` expression.
+///
+/// This special form defines a global function. It expects a symbol for the
+/// function's name, a list of arguments, and the function body. It leverages
+/// `addFunction` to compile the function's bytecode and then uses the
+/// `internal-define` mechanism to register the compiled function globally
+/// under the given symbol.
+///
+/// Args:
+///     exprs: An iterator over the expressions in the `defun` expression,
+///            starting with the function name.
+///
+/// Returns:
+///     An error if the `defun` expression is malformed.
 fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
@@ -337,7 +344,7 @@ fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 
 /// Compiles a `function` expression.
 ///
-/// It expects the function arguments (currently only `()` is supported) and
+/// It expects the function arguments and
 /// the function body. It compiles the function body into a new
 /// `BytecodeFunction` and pushes a `Val` representing its handle onto the
 /// current compilation context's instructions.
@@ -373,9 +380,9 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.listIter(bindings);
-    var lexical_binds = std.ArrayList(usize).init(self.arena.allocator());
+    var lexical_binds = std.ArrayList(LexicalScope.Binding).init(self.arena.allocator());
     defer {
-        for (lexical_binds.items) |idx| self.lexical_scope.items[idx].symbol = null;
+        for (lexical_binds.items) |b| self.lexical_scope.remove(b);
         lexical_binds.deinit();
     }
     while (try bindings_iter.next(self.vm)) |binding| {
@@ -384,26 +391,29 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         if (try binding_parts.next(self.vm)) |_| return Error.InvalidExpression;
         try self.addExpr(binding_expr);
-        const idx = self.lexical_scope.items.len;
         const name = binding_name.to(Symbol.Interned) catch return Error.InvalidExpression;
-        try self.lexical_scope.append(
-            self.arena.allocator(),
-            LexicalBinding{ .symbol = name, .index = @intCast(idx), .value_type = .local_let },
-        );
-        try self.addInstruction(Instruction{ .set = @intCast(idx) });
+        const lexical_bind = try self.lexical_scope.add(self.arena.allocator(), name);
+        try lexical_binds.append(lexical_bind);
+        try self.addInstruction(Instruction{ .set = lexical_bind.local_index });
     }
-    var exprs_count: i32 = 0;
-    while (try exprs.next(self.vm)) |expr| {
-        exprs_count += 1;
-        try self.addExpr(expr);
-    }
-    switch (exprs_count) {
-        0 => try self.addInstruction(Instruction{ .push = Val.from({}) }),
-        1 => {},
-        else => try self.addInstruction(Instruction{ .squash = exprs_count }),
-    }
+    try self.addExprs(exprs, .last);
 }
 
+/// Compiles a `for` expression.
+///
+/// This special form implements a loop that iterates over a list. It expects
+/// two main parts: a binding (a symbol for the iteration variable and an
+/// expression that evaluates to a list), and a body of expressions to be
+/// executed for each element in the list. The function generates bytecode
+/// to manage the iteration, including checking for loop termination,
+/// binding the current list element, and advancing to the next.
+///
+/// Args:
+///     exprs: An iterator over the expressions in the `for` expression.
+///
+/// Returns:
+///     An error if the `for` expression is malformed or if there is an issue
+///     during compilation.
 fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     // Get bindings
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
@@ -412,56 +422,43 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const binding_name = binding_name_val.to(Symbol.Interned) catch return Error.InvalidExpression;
     const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
     if (try bindings_iter.next(self.vm)) |_| return Error.InvalidExpression;
-    const car_idx = self.lexical_scope.items.len;
-    try self.lexical_scope.append(
-        self.arena.allocator(),
-        LexicalBinding{ .symbol = binding_name, .index = @intCast(car_idx), .value_type = .local_let },
-    );
-    const cons_idx = self.lexical_scope.items.len;
-    try self.lexical_scope.append(
-        self.arena.allocator(),
-        LexicalBinding{ .symbol = null, .index = @intCast(cons_idx), .value_type = .anonymous },
-    );
 
-    // Initial cons bind.
+    // Setup: Evaluate and store cons.
+    const next_bind = try self.lexical_scope.add(self.arena.allocator(), binding_name);
+    const iterable_bind = try self.lexical_scope.addAnonymous(self.arena.allocator());
     try self.addExpr(iterable_expr);
-    try self.addInstruction(Instruction{ .set = @intCast(cons_idx) });
 
-    // Loop: Check exit criteria
+    defer self.lexical_scope.remove(iterable_bind);
+    try self.addInstruction(Instruction{ .set = iterable_bind.local_index });
+    // Loop: Check exit criteria.
     const loop_start_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction{ .get = @intCast(cons_idx) });
+    try self.addInstruction(Instruction{ .get = iterable_bind.local_index });
     const loop_exit_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction{ .jump_if_not = 0 }); // Fixed at end.
-
-    // Loop: Get next car
+    try self.addInstruction(Instruction{ .jump_if_not = 0 }); // Fixed at end, see FIX.
+    // Loop: Set next value.
+    defer self.lexical_scope.remove(next_bind);
     try self.addInstructions(&.{
         Instruction{ .deref = self.symbols.car },
-        Instruction{ .get = @intCast(cons_idx) },
+        Instruction{ .get = iterable_bind.local_index },
         Instruction{ .eval = 2 },
-        Instruction{ .set = @intCast(car_idx) },
+        Instruction{ .set = next_bind.local_index },
     });
-    // Loop: Get next cdr
+    // Loop: Set the rest of the list.
     try self.addInstructions(&.{
         Instruction{ .deref = self.symbols.cdr },
-        Instruction{ .get = @intCast(cons_idx) },
+        Instruction{ .get = iterable_bind.local_index },
         Instruction{ .eval = 2 },
-        Instruction{ .set = @intCast(cons_idx) },
+        Instruction{ .set = iterable_bind.local_index },
     });
     // Loop: Eval expressions
-    var expr_count: i32 = 0;
-    while (try exprs.next(self.vm)) |expr| {
-        expr_count += 1;
-        try self.addExpr(expr);
-    }
-    if (expr_count > 0)
-        try self.addInstruction(Instruction{ .pop = expr_count });
-    // Loop: Jump to next iteration
+    try self.addExprs(exprs, .none);
+    // Loop: Jump to start of loop.
     const loop_jump_to_start_idx = self.instructions.items.len;
     try self.addInstruction(Instruction{ .jump = jumpDistance(loop_jump_to_start_idx + 1, loop_start_idx) });
     const loop_end_idx = self.instructions.items.len;
 
+    // FIX, see prior FIX.
     self.instructions.items[loop_exit_idx].jump_if_not = jumpDistance(loop_exit_idx + 1, loop_end_idx);
-    self.lexical_scope.items[car_idx].symbol = null;
 }
 
 test compile {
