@@ -156,16 +156,32 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
     switch (expr.repr) {
         .nil, .true_bool, .int, .float, .string, .native_function, .bytecode_function => {
             const instruction = Instruction{ .push = expr };
-            try self.instructions.append(self.arena.allocator(), instruction);
+            try self.addInstruction(instruction);
         },
         .symbol => |s| {
             if (s.unquote()) |interned_symbol|
-                try self.instructions.append(self.arena.allocator(), Instruction{ .push = Val.from(interned_symbol) })
+                try self.addInstruction(Instruction{ .push = Val.from(interned_symbol) })
             else
                 try self.deref(s);
         },
         .cons => |cons_handle| try self.addCons(cons_handle),
     }
+}
+
+/// Appends a single instruction to the compiler's instruction list.
+///
+/// Args:
+///     instruction: The instruction to add.
+fn addInstruction(self: *Compiler, instruction: Instruction) !void {
+    try self.instructions.append(self.arena.allocator(), instruction);
+}
+
+/// Appends a slice of instructions to the compiler's instruction list.
+///
+/// Args:
+///     instructions: The slice of instructions to add.
+fn addInstructions(self: *Compiler, instructions: []const Instruction) !void {
+    try self.instructions.appendSlice(self.arena.allocator(), instructions);
 }
 
 /// Dereferences a symbol, generating the appropriate instruction.
@@ -176,15 +192,9 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
 /// the symbol should be looked up in the global environment during runtime.
 fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
     if (self.getVariable(symbol)) |scoped_variable| {
-        try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .get = @intCast(scoped_variable.index) },
-        );
+        try self.addInstruction(Instruction{ .get = @intCast(scoped_variable.index) });
     } else {
-        try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .deref = symbol },
-        );
+        try self.addInstruction(Instruction{ .deref = symbol });
     }
 }
 
@@ -237,10 +247,7 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
         items += 1;
     }
 
-    try self.instructions.append(
-        self.arena.allocator(),
-        Instruction{ .eval = items },
-    );
+    try self.addInstruction(Instruction{ .eval = items });
 }
 
 /// Calculates the distance between two instruction indices.
@@ -265,12 +272,12 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 
     try self.addExpr(pred);
     const jump_if_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction{ .jump_if = 0 });
+    try self.addInstruction(Instruction{ .jump_if = 0 });
 
     const false_branch_idx = self.instructions.items.len;
     try self.addExpr(false_branch);
     const false_jump_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction{ .jump = 0 });
+    try self.addInstruction(Instruction{ .jump = 0 });
 
     const true_branch_idx = self.instructions.items.len;
     try self.addExpr(true_branch);
@@ -296,14 +303,8 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     if (return_val) |val|
         try self.addExpr(val)
     else
-        try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .push = Val.from({}) },
-        );
-    try self.instructions.append(
-        self.arena.allocator(),
-        Instruction{ .ret = {} },
-    );
+        try self.addInstruction(Instruction{ .push = Val.from({}) });
+    try self.addInstruction(Instruction{ .ret = {} });
 }
 
 fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
@@ -313,10 +314,12 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     if (interned_symbol.quoted) return Error.InvalidExpression;
     if (try exprs.next(self.vm)) |_| return Error.InvalidExpression;
 
-    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.internal_define });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .push = symbol });
+    try self.addInstructions(&.{
+        Instruction{ .deref = self.symbols.internal_define },
+        Instruction{ .push = symbol },
+    });
     try self.addExpr(expr);
-    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 3 });
+    try self.addInstruction(Instruction{ .eval = 3 });
 }
 
 fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
@@ -324,10 +327,12 @@ fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
     if (interned_symbol.quoted) return Error.InvalidExpression;
 
-    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.internal_define });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .push = symbol });
+    try self.addInstructions(&.{
+        Instruction{ .deref = self.symbols.internal_define },
+        Instruction{ .push = symbol },
+    });
     try self.addFunction(exprs);
-    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 3 });
+    try self.addInstruction(Instruction{ .eval = 3 });
 }
 
 /// Compiles a `function` expression.
@@ -349,10 +354,7 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         bytecode,
         self.vm.heap.dead_color,
     );
-    try self.instructions.append(
-        self.arena.allocator(),
-        Instruction{ .push = Val.from(bytecode_handle) },
-    );
+    try self.addInstruction(Instruction{ .push = Val.from(bytecode_handle) });
 }
 
 // Compiles a `let` expression.
@@ -388,10 +390,7 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
             self.arena.allocator(),
             LexicalBinding{ .symbol = name, .index = @intCast(idx), .value_type = .local_let },
         );
-        try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .set = @intCast(idx) },
-        );
+        try self.addInstruction(Instruction{ .set = @intCast(idx) });
     }
     var exprs_count: i32 = 0;
     while (try exprs.next(self.vm)) |expr| {
@@ -399,15 +398,9 @@ fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         try self.addExpr(expr);
     }
     switch (exprs_count) {
-        0 => try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .push = Val.from({}) },
-        ),
+        0 => try self.addInstruction(Instruction{ .push = Val.from({}) }),
         1 => {},
-        else => try self.instructions.append(
-            self.arena.allocator(),
-            Instruction{ .squash = exprs_count },
-        ),
+        else => try self.addInstruction(Instruction{ .squash = exprs_count }),
     }
 }
 
@@ -432,24 +425,28 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 
     // Initial cons bind.
     try self.addExpr(iterable_expr);
-    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(cons_idx) });
+    try self.addInstruction(Instruction{ .set = @intCast(cons_idx) });
 
     // Loop: Check exit criteria
     const loop_start_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
+    try self.addInstruction(Instruction{ .get = @intCast(cons_idx) });
     const loop_exit_idx = self.instructions.items.len;
-    try self.instructions.append(self.arena.allocator(), Instruction{ .jump_if_not = 0 }); // Fixed at end.
+    try self.addInstruction(Instruction{ .jump_if_not = 0 }); // Fixed at end.
 
     // Loop: Get next car
-    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.car });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 2 });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(car_idx) });
+    try self.addInstructions(&.{
+        Instruction{ .deref = self.symbols.car },
+        Instruction{ .get = @intCast(cons_idx) },
+        Instruction{ .eval = 2 },
+        Instruction{ .set = @intCast(car_idx) },
+    });
     // Loop: Get next cdr
-    try self.instructions.append(self.arena.allocator(), Instruction{ .deref = self.symbols.cdr });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .get = @intCast(cons_idx) });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .eval = 2 });
-    try self.instructions.append(self.arena.allocator(), Instruction{ .set = @intCast(cons_idx) });
+    try self.addInstructions(&.{
+        Instruction{ .deref = self.symbols.cdr },
+        Instruction{ .get = @intCast(cons_idx) },
+        Instruction{ .eval = 2 },
+        Instruction{ .set = @intCast(cons_idx) },
+    });
     // Loop: Eval expressions
     var expr_count: i32 = 0;
     while (try exprs.next(self.vm)) |expr| {
@@ -457,13 +454,10 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         try self.addExpr(expr);
     }
     if (expr_count > 0)
-        try self.instructions.append(self.arena.allocator(), Instruction{ .pop = expr_count });
+        try self.addInstruction(Instruction{ .pop = expr_count });
     // Loop: Jump to next iteration
     const loop_jump_to_start_idx = self.instructions.items.len;
-    try self.instructions.append(
-        self.arena.allocator(),
-        Instruction{ .jump = jumpDistance(loop_jump_to_start_idx + 1, loop_start_idx) },
-    );
+    try self.addInstruction(Instruction{ .jump = jumpDistance(loop_jump_to_start_idx + 1, loop_start_idx) });
     const loop_end_idx = self.instructions.items.len;
 
     self.instructions.items[loop_exit_idx].jump_if_not = jumpDistance(loop_exit_idx + 1, loop_end_idx);
