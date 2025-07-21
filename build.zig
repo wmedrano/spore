@@ -15,14 +15,23 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
     });
     b.installArtifact(lib);
-    const lib_unit_tests = b.addTest(.{
-        .root_module = lib_mod,
-    });
 
     // Tests
+    const lib_unit_tests = b.addTest(.{ .root_module = lib_mod });
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // Test Coverage
+    const run_coverage = b.addSystemCommand(&.{
+        "kcov",
+        "--clean",
+        "--include-pattern=src/",
+        b.pathJoin(&.{ b.install_path, "coverage" }),
+    });
+    run_coverage.addArtifactArg(lib_unit_tests);
+    const coverage_step = b.step("coverage", "Generate test coverage report");
+    coverage_step.dependOn(&run_coverage.step);
 
     // Docs
     const install_docs = b.addInstallDirectory(.{
