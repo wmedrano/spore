@@ -9,7 +9,6 @@ const ExecutionContext = @import("ExecutionContext.zig");
 const Heap = @import("Heap.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
-const repr = @import("repr.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 

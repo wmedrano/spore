@@ -8,7 +8,6 @@ const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
-const ValRepr = @import("repr.zig").ValRepr;
 const String = @import("String.zig");
 const Vm = @import("Vm.zig");
 
@@ -16,10 +15,68 @@ const Val = @This();
 
 /// The internal representation of the `Val` object. This is optimized to be
 /// small.
-repr: ValRepr,
+repr: Repr,
+
+pub const Tag = enum {
+    nil,
+    true_bool,
+    int,
+    float,
+    symbol,
+    cons,
+    string,
+    native_function,
+    bytecode_function,
+};
+
+/// The internal representation of a value.
+pub const Repr = union(Tag) {
+    /// The `nil` value. This is equivalent to an empty list.
+    nil,
+    /// The true value. There is only one.
+    true_bool,
+    /// An integer.
+    int: i64,
+    /// A floating point number.
+    float: f64,
+    /// A symbol. Interned to keep the size of `Repr` small.
+    symbol: Symbol.Interned,
+    /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
+    cons: Handle(ConsCell),
+    /// A string. Stored as a handle to keep the size of `Repr` small.
+    string: Handle(String),
+    /// A native_function. Stored as a handle to keep the size of `Repr` small.
+    native_function: Handle(NativeFunction),
+    /// A bytecode function. Stored as a handle to keep the size of `Repr`
+    /// small.
+    bytecode_function: Handle(BytecodeFunction),
+
+    /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
+    /// interface.
+    pub fn format(
+        self: Repr,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+        switch (self) {
+            .nil => try writer.print("nil", .{}),
+            .true_bool => try writer.print("true", .{}),
+            .int => |x| try writer.print("{}", .{x}),
+            .float => |x| try writer.print("{d}", .{x}),
+            .symbol => |x| try writer.print("@symbol-{}", .{x}),
+            .cons => |handle| try writer.print("@cons-{}", .{handle.id}),
+            .string => |handle| try writer.print("@string-{}", .{handle.id}),
+            .native_function => |handle| try writer.print("@function-{}", .{handle.id}),
+            .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
+        }
+    }
+};
 
 /// Create a new `Val` from its internal representation. For internal use only.
-fn init(repr: ValRepr) Val {
+fn init(repr: Repr) Val {
     return .{ .repr = repr };
 }
 
@@ -28,21 +85,21 @@ fn init(repr: ValRepr) Val {
 pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
-        void => return init(ValRepr.newNil()),
-        bool => return init(ValRepr.newBool(val)),
-        i64, comptime_int => return init(ValRepr.newInt(val)),
-        f64, comptime_float => return init(ValRepr.newFloat(val)),
-        Symbol.Interned => return init(ValRepr.newSymbol(val)),
-        Handle(ConsCell) => return init(ValRepr.newCons(val)),
+        void => return init(.{ .nil = {} }),
+        bool => return init(if (val) .{ .true_bool = {} } else .{ .nil = {} }),
+        i64, comptime_int => return init(.{ .int = val }),
+        f64, comptime_float => return init(.{ .float = val }),
+        Symbol.Interned => return init(.{ .symbol = val }),
+        Handle(ConsCell) => return init(.{ .cons = val }),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
-        Handle(String) => return init(ValRepr.newString(val)),
+        Handle(String) => return init(.{ .string = val }),
         String => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(String)) ++ ")"),
-        Handle(NativeFunction) => return init(ValRepr.newNativeFunction(val)),
+        Handle(NativeFunction) => return init(.{ .native_function = val }),
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
-        Handle(BytecodeFunction) => return init(ValRepr.newBytecodeFunction(val)),
+        Handle(BytecodeFunction) => return init(.{ .bytecode_function = val }),
         BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ ")"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
