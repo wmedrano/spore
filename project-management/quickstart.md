@@ -10,11 +10,38 @@ The fundamental building block of Spore code is the S-expression (Symbolic Expre
 
 For example, `(+ 1 2)` is an S-expression that calls the `+` function with `1` and `2` as arguments, evaluating to `3`.
 
-Spore supports basic data types like numbers and lists:
-- **Numbers**: e.g., `10`, `30`
-- **Lists**: A sequence of values, created with the `list` function. e.g., `(list 1 2 3 4)`
+Spore is dynamically typed, meaning you don't need to declare the type of a variable. The language supports several fundamental data types:
 
-The empty list, `()`, is also used to represent a `nil` or null value.
+-   **Numbers**: This includes both integers like `42` and floating-point numbers like `3.14`.
+-   **Strings**: A sequence of characters inside double quotes, such as `"Hello, Spore!"`.
+-   **Symbols**: Identifiers used to name variables and functions, like `x` or `squared-sum`. When quoted, they evaluate to themselves (e.g., `'my-symbol`).
+-   **Lists**: The core data structure, created with the `list` function or as S-expressions. A list is a sequence of other values, e.g., `(list 1 "two" 'three)`.
+-   **Nil**: A special value representing nothingness or falsehood. It can be written as `nil` or as an empty list `()`.
+-   **Functions**: Procedures that can be called with arguments, defined with the `function` keyword.
+
+### Truthiness and `nil`
+
+Spore does not have distinct `true` and `false` boolean types. Instead, it uses a simple rule for conditional logic (like in an `if` expression):
+
+-   **`nil` (or an empty list `()`) is the only "falsey" value.**
+-   **Every other value is "truthy".** This includes numbers (even `0`), non-empty lists, strings (even `""`), and symbols.
+
+For example, a built-in function might return the symbol `true` on success, but this is only for convention. In a conditional check, the symbol `true` is truthy simply because it is not `nil`.
+
+```spore
+;; `if` checks if a value is nil or not-nil
+(if nil
+    "this will not execute"
+    "this will execute") ;; returns "this will execute"
+
+(if 0
+    "0 is truthy"
+    "0 is falsey") ;; returns "0 is truthy"
+
+(if 'true
+    "'true is a symbol, and not nil, so it's truthy"
+    "this will not execute") ;; returns "'true is a symbol..."
+```
 
 ## Variables
 
@@ -62,6 +89,23 @@ To call a function immediately after defining it, you can wrap the definition an
 
 Spore provides constructs for controlling the flow of execution.
 
+### If Statements
+
+You can conditionally execute code using `if`. The syntax is `(if condition then-expression else-expression)`.
+
+If the `condition` evaluates to a non-nil value (meaning anything other than `()` or `nil`), the `then-expression` is executed. Otherwise, the optional `else-expression` is executed. If the condition is false and no `else-expression` is provided, the entire expression evaluates to `nil`.
+
+```spore
+;; With an else-expression
+(if (> a 0)
+  "a is positive"
+  "a is not positive")
+
+;; Without an else-expression, this returns nil if a is not positive
+(if (> a 0)
+  "a is positive")
+```
+
 ### For Loops
 
 You can iterate over a list using a `for` loop. The syntax is `(for (variable list-expression) body)`. The `body` is executed for each item in the list.
@@ -78,19 +122,44 @@ You can iterate over a list using a `for` loop. The syntax is `(for (variable li
 
 Spore includes a set of built-in functions for common operations.
 
--   **Arithmetic**: `+`, `*`
+-   **Arithmetic**: `+`, `*`, `-`, `mod`
     ```spore
-    (+ 10 20) ; returns 30
-    (* 5 5)   ; returns 25
-    ```
--   **List Creation**: `list`
-    ```spore
-    (list 1 2 3 4) ; returns a list containing 1, 2, 3, 4
+    (+ 10 20) ;; returns 30
+    (* 5 5)   ;; returns 25
+    (- 10 4)  ;; returns 6
+    (- 5)     ;; returns -5 (negation)
+    (mod 10 3) ;; returns 1
     ```
 
-## Memory Management
+-   **Comparison**: `=`
+    ```spore
+    (= 5 5)   ;; returns true
+    (= 5 6)   ;; returns nil
+    (= 5 5.0) ;; returns true
+    ```
 
-Spore manages memory automatically using a garbage collector. You do not need to manually allocate or deallocate objects. The garbage collector periodically runs to clean up objects that are no longer in use, simplifying memory management for the developer.
+-   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` and `cdr` access the first element (the "head") and the rest of the list (the "tail"), respectively.
+    ```spore
+    (list 1 2 3)        ;; returns a list containing (1 2 3)
+    (cons 1 (list 2 3)) ;; returns a new list (1 2 3)
+    (car (list 1 2 3))  ;; returns the first element, 1
+    (cdr (list 1 2 3))  ;; returns the rest of the list, (2 3)
+    ```
+
+-   **Type Predicates**: `number?`, `symbol?`, `null?`, `string?`. These functions check the type of a value, returning `true` or `false`.
+    ```spore
+    (number? 123)     ;; returns true
+    (string? "hello") ;; returns true
+    (symbol? 'sym)    ;; returns true
+    (null? nil)       ;; returns true
+    (number? "123")   ;; returns false
+    ```
+
+-   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. Use `print` to concatenate the string representations of multiple values.
+    ```spore
+    (->string (list 1 2)) ;; returns "(1 2)"
+    (print "Hello, " 1)   ;; returns "Hello, 1"
+    ```
 
 ## Examples
 
@@ -115,3 +184,9 @@ squared-sum
 ## Next Steps
 
 Now that you have a basic understanding of Spore, try experimenting with your own expressions and functions.
+
+Here are some exercises to get you started:
+
+-   **FizzBuzz**: Write a program that prints the numbers from 1 to 100. For multiples of three, print "Fizz" instead of the number. For multiples of five, print "Buzz". For numbers which are multiples of both three and five, print "FizzBuzz".
+
+-   **Fibonacci**: Write a function that calculates the nth Fibonacci number. The Fibonacci sequence is a series of numbers where each number is the sum of the two preceding ones, usually starting with 0 and 1.

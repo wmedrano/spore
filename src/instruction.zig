@@ -6,15 +6,15 @@ const Vm = @import("Vm.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
+const NativeFunction = @import("NativeFunction.zig");
 
 pub const Error = error{
-    ObjectNotFound,
     StackOverflow,
     StackUnderflow,
     SymbolNotFound,
     TypeError,
     WrongArity,
-} || std.mem.Allocator.Error;
+} || NativeFunction.Error || std.mem.Allocator.Error;
 
 pub const Code = enum {
     push,

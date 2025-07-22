@@ -13,6 +13,8 @@ pub const Error = error{
     TypeError,
     /// An object was not found, likely due to being garbage collected.
     ObjectNotFound,
+    /// A division by zero was attempted.
+    DivisionByZero,
 } || std.mem.Allocator.Error;
 
 /// The name of the function.

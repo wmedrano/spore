@@ -20,11 +20,13 @@ pub fn registerAll(vm: *Vm) !void {
     try add.register(vm);
     try multiply.register(vm);
     try subtract.register(vm);
+    try mod.register(vm);
     try internal_define.register(vm);
     try cons.register(vm);
     try car.register(vm);
     try cdr.register(vm);
     try list.register(vm);
+    try equal_q.register(vm);
 }
 
 const number_q = NativeFunction{
@@ -179,14 +181,14 @@ fn subtractTwo(val1: Val, val2: Val) NativeFunction.Error!Val {
         .int => |int1| {
             switch (x2) {
                 .int => |int2| return Val.from(int1 - int2),
-                .float => |f2| return Val.from(@as(f64, @floatFromInt(int1)) - f2),
+                .float => |float2| return Val.from(@as(f64, @floatFromInt(int1)) - float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
-        .float => |f1| {
+        .float => |float1| {
             switch (x2) {
-                .int => |int2| return Val.from(f1 - @as(f64, @floatFromInt(int2))),
-                .float => |f2| return Val.from(f1 - f2),
+                .int => |int2| return Val.from(float1 - @as(f64, @floatFromInt(int2))),
+                .float => |float2| return Val.from(float1 - float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
@@ -237,6 +239,50 @@ fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
 
 fn multiplyImpl(vm: *Vm) NativeFunction.Error!Val {
     return try multiplySlice(vm.execution_context.localStack());
+}
+
+const mod = NativeFunction{
+    .name = "mod",
+    .docstring = "Returns the modulus of two integers. Example: `(mod 10 3)` returns `1`.",
+    .ptr = modImpl,
+};
+
+fn modImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 2) return NativeFunction.Error.WrongArity;
+    const a = try args[0].to(i64);
+    const b = try args[1].to(i64);
+    if (b == 0) return NativeFunction.Error.DivisionByZero;
+    return Val.from(@mod(a, b));
+}
+
+const equal_q = NativeFunction{
+    .name = "=",
+    .docstring = "Returns true if two numbers are equal, nil otherwise. Returns a TypeError for non-numeric arguments.",
+    .ptr = equalQImpl,
+};
+
+fn equalQImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 2) return NativeFunction.Error.WrongArity;
+
+    switch (args[0].repr) {
+        .int => |int1| {
+            switch (args[1].repr) {
+                .int => |int2| return Val.from(int1 == int2),
+                .float => |float2| return Val.from(@as(f64, @floatFromInt(int1)) == float2),
+                else => return NativeFunction.Error.TypeError,
+            }
+        },
+        .float => |float1| {
+            switch (args[1].repr) {
+                .int => |int2| return Val.from(float1 == @as(f64, @floatFromInt(int2))),
+                .float => |float2| return Val.from(float1 == float2),
+                else => return NativeFunction.Error.TypeError,
+            }
+        },
+        else => return NativeFunction.Error.TypeError,
+    }
 }
 
 const internal_define = NativeFunction{
@@ -599,5 +645,157 @@ test "- with multiple arguments subtracts args[1..] from args[0]." {
     try testing.expectError(
         NativeFunction.Error.TypeError,
         vm.evalStr("(- 10 1 'a)"),
+    );
+}
+
+test "mod returns the modulus of two integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(1),
+        try vm.evalStr("(mod 10 3)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(2),
+        try vm.evalStr("(mod -10 3)"),
+    );
+}
+
+test "mod with non-integer returns type error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(mod 10.0 3)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(mod 10 'a)"),
+    );
+}
+
+test "mod with division by zero returns division by zero error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.DivisionByZero,
+        vm.evalStr("(mod 10 0)"),
+    );
+}
+
+test "mod with wrong arity returns wrong arity error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(mod 10)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(mod 10 3 1)"),
+    );
+}
+
+test "= returns true for equal integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(= 5 5)"),
+    );
+}
+
+test "= returns false for unequal integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(= 5 6)"),
+    );
+}
+
+test "= returns true for equal floats" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(= 5.0 5.0)"),
+    );
+}
+
+test "= returns false for unequal floats" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(= 5.0 5.1)"),
+    );
+}
+
+test "= returns true for equal mixed int and float" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(= 5 5.0)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(= 5.0 5)"),
+    );
+}
+
+test "= returns false for unequal mixed int and float" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(= 5 5.1)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(= 5.1 5)"),
+    );
+}
+
+test "= returns TypeError for non-numeric arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(= 5 'a)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(= 'a 5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(= 'a 'b)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(= nil 5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(= 5 nil)"),
+    );
+}
+
+test "= returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(= 5)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(= 5 6 7)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(=)"),
     );
 }
