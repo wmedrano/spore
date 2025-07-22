@@ -15,7 +15,7 @@ Spore is a Lisp-like scripting language built on S-expressions (e.g., `(+ 1 2)`)
 
 In conditional logic, `nil` is the only "falsey" value. All other values (including `0`, `""`, and any symbol) are "truthy".
 
-```spore
+```lisp
 (if nil "is falsey" "is truthy") ;; returns "is truthy"
 (if 0 "is truthy" "is falsey")   ;; returns "is truthy"
 ```
@@ -24,7 +24,7 @@ In conditional logic, `nil` is the only "falsey" value. All other values (includ
 
 Use `def` to define global variables and `let` for local variables within a scope.
 
-```spore
+```lisp
 (def global-var 10)
 
 (let ((local-var 20))
@@ -39,13 +39,13 @@ The syntax is `(function (parameters) body)`.
 
 Here's a function that takes two arguments, `a` and `b`, and returns their sum:
 
-```spore
+```lisp
 (function (a b) (+ a b))
 ```
 
 To call a function immediately after defining it, you can wrap the definition and its arguments in another S-expression:
 
-```spore
+```lisp
 ;; Defines a function and calls it with 1 and 2, resulting in 3
 ((function (a b) (+ a b)) 1 2)
 ```
@@ -64,7 +64,7 @@ If the `condition` evaluates to a non-nil value (meaning anything other than
 `else-expression` is executed. If the condition is false and no
 `else-expression` is provided, the entire expression evaluates to `nil`.
 
-```spore
+```lisp
 ;; With an else-expression
 (if (> a 0)
   "a is positive"
@@ -80,7 +80,7 @@ If the `condition` evaluates to a non-nil value (meaning anything other than
 You can iterate over a list using a `for` loop. The syntax is `(for (variable
 list-expression) body)`. The `body` is executed for each item in the list.
 
-```spore
+```lisp
 (for (x (list 1 2 3 4))
   ;; This code runs 4 times, with x being 1, 2, 3, and 4
   (let ((squared (* x x)))
@@ -93,7 +93,7 @@ list-expression) body)`. The `body` is executed for each item in the list.
 Spore includes a set of built-in functions for common operations.
 
 -   **Arithmetic**: `+`, `*`, `-`, `mod`
-    ```spore
+    ```lisp
     (+ 10 20) ;; returns 30
     (* 5 5)   ;; returns 25
     (- 10 4)  ;; returns 6
@@ -105,14 +105,14 @@ Spore includes a set of built-in functions for common operations.
     ```
 
 -   **Comparison**: `=`
-    ```spore
+    ```lisp
     (= 5 5)   ;; returns true
     (= 5 6)   ;; returns nil
     (= 5 5.0) ;; returns true
     ```
 
 -   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` and `cdr` access the first element (the "head") and the rest of the list (the "tail"), respectively.
-    ```spore
+    ```lisp
     (list 1 2 3)        ;; returns a list containing (1 2 3)
     (cons 1 (list 2 3)) ;; returns a new list (1 2 3)
     (car (list 1 2 3))  ;; returns the first element, 1
@@ -120,7 +120,7 @@ Spore includes a set of built-in functions for common operations.
     ```
 
 -   **Type Predicates**: `number?`, `symbol?`, `null?`, `string?`. These functions check the type of a value, returning `true` or `false`.
-    ```spore
+    ```lisp
     (number? 123)     ;; returns true
     (string? "hello") ;; returns true
     (symbol? 'sym)    ;; returns true
@@ -129,7 +129,7 @@ Spore includes a set of built-in functions for common operations.
     ```
 
 -   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. Use `print` to concatenate the string representations of multiple values.
-    ```spore
+    ```lisp
     (->string (list 1 2)) ;; returns "(1 2)"
     (print "Hello, " 1)   ;; returns "Hello, 1"
     ```
@@ -139,7 +139,7 @@ Spore includes a set of built-in functions for common operations.
 Here is a complete example that uses several of the concepts discussed above. It
 calculates the sum of the squares of numbers in a list.
 
-```spore
+```lisp
 ;; Initialize a global variable to store the sum
 (def squared-sum 0)
 
