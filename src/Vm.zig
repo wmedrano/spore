@@ -99,9 +99,15 @@ test evalStr {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const source =
+        \\ ; Define a global variable.
         \\ (def squared-sum 0)
+        \\
+        \\ ; Define a function.
+        \\ (defun square (number) (* number number))
+        \\
+        \\ ; Iterate over a list
         \\ (for (x (list 1 2 3 4))
-        \\   (let ((squared (* x x))
+        \\   (let ((squared (square x))
         \\         (new-sum (+ squared squared-sum)))
         \\     (def squared-sum new-sum)))
         \\ squared-sum

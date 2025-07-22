@@ -55,13 +55,16 @@ pub fn readOne(source: []const u8, allocator: std.mem.Allocator, vm: *Vm) !Val {
 ///
 /// `allocator` is used to allocate intermediate data.
 pub fn next(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !?Val {
-    const initial_token = self.tokenizer.next() orelse return null;
-    switch (initial_token.token_type) {
-        .close_paren => return error.ParseError,
-        .open_paren => return try self.nextExpr(allocator, vm),
-        .identifier => return try identifierToVal(self.tokenizer.substr(initial_token), vm),
-        .string => return try stringToVal(self.tokenizer.substr(initial_token), vm),
+    while (self.tokenizer.next()) |token| {
+        switch (token.token_type) {
+            .close_paren => return error.ParseError,
+            .open_paren => return try self.nextExpr(allocator, vm),
+            .identifier => return try identifierToVal(self.tokenizer.substr(token), vm),
+            .string => return try stringToVal(self.tokenizer.substr(token), vm),
+            .comment => {},
+        }
     }
+    return null;
 }
 
 /// Parses a list expression, consuming tokens until a matching `)` is found.
@@ -84,6 +87,7 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
                 const string = try stringToVal(self.tokenizer.substr(token), vm);
                 try vals.append(string);
             },
+            .comment => {},
         }
     }
     return error.ParseError;
@@ -209,6 +213,47 @@ test "parse float" {
     var reader = try Reader.init("3.14");
     try std.testing.expectEqualDeep(
         Val.from(3.14),
+        try reader.next(testing.allocator, &vm),
+    );
+}
+
+test "comment is ignored" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var reader = try Reader.init(
+        \\; this is a comment
+        \\42
+    );
+    const val = try reader.next(testing.allocator, &vm);
+    try testing.expectEqualDeep(Val.from(42), val);
+    try testing.expectEqualDeep(null, try reader.next(testing.allocator, &vm));
+}
+
+test "comment inside an expression is ignored" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var reader = try Reader.init(
+        \\(1 ; comment
+        \\ 2)
+    );
+    const val = try reader.next(testing.allocator, &vm);
+    try testing.expectFmt(
+        "(1 2)",
+        "{}",
+        .{vm.prettyPrint(val.?)},
+    );
+}
+
+test "multiple comments are ignored" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var reader = try Reader.init(
+        \\; line 1
+        \\   ; line 2
+        \\()
+    );
+    try testing.expectEqual(
+        Val.from({}),
         try reader.next(testing.allocator, &vm),
     );
 }

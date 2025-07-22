@@ -10,7 +10,7 @@ text: []const u8,
 start: usize = 0,
 
 /// The types of tokens that can be produced.
-pub const TokenType = enum { open_paren, close_paren, identifier, string };
+pub const TokenType = enum { open_paren, close_paren, identifier, string, comment };
 
 /// Represents a span of text within the original input.
 pub const Token = struct {
@@ -59,12 +59,21 @@ pub fn next(self: *Tokenizer) ?Token {
         return ret;
     }
     const start = self.start;
-    if (next_ch == '"') {
-        self.eatString();
-        return .{ .start = start, .end = self.start, .token_type = .string };
-    }
-    self.eatIdentifier();
-    return .{ .start = start, .end = self.start, .token_type = .identifier };
+    const token_type = t: switch (next_ch) {
+        '"' => {
+            self.eatString();
+            break :t TokenType.string;
+        },
+        ';' => {
+            self.eatComment();
+            break :t TokenType.comment;
+        },
+        else => {
+            self.eatIdentifier();
+            break :t TokenType.identifier;
+        },
+    };
+    return Token{ .start = start, .end = self.start, .token_type = token_type };
 }
 
 /// Similar to `next`, but returns the substring directly instead of a `Token`.
@@ -83,6 +92,19 @@ fn isParen(ch: u8) bool {
 fn eatWhitespace(self: *Tokenizer) void {
     while (!self.isDone()) {
         if (!std.ascii.isWhitespace(self.text[self.start])) return;
+        self.start += 1;
+    }
+}
+
+/// Advances the tokenizer's `start` pointer past a comment.
+///
+/// A comment starts with a semicolon `;` and continues until a newline
+/// character `\n` or the end of the input.
+fn eatComment(self: *Tokenizer) void {
+    while (!self.isDone()) {
+        const next_ch = self.text[self.start];
+        if (next_ch ==
+            '\n') return;
         self.start += 1;
     }
 }
@@ -169,6 +191,28 @@ test "quoted string is parsed as single string" {
     try testing.expectEqualDeep(
         Token{ .start = 0, .end = 17, .token_type = .string },
         tokenizer.next(),
+    );
+    try testing.expectEqualDeep(null, tokenizer.next());
+}
+
+test "comment is parsed" {
+    var tokenizer = Tokenizer.init("; this is a comment\n");
+    try testing.expectEqualStrings(
+        "; this is a comment",
+        tokenizer.nextStr().?,
+    );
+    try testing.expectEqualDeep(null, tokenizer.next());
+}
+
+test "multiple lines of comments are parsed as a comment each" {
+    var tokenizer = Tokenizer.init("; first comment\n; second comment");
+    try testing.expectEqualStrings(
+        "; first comment",
+        tokenizer.nextStr().?,
+    );
+    try testing.expectEqualStrings(
+        "; second comment",
+        tokenizer.nextStr().?,
     );
     try testing.expectEqualDeep(null, tokenizer.next());
 }

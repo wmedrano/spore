@@ -1,70 +1,35 @@
 # Spore Quickstart
 
-## Introduction to Spore
-
-Spore is a concise, Lisp-like scripting language designed to be embedded in other applications. It is dynamically typed and garbage-collected, which allows for rapid development and iteration. Its syntax is built on S-expressions, making the code structure simple and consistent.
-
 ## Basic Syntax and Data Types
 
-The fundamental building block of Spore code is the S-expression (Symbolic Expression), which is a list of atoms (like numbers or symbols) enclosed in parentheses. The first element in an S-expression is typically a function or operator, and the rest are its arguments.
+Spore is a Lisp-like scripting language built on S-expressions (e.g., `(+ 1 2)`). It is dynamically typed and supports several data types:
 
-For example, `(+ 1 2)` is an S-expression that calls the `+` function with `1` and `2` as arguments, evaluating to `3`.
+-   **Numbers**: `42`, `3.14`
+-   **Strings**: `"Hello"`
+-   **Symbols**: `x`, `'my-symbol`
+-   **Lists**: `(list 1 "two")`
+-   **Nil**: Represents nothingness or falsehood (`nil` or `()`).
+-   **Functions**: Defined with the `function` keyword.
 
-Spore is dynamically typed, meaning you don't need to declare the type of a variable. The language supports several fundamental data types:
+### Truthiness
 
--   **Numbers**: This includes both integers like `42` and floating-point numbers like `3.14`.
--   **Strings**: A sequence of characters inside double quotes, such as `"Hello, Spore!"`.
--   **Symbols**: Identifiers used to name variables and functions, like `x` or `squared-sum`. When quoted, they evaluate to themselves (e.g., `'my-symbol`).
--   **Lists**: The core data structure, created with the `list` function or as S-expressions. A list is a sequence of other values, e.g., `(list 1 "two" 'three)`.
--   **Nil**: A special value representing nothingness or falsehood. It can be written as `nil` or as an empty list `()`.
--   **Functions**: Procedures that can be called with arguments, defined with the `function` keyword.
-
-### Truthiness and `nil`
-
-Spore does not have distinct `true` and `false` boolean types. Instead, it uses a simple rule for conditional logic (like in an `if` expression):
-
--   **`nil` (or an empty list `()`) is the only "falsey" value.**
--   **Every other value is "truthy".** This includes numbers (even `0`), non-empty lists, strings (even `""`), and symbols.
-
-For example, a built-in function might return the symbol `true` on success, but this is only for convention. In a conditional check, the symbol `true` is truthy simply because it is not `nil`.
+In conditional logic, `nil` is the only "falsey" value. All other values (including `0`, `""`, and any symbol) are "truthy".
 
 ```spore
-;; `if` checks if a value is nil or not-nil
-(if nil
-    "this will not execute"
-    "this will execute") ;; returns "this will execute"
-
-(if 0
-    "0 is truthy"
-    "0 is falsey") ;; returns "0 is truthy"
-
-(if 'true
-    "'true is a symbol, and not nil, so it's truthy"
-    "this will not execute") ;; returns "'true is a symbol..."
+(if nil "is falsey" "is truthy") ;; returns "is truthy"
+(if 0 "is truthy" "is falsey")   ;; returns "is truthy"
 ```
 
 ## Variables
 
-You can define variables to store and reuse values.
-
-### Global Variables
-
-Use `def` to create a global variable. This is useful for defining state that can be accessed from anywhere in the program.
+Use `def` to define global variables and `let` for local variables within a scope.
 
 ```spore
-(def squared-sum 0)
+(def global-var 10)
+
+(let ((local-var 20))
+  (+ global-var local-var)) ;; returns 30
 ```
-
-### Local Variables
-
-Use `let` to create temporary, local variables that are only accessible within a specific scope. This is the preferred way to manage state within a function or loop.
-
-```spore
-(let ((squared (* x x))
-      (new-sum (+ squared squared-sum)))
-  (def squared-sum new-sum))
-```
-In this example, `squared` and `new-sum` exist only within the `let` block.
 
 ## Functions
 
@@ -91,9 +56,13 @@ Spore provides constructs for controlling the flow of execution.
 
 ### If Statements
 
-You can conditionally execute code using `if`. The syntax is `(if condition then-expression else-expression)`.
+You can conditionally execute code using `if`. The syntax is `(if condition
+then-expression else-expression)`.
 
-If the `condition` evaluates to a non-nil value (meaning anything other than `()` or `nil`), the `then-expression` is executed. Otherwise, the optional `else-expression` is executed. If the condition is false and no `else-expression` is provided, the entire expression evaluates to `nil`.
+If the `condition` evaluates to a non-nil value (meaning anything other than
+`()` or `nil`), the `then-expression` is executed. Otherwise, the optional
+`else-expression` is executed. If the condition is false and no
+`else-expression` is provided, the entire expression evaluates to `nil`.
 
 ```spore
 ;; With an else-expression
@@ -108,7 +77,8 @@ If the `condition` evaluates to a non-nil value (meaning anything other than `()
 
 ### For Loops
 
-You can iterate over a list using a `for` loop. The syntax is `(for (variable list-expression) body)`. The `body` is executed for each item in the list.
+You can iterate over a list using a `for` loop. The syntax is `(for (variable
+list-expression) body)`. The `body` is executed for each item in the list.
 
 ```spore
 (for (x (list 1 2 3 4))
@@ -166,7 +136,8 @@ Spore includes a set of built-in functions for common operations.
 
 ## Examples
 
-Here is a complete example that uses several of the concepts discussed above. It calculates the sum of the squares of numbers in a list.
+Here is a complete example that uses several of the concepts discussed above. It
+calculates the sum of the squares of numbers in a list.
 
 ```spore
 ;; Initialize a global variable to store the sum
@@ -186,10 +157,16 @@ squared-sum
 
 ## Next Steps
 
-Now that you have a basic understanding of Spore, try experimenting with your own expressions and functions.
+Now that you have a basic understanding of Spore, try experimenting with your
+own expressions and functions.
 
 Here are some exercises to get you started:
 
--   **FizzBuzz**: Write a program that prints the numbers from 1 to 100. For multiples of three, print "Fizz" instead of the number. For multiples of five, print "Buzz". For numbers which are multiples of both three and five, print "FizzBuzz".
+-   **FizzBuzz**: Write a program that prints the numbers from 1 to 100. For
+    multiples of three, print "Fizz" instead of the number. For multiples of
+    five, print "Buzz". For numbers which are multiples of both three and five,
+    print "FizzBuzz".
 
--   **Fibonacci**: Write a function that calculates the nth Fibonacci number. The Fibonacci sequence is a series of numbers where each number is the sum of the two preceding ones, usually starting with 0 and 1.
+-   **Fibonacci**: Write a function that calculates the nth Fibonacci
+    number. The Fibonacci sequence is a series of numbers where each number is
+    the sum of the two preceding ones, usually starting with 0 and 1.

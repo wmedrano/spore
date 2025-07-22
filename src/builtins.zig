@@ -276,7 +276,7 @@ fn divideImpl(vm: *Vm) NativeFunction.Error!Val {
             if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
             return Val.from(numerator / denominator);
         },
-        _ => return NativeFunction.Error.WrongArity,
+        else => return NativeFunction.Error.WrongArity,
     }
 }
 
