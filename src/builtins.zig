@@ -21,6 +21,7 @@ pub fn registerAll(vm: *Vm) !void {
     try multiply.register(vm);
     try subtract.register(vm);
     try mod.register(vm);
+    try divide.register(vm);
     try internal_define.register(vm);
     try cons.register(vm);
     try car.register(vm);
@@ -246,6 +247,38 @@ const mod = NativeFunction{
     .docstring = "Returns the modulus of two integers. Example: `(mod 10 3)` returns `1`.",
     .ptr = modImpl,
 };
+
+fn toFloat(val: Val) NativeFunction.Error!f64 {
+    switch (val.repr) {
+        .int => |x| return @floatFromInt(x),
+        .float => |x| return x,
+        else => return NativeFunction.Error.TypeError,
+    }
+}
+
+const divide = NativeFunction{
+    .name = "/",
+    .docstring = "Divides numbers. With one argument, returns 1.0 divided by the argument. With two, divides the first by the second. Returns a float.",
+    .ptr = divideImpl,
+};
+
+fn divideImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    switch (args.len) {
+        1 => {
+            const denominator = try toFloat(args[0]);
+            if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
+            return Val.from(1.0 / denominator);
+        },
+        2 => return {
+            const numerator = try toFloat(args[0]);
+            const denominator = try toFloat(args[1]);
+            if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
+            return Val.from(numerator / denominator);
+        },
+        _ => return NativeFunction.Error.WrongArity,
+    }
+}
 
 fn modImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
@@ -797,5 +830,92 @@ test "= returns WrongArity error for wrong number of arguments" {
     try testing.expectError(
         NativeFunction.Error.WrongArity,
         vm.evalStr("(=)"),
+    );
+}
+
+test "/ divides two integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(2.0),
+        try vm.evalStr("(/ 4 2)"),
+    );
+}
+
+test "/ divides two floats" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(2.5),
+        try vm.evalStr("(/ 5.0 2.0)"),
+    );
+}
+
+test "/ divides mixed integer and float" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(2.5),
+        try vm.evalStr("(/ 5 2.0)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(2.5),
+        try vm.evalStr("(/ 5.0 2)"),
+    );
+}
+
+test "/ with one argument returns 1.0 divided by argument" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(0.5),
+        try vm.evalStr("(/ 2)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(1.0),
+        try vm.evalStr("(/ 1.0)"),
+    );
+}
+
+test "/ returns DivisionByZero for denominator 0" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.DivisionByZero,
+        vm.evalStr("(/ 10 0)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.DivisionByZero,
+        vm.evalStr("(/ 0)"),
+    );
+}
+
+test "/ returns TypeError for non-numeric arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(/ 10 'a)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(/ 'a 10)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.TypeError,
+        vm.evalStr("(/ 'a)"),
+    );
+}
+
+test "/ returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(/)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(/ 10 2 3)"),
     );
 }

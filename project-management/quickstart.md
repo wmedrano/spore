@@ -129,6 +129,9 @@ Spore includes a set of built-in functions for common operations.
     (- 10 4)  ;; returns 6
     (- 5)     ;; returns -5 (negation)
     (mod 10 3) ;; returns 1
+    (/ 4 2)    ;; returns 2.0
+    (/ 5.0 2.0) ;; returns 2.5
+    (/ 2)      ;; returns 0.5 (1.0 / 2)
     ```
 
 -   **Comparison**: `=`
