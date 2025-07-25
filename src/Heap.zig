@@ -23,8 +23,6 @@ string_interner: StringInterner,
 cons_cells: ObjectPool(ConsCell) = .{},
 /// Stores all string objects.
 strings: ObjectPool(String) = .{},
-/// Stores all native function objects.
-native_functions: ObjectPool(NativeFunction) = .{},
 /// Stores all bytecode function objects.
 bytecode_functions: ObjectPool(BytecodeFunction) = .{},
 
@@ -40,7 +38,6 @@ pub fn init(allocator: std.mem.Allocator) Heap {
 pub fn deinit(self: *Heap) void {
     self.string_interner.deinit(self.allocator);
     self.cons_cells.deinit(self.allocator);
-    self.native_functions.deinit(self.allocator);
 
     var string_iter = self.strings.iter();
     while (string_iter.next()) |s| s.deinit(self.allocator);

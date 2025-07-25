@@ -67,10 +67,7 @@ pub fn format(
             const string = self.vm.heap.strings.get(handle) catch return writer.print("@bad-string", .{});
             try writer.print("{s}", .{string});
         },
-        .native_function => |handle| {
-            const func = self.vm.heap.native_functions.get(handle) catch return writer.print("@bad-native-function", .{});
-            try writer.print("{any}", .{func});
-        },
+        .native_function => |func| try writer.print("{any}", .{func}),
         .bytecode_function => |handle| {
             const func = self.vm.heap.bytecode_functions.get(handle) catch return writer.print("@bad-function", .{});
             try writer.print("{any}", .{func});

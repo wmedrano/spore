@@ -44,18 +44,10 @@ pub fn format(
 }
 
 /// Add the function to a `Vm`'s global namespace.
-pub fn register(self: NativeFunction, vm: *Vm) !void {
-    const function_handle = try vm.heap.native_functions.create(
+pub fn register(self: *const NativeFunction, vm: *Vm) !void {
+    try vm.execution_context.setGlobal(
         vm.heap.allocator,
-        self,
-        vm.heap.dead_color,
+        try Symbol.init(self.name).intern(vm.heap.allocator, &vm.heap.string_interner),
+        Val.from(self),
     );
-    const function_val = Val.from(function_handle);
-
-    const symbol = try Symbol.init(self.name).intern(
-        vm.heap.allocator,
-        &vm.heap.string_interner,
-    );
-
-    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, function_val);
 }

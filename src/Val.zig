@@ -46,7 +46,7 @@ pub const Repr = union(Tag) {
     /// A string. Stored as a handle to keep the size of `Repr` small.
     string: Handle(String),
     /// A native_function. Stored as a handle to keep the size of `Repr` small.
-    native_function: Handle(NativeFunction),
+    native_function: *const NativeFunction,
     /// A bytecode function. Stored as a handle to keep the size of `Repr`
     /// small.
     bytecode_function: Handle(BytecodeFunction),
@@ -69,7 +69,7 @@ pub const Repr = union(Tag) {
             .symbol => |x| try writer.print("@symbol-{}", .{x}),
             .cons => |handle| try writer.print("@cons-{}", .{handle.id}),
             .string => |handle| try writer.print("@string-{}", .{handle.id}),
-            .native_function => |handle| try writer.print("@function-{}", .{handle.id}),
+            .native_function => |func| try writer.print("@function-{s}", .{func.name}),
             .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
         }
     }
@@ -92,16 +92,16 @@ pub fn from(val: anytype) Val {
         Symbol.Interned => return init(.{ .symbol = val }),
         Handle(ConsCell) => return init(.{ .cons = val }),
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(ConsCell)) ++ ")"),
+            ", did you mean " ++ @typeName(Handle(ConsCell)) ++ "?"),
         Handle(String) => return init(.{ .string = val }),
         String => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(String)) ++ ")"),
-        Handle(NativeFunction) => return init(.{ .native_function = val }),
+            ", did you mean " ++ @typeName(Handle(String)) ++ "?"),
+        *const NativeFunction => return init(.{ .native_function = val }),
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(NativeFunction)) ++ ")"),
+            ", did you mean " ++ @typeName(*const NativeFunction) ++ "?"),
         Handle(BytecodeFunction) => return init(.{ .bytecode_function = val }),
         BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ ")"),
+            ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ "?"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }

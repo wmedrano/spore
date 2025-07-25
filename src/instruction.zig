@@ -122,11 +122,10 @@ pub const Instruction = union(Code) {
                     for (extra_slots) |*v| v.* = Val.from({});
                 }
             },
-            .native_function => |handle| {
+            .native_function => |function| {
                 try vm.execution_context.pushCallFrame(
                     ExecutionContext.CallFrame{ .stack_start = stack_start },
                 );
-                const function = try vm.heap.native_functions.get(handle);
                 vm.execution_context.stack.append(try function.call(vm)) catch return Error.StackOverflow;
                 try (Instruction{ .ret = {} }).execute(vm);
             },

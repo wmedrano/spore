@@ -52,7 +52,7 @@ fn mark(self: *GarbageCollector) !void {
 fn markOne(self: *GarbageCollector, val: Val) Error!void {
     const alive_color = self.vm.heap.dead_color.swap();
     switch (val.repr) {
-        .nil, .true_bool, .int, .float, .symbol => {},
+        .nil, .true_bool, .int, .float, .symbol, .native_function => {},
         .cons => |handle| {
             if (self.vm.heap.cons_cells.setColor(handle, alive_color) != alive_color) {
                 const cons = try self.vm.heap.cons_cells.get(handle);
@@ -62,9 +62,6 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
         },
         .string => |handle| {
             _ = self.vm.heap.strings.setColor(handle, alive_color);
-        },
-        .native_function => |handle| {
-            _ = self.vm.heap.native_functions.setColor(handle, alive_color);
         },
         .bytecode_function => |handle| {
             if (self.vm.heap.bytecode_functions.setColor(handle, alive_color) != alive_color) {
@@ -91,7 +88,6 @@ fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) 
 /// This function iterates through the heap's object pools, freeing any objects
 /// that were not marked as alive during the marking phase.
 fn sweep(self: *GarbageCollector) !void {
-    _ = try self.vm.heap.native_functions.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
     _ = try self.vm.heap.cons_cells.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
 
     var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
