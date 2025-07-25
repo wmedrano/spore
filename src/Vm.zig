@@ -12,6 +12,7 @@ const ExecutionContext = @import("ExecutionContext.zig");
 const GarbageCollector = @import("GarbageCollector.zig");
 const Heap = @import("Heap.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const NativeFunction = @import("NativeFunction.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Reader = @import("Reader.zig");
@@ -93,6 +94,15 @@ pub fn listIter(self: *const Vm, val: Val) !ConsCell.ListIter {
 pub fn garbageCollect(self: *Vm) !void {
     var gc = GarbageCollector.init(self);
     try gc.run();
+}
+
+/// Add the function to a `Vm`'s global namespace.
+pub fn registerFunction(self: *const NativeFunction, vm: *Vm) !void {
+    try vm.execution_context.setGlobal(
+        vm.heap.allocator,
+        try Symbol.init(self.name).intern(vm.heap.allocator, &vm.heap.string_interner),
+        Val.from(self),
+    );
 }
 
 test evalStr {

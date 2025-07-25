@@ -7,10 +7,10 @@ const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const LexicalScope = @import("LexicalScope.zig");
 const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const LexicalScope = @import("LexicalScope.zig");
 
 const Compiler = @This();
 
@@ -24,6 +24,8 @@ pub const Error = error{
     InvalidExpression,
     /// An attempt to define a variable with a non-symbol name.
     InvalidDefinitionName,
+    /// An error internal to the interpreter. These should be reported.
+    Internal,
 } || std.mem.Allocator.Error;
 
 /// The `Vm` for the compiler.
@@ -426,30 +428,20 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     // Setup: Evaluate and store cons.
     const next_bind = try self.lexical_scope.add(self.arena.allocator(), binding_name);
     const iterable_bind = try self.lexical_scope.addAnonymous(self.arena.allocator());
+    if (next_bind.local_index + 1 != iterable_bind.local_index) return Error.Internal;
     try self.addExpr(iterable_expr);
 
     defer self.lexical_scope.remove(iterable_bind);
     try self.addInstruction(Instruction{ .set = iterable_bind.local_index });
-    // Loop: Check exit criteria.
+    // Loop: Set next value and advance iterator.
+    defer self.lexical_scope.remove(next_bind);
     const loop_start_idx = self.instructions.items.len;
-    try self.addInstruction(Instruction{ .get = iterable_bind.local_index });
+    try self.addInstruction(
+        Instruction{ .iter_next = .{ .index = next_bind.local_index } },
+    );
+    // Loop: Check exit criteria.
     const loop_exit_idx = self.instructions.items.len;
     try self.addInstruction(Instruction{ .jump_if_not = 0 }); // Fixed at end, see FIX.
-    // Loop: Set next value.
-    defer self.lexical_scope.remove(next_bind);
-    try self.addInstructions(&.{
-        Instruction{ .deref = self.symbols.car },
-        Instruction{ .get = iterable_bind.local_index },
-        Instruction{ .eval = 2 },
-        Instruction{ .set = next_bind.local_index },
-    });
-    // Loop: Set the rest of the list.
-    try self.addInstructions(&.{
-        Instruction{ .deref = self.symbols.cdr },
-        Instruction{ .get = iterable_bind.local_index },
-        Instruction{ .eval = 2 },
-        Instruction{ .set = iterable_bind.local_index },
-    });
     // Loop: Eval expressions
     try self.addExprs(exprs, .none);
     // Loop: Jump to start of loop.

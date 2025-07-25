@@ -1,12 +1,12 @@
 const std = @import("std");
 const testing = @import("std").testing;
 
-const Val = @import("Val.zig");
-const Vm = @import("Vm.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const PrettyPrinter = @import("PrettyPrinter.zig");
+const Val = @import("Val.zig");
+const Vm = @import("Vm.zig");
 
 pub const Error = error{
     StackOverflow,
@@ -22,6 +22,7 @@ pub const Code = enum {
     get,
     set,
     deref,
+    iter_next,
     jump,
     jump_if,
     jump_if_not,
@@ -42,6 +43,11 @@ pub const Instruction = union(Code) {
     set: i32,
     /// Get the value of the symbol from the global scope and push it onto the stack.
     deref: Symbol.Interned,
+    /// Advance an iterator.
+    /// The item at `index` is updated with the next value from the iterable at `index + 1`.
+    /// The iterable at `index + 1` is updated to be the rest of the iterable.
+    /// Pushes `true` if a value was retrieved, `false` otherwise.
+    iter_next: struct { index: i32 },
     /// Skip the next n instructions.
     jump: i32,
     /// Pop the top value of the stack and skip the next `n` instructions if the
@@ -79,6 +85,7 @@ pub const Instruction = union(Code) {
                 const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
                 try vm.execution_context.pushVal(val);
             },
+            .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),
             .jump => |n| vm.execution_context.call_frame.instruction_index += n,
             .jump_if => |n| {
                 const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
@@ -131,6 +138,26 @@ pub const Instruction = union(Code) {
             },
             else => return Error.TypeError,
         }
+    }
+
+    /// Advance an iterator.
+    /// The item at `next_index` is updated with the next value from the iterable at `next_index + 1`.
+    /// The iterable at `next_index + 1` is updated to be the rest of the iterable.
+    /// Pushes `true` if a value was retrieved, `false` otherwise.
+    fn executeIterNext(vm: *Vm, next_index: usize) Error!void {
+        const iterable_index = next_index + 1;
+        const local_stack = vm.execution_context.localStack();
+        const has_value = switch (local_stack[iterable_index].repr) {
+            .cons => |handle| blk: {
+                const cons = try vm.heap.cons_cells.get(handle);
+                local_stack[next_index] = cons.car;
+                local_stack[iterable_index] = cons.cdr;
+                break :blk true;
+            },
+            .nil => false,
+            else => return Error.TypeError,
+        };
+        try vm.execution_context.pushVal(Val.from(has_value));
     }
 
     fn returnVal(vm: *Vm) Val {
