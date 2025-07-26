@@ -5,9 +5,9 @@ const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const String = @import("String.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const String = @import("String.zig");
 
 /// Registers all built-in native functions with the provided Vm.
 pub fn registerAll(vm: *Vm) !void {
@@ -104,7 +104,7 @@ fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
-    const val = vm.prettyPrint(args[0]);
+    const val = vm.inspector().pretty(args[0]);
     try val.format("any", .{}, buffer.writer());
     const string = try String.init(vm.heap.allocator, buffer.items);
     const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);
@@ -121,7 +121,7 @@ fn printImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
-    const vals = vm.prettyPrintSlice(args);
+    const vals = vm.inspector().prettySlice(args);
     try vals.format("any", .{}, buffer.writer());
     const string = try String.init(vm.heap.allocator, buffer.items);
     const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);

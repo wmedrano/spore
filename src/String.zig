@@ -26,8 +26,7 @@ pub fn slice(self: String) []const u8 {
     return self.data;
 }
 
-/// Formats self implementing the `std.fmt.Format` interface. Prefer using
-/// `PrettyPrinter` for more readable formatting.
+/// Formats self implementing the `std.fmt.Format` interface.
 pub fn format(self: String, comptime fmt: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
     try writer.print("{" ++ fmt ++ "}", .{self.slice()});
 }

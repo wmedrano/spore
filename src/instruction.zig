@@ -4,7 +4,6 @@ const testing = @import("std").testing;
 const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const NativeFunction = @import("NativeFunction.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -197,7 +196,7 @@ test "push val pushes to stack" {
     try testing.expectFmt(
         "42 43",
         "{}",
-        .{vm.prettyPrintSlice(vm.execution_context.stack.constSlice())},
+        .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }
 
@@ -212,7 +211,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
     try testing.expectFmt(
         "123",
         "{}",
-        .{vm.prettyPrintSlice(vm.execution_context.stack.constSlice())},
+        .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }
 
@@ -227,7 +226,7 @@ test "eval calls function" {
     try testing.expectFmt(
         "30",
         "{}",
-        .{vm.prettyPrintSlice(vm.execution_context.stack.constSlice())},
+        .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }
 

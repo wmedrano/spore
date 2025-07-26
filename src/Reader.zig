@@ -5,9 +5,9 @@ const testing = std.testing;
 const ConsCell = @import("ConsCell.zig");
 const Symbol = @import("datastructures/Symbol.zig");
 const Tokenizer = @import("parser/Tokenizer.zig");
+const String = @import("String.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
-const String = @import("String.zig");
 
 const Reader = @This();
 
@@ -155,12 +155,12 @@ test Reader {
     try std.testing.expectFmt(
         "(+ 1 2)",
         "{}",
-        .{vm.prettyPrint((try reader.next(testing.allocator, &vm)).?)},
+        .{vm.inspector().pretty((try reader.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectFmt(
         "(- 1 2)",
         "{}",
-        .{vm.prettyPrint((try reader.next(testing.allocator, &vm)).?)},
+        .{vm.inspector().pretty((try reader.next(testing.allocator, &vm)).?)},
     );
     try std.testing.expectEqualDeep(
         null,
@@ -240,7 +240,7 @@ test "comment inside an expression is ignored" {
     try testing.expectFmt(
         "(1 2)",
         "{}",
-        .{vm.prettyPrint(val.?)},
+        .{vm.inspector().pretty(val.?)},
     );
 }
 

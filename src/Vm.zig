@@ -3,7 +3,6 @@ const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const Compiler = @import("Compiler.zig");
-const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const StringInterner = @import("datastructures/StringInterner.zig");
@@ -11,10 +10,9 @@ const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const GarbageCollector = @import("GarbageCollector.zig");
 const Heap = @import("Heap.zig");
+const Inspector = @import("Inspector.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
-const Tokenizer = @import("parser/Tokenizer.zig");
-const PrettyPrinter = @import("PrettyPrinter.zig");
 const Reader = @import("Reader.zig");
 const Val = @import("Val.zig");
 
@@ -68,26 +66,9 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     return try self.execution_context.popVal();
 }
 
-/// Return an object that can pretty print `val` when formatted.
-pub fn prettyPrint(self: *const Vm, val: Val) PrettyPrinter {
-    return PrettyPrinter.init(self, val);
-}
-
-/// Return an object that can pretty print `vals` when formatted.
-pub fn prettyPrintSlice(self: *const Vm, vals: []const Val) PrettyPrinter.Slice {
-    return PrettyPrinter.initSlice(self, vals);
-}
-
-/// Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
-pub fn listIter(self: *const Vm, val: Val) !ConsCell.ListIter {
-    switch (val.repr) {
-        .nil => return ConsCell.iterEmpty(),
-        .cons => |handle| {
-            const cons = try self.heap.cons_cells.get(handle);
-            return cons.iterList();
-        },
-        else => return error.TypeError,
-    }
+/// Get a value that can be used to inspect values.
+pub fn inspector(self: *const Vm) Inspector {
+    return Inspector{ .vm = self };
 }
 
 /// Triggers a garbage collection cycle to clean up unused memory.

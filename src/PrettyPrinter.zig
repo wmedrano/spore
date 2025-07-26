@@ -13,16 +13,6 @@ vm: *const Vm,
 /// The value to be printed.
 val: Val,
 
-/// Create a new pretty printer for `val`.
-pub fn init(vm: *const Vm, val: Val) PrettyPrinter {
-    return .{ .vm = vm, .val = val };
-}
-
-/// Create a new pretty printer for `vals`.
-pub fn initSlice(vm: *const Vm, vals: []const Val) Slice {
-    return .{ .vm = vm, .vals = vals };
-}
-
 /// A struct for pretty-printing multiple `Val`.
 pub const Slice = struct {
     vm: *const Vm,
@@ -33,9 +23,9 @@ pub const Slice = struct {
         _ = options;
         for (self.vals, 0..self.vals.len) |v, idx| {
             if (idx == 0) {
-                try writer.print("{}", .{init(self.vm, v)});
+                try writer.print("{}", .{PrettyPrinter{ .vm = self.vm, .val = v }});
             } else {
-                try writer.print(" {}", .{init(self.vm, v)});
+                try writer.print(" {}", .{PrettyPrinter{ .vm = self.vm, .val = v }});
             }
         }
     }
@@ -76,7 +66,7 @@ pub fn format(
 }
 
 fn formatCons(cons: ConsCell, vm: *const Vm, writer: anytype) !void {
-    try writer.print("({}", .{init(vm, cons.car)});
+    try writer.print("({}", .{PrettyPrinter{ .vm = vm, .val = cons.car }});
     try formatCdr(cons.cdr, vm, writer);
 }
 
@@ -85,19 +75,19 @@ fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
         .nil => try writer.print(")", .{}),
         .cons => |handle| {
             const next = try vm.heap.cons_cells.get(handle);
-            try writer.print(" {}", .{init(vm, next.car)});
+            try writer.print(" {}", .{PrettyPrinter{ .vm = vm, .val = next.car }});
             try formatCdr(next.cdr, vm, writer);
         },
-        else => try writer.print(" . {})", .{init(vm, cdr)}),
+        else => try writer.print(" . {})", .{PrettyPrinter{ .vm = vm, .val = cdr }}),
     }
 }
 
 test format {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try testing.expectFmt("nil", "{}", .{PrettyPrinter.init(&vm, Val.from({}))});
-    try testing.expectFmt("45", "{}", .{PrettyPrinter.init(&vm, Val.from(45))});
-    try testing.expectFmt("45.5", "{}", .{PrettyPrinter.init(&vm, Val.from(45.5))});
+    try testing.expectFmt("nil", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from({}) }});
+    try testing.expectFmt("45", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from(45) }});
+    try testing.expectFmt("45.5", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from(45.5) }});
 }
 
 test "pretty print cons pair" {
@@ -110,7 +100,7 @@ test "pretty print cons pair" {
             vm.heap.dead_color,
         ),
     );
-    try testing.expectFmt("(1 . 2)", "{}", .{PrettyPrinter.init(&vm, cons)});
+    try testing.expectFmt("(1 . 2)", "{}", .{PrettyPrinter{ .vm = &vm, .val = cons }});
 }
 
 test "pretty print cons list" {
@@ -123,5 +113,5 @@ test "pretty print cons list" {
             vm.heap.dead_color,
         ),
     );
-    try testing.expectFmt("(1)", "{}", .{PrettyPrinter.init(&vm, cons)});
+    try testing.expectFmt("(1)", "{}", .{PrettyPrinter{ .vm = &vm, .val = cons }});
 }
