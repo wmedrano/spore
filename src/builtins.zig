@@ -25,8 +25,10 @@ pub fn registerAll(vm: *Vm) !void {
     try internal_define.register(vm);
     try cons.register(vm);
     try car.register(vm);
+    try cons_q.register(vm);
     try cdr.register(vm);
     try list.register(vm);
+    try empty_q.register(vm);
     try equal_q.register(vm);
 }
 
@@ -380,6 +382,22 @@ fn cdrImpl(vm: *Vm) NativeFunction.Error!Val {
     return cons_cell.cdr;
 }
 
+const cons_q = NativeFunction{
+    .name = "cons?",
+    .docstring = "Returns true if the argument is a cons cell, false otherwise.",
+    .ptr = consQImpl,
+};
+
+fn consQImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    const val = args[0];
+    switch (val.repr) {
+        .cons => return Val.from(true),
+        else => return Val.from(false),
+    }
+}
+
 const list = NativeFunction{
     .name = "list",
     .docstring = "Returns a new list containing all provided arguments.",
@@ -389,6 +407,22 @@ const list = NativeFunction{
 fn listImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     return buildListFromVals(args, vm);
+}
+
+const empty_q = NativeFunction{
+    .name = "empty?",
+    .docstring = "Returns true if the argument is nil (representing an empty list), false if it's a cons cell, and throws an error for othre types.",
+    .ptr = emptyQImpl,
+};
+
+fn emptyQImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    switch (args[0].repr) {
+        .nil => return Val.from(true),
+        .cons => return Val.from(false),
+        else => return NativeFunction.Error.TypeError,
+    }
 }
 
 // Helper function, adapted from Reader.zig's listToVal
@@ -493,6 +527,49 @@ test "cdr returns TypeError for non-cons cell value" {
     try testing.expectError(
         NativeFunction.Error.TypeError,
         vm.evalStr("(cdr 1)"),
+    );
+}
+
+test "cons? returns true for cons cell" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(true),
+        try vm.evalStr("(cons? (cons 1 2))"),
+    );
+}
+
+test "cons? returns false for non-cons cell" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(cons? 1)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(cons? 'a)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(cons? nil)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(cons? \"hello\")"),
+    );
+}
+
+test "cons? returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(cons?)"),
+    );
+    try testing.expectError(
+        NativeFunction.Error.WrongArity,
+        vm.evalStr("(cons? (cons 1 2) 3)"),
     );
 }
 

@@ -142,6 +142,8 @@ Spore includes a set of built-in functions for common operations.
     (string? "hello") ;; returns true
     (symbol? 'sym)    ;; returns true
     (null? nil)       ;; returns true
+    (empty? (list))   ;; returns true
+    (empty? (list 1 2)) ;; returns false
     (number? "123")   ;; returns false
     ```
 
