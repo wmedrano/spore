@@ -147,10 +147,11 @@ Spore includes a set of built-in functions for common operations.
     (number? "123")   ;; returns false
     ```
 
--   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. Use `print` to concatenate the string representations of multiple values.
+-   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. `print`, `println`. Use `->string` to convert any single value to its string representation. `print` concatenates the string representations of multiple values and displays them. `println` does the same but appends a newline character at the end.
     ```lisp
     (->string (list 1 2)) ;; returns "(1 2)"
     (print "Hello, " 1)   ;; displays "Hello, 1" to the console
+    (println "Hello, " 1) ;; displays "Hello, 1\n" to the console
     ```
 
 ## Examples
@@ -170,7 +171,17 @@ calculates the sum of the squares of numbers in a list.
     ;; Update the global sum
     (def squared-sum new-sum)))
 
-;; The final expression is the value of squared-sum, which is 30
+The final expression is the value of squared-sum, which is 30
+squared-sum
+
+## Running Spore Programs
+
+To run a Spore program, save your Spore code in a file (e.g., `my_program.spore`) and execute it from your terminal:
+
+```sh
+spore my_program.spore
+```
+
 squared-sum
 ```
 

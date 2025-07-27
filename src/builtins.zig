@@ -17,6 +17,7 @@ pub fn registerAll(vm: *Vm) !void {
     try string_q.register(vm);
     try to_string.register(vm);
     try print.register(vm);
+    try println.register(vm);
     try add.register(vm);
     try multiply.register(vm);
     try subtract.register(vm);
@@ -115,7 +116,7 @@ fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
 
 const print = NativeFunction{
     .name = "print",
-    .docstring = "Converts all arguments to their string representation, concatenates them, and returns the resulting string.",
+    .docstring = "Prints all arguments.",
     .ptr = printImpl,
 };
 
@@ -124,10 +125,23 @@ fn printImpl(vm: *Vm) NativeFunction.Error!Val {
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     const vals = vm.inspector().prettySlice(args);
-    try vals.format("any", .{}, buffer.writer());
-    const string = try String.init(vm.heap.allocator, buffer.items);
-    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);
-    return Val.from(handle);
+    std.debug.print("{any}", .{vals});
+    return Val.from({});
+}
+
+const println = NativeFunction{
+    .name = "println",
+    .docstring = "Prints all arguments followed by a newline.",
+    .ptr = printlnImpl,
+};
+
+fn printlnImpl(vm: *Vm) NativeFunction.Error!Val {
+    const args = vm.execution_context.localStack();
+    var buffer = std.ArrayList(u8).init(vm.heap.allocator);
+    defer buffer.deinit();
+    const vals = vm.inspector().prettySlice(args);
+    std.debug.print("{any}\n", .{vals});
+    return Val.from({});
 }
 
 const add = NativeFunction{
