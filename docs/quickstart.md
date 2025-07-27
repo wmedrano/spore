@@ -5,24 +5,38 @@
 Spore is a Lisp-like scripting language built on S-expressions (e.g., `(+ 1 2)`). It is dynamically typed and supports several data types:
 
 -   **Numbers**: `42`, `3.14`
+-   **Booleans**: `true`, `false`
 -   **Strings**: `"Hello"`
+-   **Nil**: Represents nothingness (`nil` or `()`).
 -   **Symbols**: `x`, `'my-symbol`
 -   **Lists**: `(list 1 "two")`
--   **Nil**: Represents nothingness or falsehood (`nil` or `()`).
 -   **Functions**: Defined with the `function` keyword.
+
+### Comments
+
+Spore supports single-line comments using two semicolons (`;;`). Anything after
+`;;` on a line is considered a comment and is ignored by the interpreter.
+
+```lisp
+;; This is a comment
+(print "Hello") ;; This is also a comment
+```
 
 ### Truthiness
 
-In conditional logic, `nil` is the only "falsey" value. All other values (including `0`, `""`, and any symbol) are "truthy".
+In conditional logic, `false` is the only "falsey" value. All other values
+(including `0`, `""`, `nil`, and any symbol) are "truthy".
 
 ```lisp
-(if nil "is falsey" "is truthy") ;; returns "is truthy"
-(if 0 "is truthy" "is falsey")   ;; returns "is truthy"
+(if nil "is truthy" "is falsey")   ;; returns "is truthy"
+(if false "is truthy" "is falsey") ;; returns "is falsey"
+(if 0 "is truthy" "is falsey")     ;; returns "is truthy"
 ```
 
 ## Variables
 
-Use `def` to define global variables and `let` for local variables within a scope.
+Use `def` to define global variables and `let` for local variables within a
+scope. The last expression in a `let` body is returned.
 
 ```lisp
 (def global-var 10)
@@ -33,7 +47,8 @@ Use `def` to define global variables and `let` for local variables within a scop
 
 ## Functions
 
-Functions are first-class citizens in Spore. You can create an anonymous function (also called a lambda) using the `function` keyword.
+Functions are first-class citizens in Spore. You can create an anonymous
+function (also called a lambda) using the `function` keyword.
 
 The syntax is `(function (parameters) body)`.
 
@@ -43,7 +58,8 @@ Here's a function that takes two arguments, `a` and `b`, and returns their sum:
 (function (a b) (+ a b))
 ```
 
-To call a function immediately after defining it, you can wrap the definition and its arguments in another S-expression:
+To call a function immediately after defining it, you can wrap the definition
+and its arguments in another S-expression:
 
 ```lisp
 ;; Defines a function and calls it with 1 and 2, resulting in 3
@@ -78,7 +94,8 @@ If the `condition` evaluates to a non-nil value (meaning anything other than
 ### For Loops
 
 You can iterate over a list using a `for` loop. The syntax is `(for (variable
-list-expression) body)`. The `body` is executed for each item in the list.
+list-expression) body)`. The `body` is executed for each item in the list. The
+`for` loop itself does not return a value.
 
 ```lisp
 (for (x (list 1 2 3 4))
@@ -131,7 +148,7 @@ Spore includes a set of built-in functions for common operations.
 -   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. Use `print` to concatenate the string representations of multiple values.
     ```lisp
     (->string (list 1 2)) ;; returns "(1 2)"
-    (print "Hello, " 1)   ;; returns "Hello, 1"
+    (print "Hello, " 1)   ;; displays "Hello, 1" to the console
     ```
 
 ## Examples

@@ -52,7 +52,7 @@ fn mark(self: *GarbageCollector) !void {
 fn markOne(self: *GarbageCollector, val: Val) Error!void {
     const alive_color = self.vm.heap.dead_color.swap();
     switch (val.repr) {
-        .nil, .true_bool, .int, .float, .symbol, .native_function => {},
+        .boolean, .nil, .int, .float, .symbol, .native_function => {},
         .cons => |handle| {
             if (self.vm.heap.cons_cells.setColor(handle, alive_color) != alive_color) {
                 const cons = try self.vm.heap.cons_cells.get(handle);

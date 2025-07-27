@@ -124,7 +124,7 @@ pub fn isEmpty(self: Compiler) bool {
 /// Compiles a `Val` and adds it to the current compilation context.
 pub fn addExpr(self: *Compiler, expr: Val) !void {
     switch (expr.repr) {
-        .nil, .true_bool, .int, .float, .string, .native_function, .bytecode_function => {
+        .boolean, .nil, .int, .float, .string, .native_function, .bytecode_function => {
             const instruction = Instruction{ .push = expr };
             try self.addInstruction(instruction);
         },

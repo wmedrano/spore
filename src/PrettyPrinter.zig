@@ -42,7 +42,7 @@ pub fn format(
     _ = options;
     switch (self.val.repr) {
         .nil => try writer.print("nil", .{}),
-        .true_bool => try writer.print("true", .{}),
+        .boolean => |x| try writer.print("{any}", .{x}),
         .int => |x| try writer.print("{}", .{x}),
         .float => |x| try writer.print("{d}", .{x}),
         .symbol => |x| {

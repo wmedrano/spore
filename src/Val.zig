@@ -18,8 +18,8 @@ const Val = @This();
 repr: Repr,
 
 pub const Tag = enum {
+    boolean,
     nil,
-    true_bool,
     int,
     float,
     symbol,
@@ -31,10 +31,10 @@ pub const Tag = enum {
 
 /// The internal representation of a value.
 pub const Repr = union(Tag) {
+    /// A boolean value.
+    boolean: bool,
     /// The `nil` value. This is equivalent to an empty list.
     nil,
-    /// The true value. There is only one.
-    true_bool,
     /// An integer.
     int: i64,
     /// A floating point number.
@@ -63,7 +63,7 @@ pub const Repr = union(Tag) {
         _ = options;
         switch (self) {
             .nil => try writer.print("nil", .{}),
-            .true_bool => try writer.print("true", .{}),
+            .boolean => |x| try writer.print("{any}", .{x}),
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("@symbol-{}", .{x}),
@@ -86,7 +86,7 @@ pub fn from(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
         void => return init(.{ .nil = {} }),
-        bool => return init(if (val) .{ .true_bool = {} } else .{ .nil = {} }),
+        bool => return init(.{ .boolean = val }),
         i64, comptime_int => return init(.{ .int = val }),
         f64, comptime_float => return init(.{ .float = val }),
         Symbol.Interned => return init(.{ .symbol = val }),
@@ -118,8 +118,7 @@ pub fn to(self: Val, T: type) ToValError!T {
             else => return ToValError.TypeError,
         },
         bool => switch (self.repr) {
-            .nil => return false,
-            .true_bool => return true,
+            .boolean => |x| return x,
             else => return ToValError.TypeError,
         },
         i64 => switch (self.repr) {
@@ -171,7 +170,7 @@ pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOption
 /// Truthiness is used to determine branching in if statements.
 pub fn isTruthy(self: Val) bool {
     switch (self.repr) {
-        .nil => return false,
+        .boolean => |b| return b,
         else => return true,
     }
 }
@@ -222,9 +221,19 @@ test "Val.to Handle(ConsCell)" {
     try testing.expectError(ToValError.TypeError, cons_val.to(i64));
 }
 
-test "nil is falsey" {
+test "bool true is truthy" {
+    const bool_val = Val.from(true);
+    try testing.expectEqual(true, bool_val.isTruthy());
+}
+
+test "bool false is falsey" {
+    const bool_val = Val.from(false);
+    try testing.expectEqual(false, bool_val.isTruthy());
+}
+
+test "nil is truthy" {
     const nil_val = Val.from({});
-    try testing.expectEqual(false, nil_val.isTruthy());
+    try testing.expectEqual(true, nil_val.isTruthy());
 }
 
 test "int is truthy" {

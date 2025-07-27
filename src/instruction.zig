@@ -275,7 +275,7 @@ test "jump_if with falsey value pops value and does not increment instruction_in
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from({}) });
+    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(false) });
     vm.execution_context.call_frame.instruction_index = 100;
 
     try (Instruction{ .jump_if = 20 }).execute(&vm);
