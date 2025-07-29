@@ -149,6 +149,57 @@ test "can eval function" {
     );
 }
 
+test "or with no arguments returns nil" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from({}),
+        try vm.evalStr("(or)"),
+    );
+}
+
+test "or with truthy argument returns that value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(42),
+        try vm.evalStr("(or 42)"),
+    );
+}
+
+test "or short-circuits evaluation on true" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const source = "(or false nil 10 20 (uncalled))";
+    try testing.expectEqualDeep(
+        Val.from(10),
+        try vm.evalStr(source),
+    );
+}
+
+test "or does not short-circuits evaluation on false" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const source = "(or false (uncalled))";
+    try testing.expectError(
+        error.SymbolNotFound,
+        vm.evalStr(source),
+    );
+}
+
+test "or with all falsy arguments returns last value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from({}),
+        try vm.evalStr("(or false (empty? (list 1)) nil)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(or nil (empty? (list 1)) false)"),
+    );
+}
+
 test garbageCollect {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();

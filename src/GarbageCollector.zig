@@ -87,6 +87,7 @@ fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) 
         .jump,
         .jump_if,
         .jump_if_not,
+        .jump_or_else_pop,
         .eval,
         .squash,
         .ret,

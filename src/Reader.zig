@@ -96,6 +96,8 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
 /// Converts a string identifier into a Lisp Object.
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     if (std.mem.eql(u8, identifier, "nil")) return Val.from({});
+    if (std.mem.eql(u8, identifier, "true")) return Val.from(true);
+    if (std.mem.eql(u8, identifier, "false")) return Val.from(false);
     if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.from(x);
     if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.from(x);
     const symbol = Symbol.init(identifier);
@@ -282,5 +284,25 @@ test "readOne multiple expressions produces error" {
     try std.testing.expectError(
         error.ParseError,
         Reader.readOne("1 2", testing.allocator, &vm),
+    );
+}
+
+test "parse true" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var reader = try Reader.init("true");
+    try std.testing.expectEqualDeep(
+        Val.from(true),
+        try reader.next(testing.allocator, &vm),
+    );
+}
+
+test "parse false" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var reader = try Reader.init("false");
+    try std.testing.expectEqualDeep(
+        Val.from(false),
+        try reader.next(testing.allocator, &vm),
     );
 }

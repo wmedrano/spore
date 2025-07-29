@@ -44,6 +44,7 @@ symbols: struct {
     @"for": Symbol.Interned,
     car: Symbol.Interned,
     cdr: Symbol.Interned,
+    @"or": Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -94,6 +95,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .@"for" = try Symbol.init("for").intern(vm.heap.allocator, &vm.heap.string_interner),
             .car = try Symbol.init("car").intern(vm.heap.allocator, &vm.heap.string_interner),
             .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"or" = try Symbol.init("or").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
@@ -107,7 +109,6 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 /// VM's heap allocator.
 pub fn compile(self: *Compiler) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
-
     return .{
         .instructions = instructions,
         .args = self.arg_count,
@@ -224,6 +225,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addLet(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.@"for")))
                 return self.addFor(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.@"or")))
+                return self.addOr(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -451,6 +454,38 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 
     // FIX, see prior FIX.
     self.instructions.items[loop_exit_idx].jump_if_not = jumpDistance(loop_exit_idx + 1, loop_end_idx);
+}
+
+/// Compiles an `or` expression.
+///
+/// This special form evaluates expressions one by one. If an expression
+/// evaluates to a truthy value, that value is pushed to the stack and the
+/// remaining expressions are skipped. If all expressions evaluate to a
+/// falsy value, then `false` is pushed to the stack.
+///
+/// Args:
+///     exprs: An iterator over the expressions in the `or` expression.
+///
+/// Returns:
+///     An error if there is an issue during compilation.
+fn addOr(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    if (exprs.empty()) {
+        try self.addInstruction(Instruction{ .push = Val.from({}) });
+        return;
+    }
+    var jumps = std.ArrayList(usize).init(self.arena.allocator());
+    defer jumps.deinit();
+    while (try exprs.next(self.vm)) |expr| {
+        try self.addExpr(expr);
+        if (!exprs.empty()) {
+            try jumps.append(self.instructions.items.len);
+            try self.addInstruction(Instruction{ .jump_or_else_pop = 0 });
+        }
+    }
+    const want_idx = self.instructions.items.len;
+    for (jumps.items) |idx| {
+        self.instructions.items[idx].jump_or_else_pop = jumpDistance(idx + 1, want_idx);
+    }
 }
 
 test compile {
@@ -1020,6 +1055,75 @@ test "multiple expressions in let squashed to single" {
             },
             .args = 0,
             .initial_local_stack_size = 0,
+        },
+        bytecode,
+    );
+}
+
+test "or statement with multiple exprs" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(or false nil 1 2)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.from(false) },
+                Instruction{ .jump_or_else_pop = 5 },
+                Instruction{ .push = Val.from({}) },
+                Instruction{ .jump_or_else_pop = 3 },
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .jump_or_else_pop = 1 },
+                Instruction{ .push = Val.from(2) },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "empty or statement returns nil" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(or)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.from({}) },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "empty or statement with single value returns value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(or 10)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.from(10) },
+            },
+            .args = 0,
         },
         bytecode,
     );

@@ -170,6 +170,7 @@ pub fn format(self: Val, comptime fmt: []const u8, options: std.fmt.FormatOption
 /// Truthiness is used to determine branching in if statements.
 pub fn isTruthy(self: Val) bool {
     switch (self.repr) {
+        .nil => return false,
         .boolean => |b| return b,
         else => return true,
     }
@@ -231,9 +232,9 @@ test "bool false is falsey" {
     try testing.expectEqual(false, bool_val.isTruthy());
 }
 
-test "nil is truthy" {
+test "nil is falsey" {
     const nil_val = Val.from({});
-    try testing.expectEqual(true, nil_val.isTruthy());
+    try testing.expectEqual(false, nil_val.isTruthy());
 }
 
 test "int is truthy" {

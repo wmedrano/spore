@@ -22,16 +22,7 @@ Spore supports single-line comments using two semicolons (`;;`). Anything after
 (print "Hello") ;; This is also a comment
 ```
 
-### Truthiness
 
-In conditional logic, `false` is the only "falsey" value. All other values
-(including `0`, `""`, `nil`, and any symbol) are "truthy".
-
-```lisp
-(if nil "is truthy" "is falsey")   ;; returns "is truthy"
-(if false "is truthy" "is falsey") ;; returns "is falsey"
-(if 0 "is truthy" "is falsey")     ;; returns "is truthy"
-```
 
 ## Variables
 
@@ -75,8 +66,8 @@ Spore provides constructs for controlling the flow of execution.
 You can conditionally execute code using `if`. The syntax is `(if condition
 then-expression else-expression)`.
 
-If the `condition` evaluates to a non-nil value (meaning anything other than
-`()` or `nil`), the `then-expression` is executed. Otherwise, the optional
+If the `condition` evaluates to a truthy value (meaning anything other than
+`false` or `nil`), the `then-expression` is executed. Otherwise, the optional
 `else-expression` is executed. If the condition is false and no
 `else-expression` is provided, the entire expression evaluates to `nil`.
 
@@ -126,6 +117,19 @@ Spore includes a set of built-in functions for common operations.
     (= 5 5)   ;; returns true
     (= 5 6)   ;; returns nil
     (= 5 5.0) ;; returns true
+    ```
+
+-   **Logical Operators**: `or`
+    Spore provides `or` for logical disjunction.
+
+    -   `or`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "truthy" value. If all arguments are "falsey" (i.e., `false`), it returns `false`. This operator is "short-circuiting"; once a truthy value is found, no further arguments are evaluated.
+
+    ```lisp
+    (or false true)           ;; returns true
+    (or nil 0)                ;; returns 0 (since 0 is truthy)
+    (or (null? (list 1)) "hello") ;; returns "hello" (since (null? (list 1)) is false)
+    (or false nil)            ;; returns nil (all falsey, returns last falsey value, which is nil in Spore)
+    (or (= 1 2) (= 3 3))      ;; returns true (short-circuits after (= 3 3))
     ```
 
 -   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` and `cdr` access the first element (the "head") and the rest of the list (the "tail"), respectively.

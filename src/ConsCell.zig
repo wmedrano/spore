@@ -33,6 +33,13 @@ pub const ListIter = struct {
         ObjectNotFound,
     };
 
+    /// Returns `true` if the list iterator is empty (i.e., at the end of the
+    /// list), `false` otherwise.
+    pub fn empty(self: ListIter) bool {
+        if (self.cons) |_| return false;
+        return true;
+    }
+
     /// Advances the iterator and returns the next element in the list or `null`
     /// if the end of the list is reached.
     ///
