@@ -74,7 +74,7 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
     defer vals.deinit();
     while (self.tokenizer.next()) |token| {
         switch (token.token_type) {
-            .close_paren => return listToVal(vals.items, vm),
+            .close_paren => return vm.builder().list(vals.items),
             .open_paren => {
                 const sub_expr = try self.nextExpr(allocator, vm);
                 try vals.append(sub_expr);
@@ -127,27 +127,8 @@ fn stringToVal(identifier: []const u8, vm: *Vm) !Val {
         }
     }
     if (escaped) return error.ParseError;
-    const string_handle = try vm.heap.strings.create(
-        vm.heap.allocator,
-        try String.initCopy(vm.heap.allocator, string.items),
-        vm.heap.unreachable_color,
-    );
-    return Val.init(string_handle);
-}
-
-/// Recursively constructs a Lisp list (a chain of `ConsCell`s) from a slice of
-/// `Val`s.
-fn listToVal(list: []const Val, vm: *Vm) !Val {
-    if (list.len == 0) return Val.init({});
-    const head = list[0];
-    const tail = try listToVal(list[1..], vm);
-    const cons = ConsCell.init(head, tail);
-    const cons_handle = try vm.heap.cons_cells.create(
-        vm.heap.allocator,
-        cons,
-        vm.heap.unreachable_color,
-    );
-    return Val.init(cons_handle);
+    const val = try vm.builder().string(string.items);
+    return val;
 }
 
 test Reader {

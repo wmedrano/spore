@@ -109,9 +109,8 @@ fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
     defer buffer.deinit();
     const val = vm.inspector().pretty(args[0]);
     try val.format("any", .{}, buffer.writer());
-    const string = try String.initCopy(vm.heap.allocator, buffer.items);
-    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.unreachable_color);
-    return Val.init(handle);
+    const return_val = try vm.builder().string(buffer.items);
+    return return_val;
 }
 
 const print = NativeFunction{
@@ -359,13 +358,7 @@ const cons = NativeFunction{
 fn consImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 2) return NativeFunction.Error.WrongArity;
-    const cons_cell = ConsCell.init(args[0], args[1]);
-    const cons_handle = try vm.heap.cons_cells.create(
-        vm.heap.allocator,
-        cons_cell,
-        vm.heap.unreachable_color,
-    );
-    return Val.init(cons_handle);
+    return vm.builder().cons(args[0], args[1]);
 }
 
 const car = NativeFunction{
@@ -420,7 +413,7 @@ const list = NativeFunction{
 
 fn listImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    return buildListFromVals(args, vm);
+    return vm.builder().list(args);
 }
 
 const empty_q = NativeFunction{
@@ -437,20 +430,6 @@ fn emptyQImpl(vm: *Vm) NativeFunction.Error!Val {
         .cons => return Val.init(false),
         else => return NativeFunction.Error.TypeError,
     }
-}
-
-// Helper function, adapted from Reader.zig's listToVal
-fn buildListFromVals(vals: []const Val, vm: *Vm) NativeFunction.Error!Val {
-    if (vals.len == 0) return Val.init({}); // Base case: empty list is nil
-    const head = vals[0];
-    const tail = try buildListFromVals(vals[1..], vm); // Recursive call for the rest of the list
-    const cons_cell = ConsCell.init(head, tail);
-    const cons_handle = try vm.heap.cons_cells.create(
-        vm.heap.allocator,
-        cons_cell,
-        vm.heap.unreachable_color,
-    );
-    return Val.init(cons_handle);
 }
 
 test "+ sums integers" {

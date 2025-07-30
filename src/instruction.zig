@@ -96,12 +96,10 @@ pub const Instruction = union(Code) {
                     "`{any}` not defined.",
                     .{vm.inspector().pretty(Val.init(s))},
                 );
-                const string_handle = try vm.heap.strings.create(
-                    vm.heap.allocator,
-                    String.initOwned(err_str),
-                    vm.heap.unreachable_color,
+                vm.execution_context.last_error = try vm.builder().cons(
+                    try vm.builder().stringOwned(err_str),
+                    vm.execution_context.last_error,
                 );
-                vm.execution_context.last_error = Val.init(string_handle);
                 return Error.SymbolNotFound;
             },
             .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),

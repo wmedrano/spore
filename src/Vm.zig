@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
+const Builder = @import("Builder.zig");
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const Compiler = @import("Compiler.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
@@ -46,6 +47,7 @@ pub fn evalStr(self: *Vm, source: []const u8) !Val {
     return try self.evalBytecode(bytecode_handle);
 }
 
+/// Compiles a string of source code into a `BytecodeFunction` and returns a handle to it.
 fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
     var reader = try Reader.init(source);
     var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
@@ -62,6 +64,7 @@ fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
     return bytecode_handle;
 }
 
+/// Evaluates a `BytecodeFunction` by executing its instructions within the VM's execution context.
 fn evalBytecode(self: *Vm, bytecode_handle: Handle(BytecodeFunction)) !Val {
     self.execution_context.last_error = Val.init({});
     const initial_call_stack_size = self.execution_context.previous_call_frames.len;
@@ -78,6 +81,11 @@ fn evalBytecode(self: *Vm, bytecode_handle: Handle(BytecodeFunction)) !Val {
 /// Get a value that can be used to inspect values.
 pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
+}
+
+/// Returns a builder associated with this VM.
+pub fn builder(self: *Vm) Builder {
+    return Builder{ .vm = self };
 }
 
 /// Triggers a garbage collection cycle to clean up unused memory.

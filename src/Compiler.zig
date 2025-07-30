@@ -547,19 +547,14 @@ test "compile improper list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    const cons = ConsCell{
-        .car = Val.init(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
-        .cdr = Val.init(42),
-    };
-    const cons_handle = try vm.heap.cons_cells.create(
-        vm.heap.allocator,
-        cons,
-        vm.heap.unreachable_color,
+    const cons = try vm.builder().cons(
+        Val.init(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
+        Val.init(42),
     );
 
     try testing.expectError(
         Compiler.Error.TypeError,
-        compiler.addExpr(Val.init(cons_handle)),
+        compiler.addExpr(cons),
     );
 }
 

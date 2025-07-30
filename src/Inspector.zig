@@ -1,5 +1,5 @@
 //! The `Inspector` provides functions for pretty printing `Val`s.
-/// Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
+//! Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
 const ConsCell = @import("ConsCell.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Val = @import("Val.zig");
