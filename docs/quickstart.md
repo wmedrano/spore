@@ -26,13 +26,13 @@ Spore supports single-line comments using two semicolons (`;;`). Anything after
 
 ## Variables
 
-Use `def` to define global variables and `let` for local variables within a
-scope. The last expression in a `let` body is returned.
+Use `def` to define global variables and `let*` for local variables within a
+scope. The last expression in a `let*` body is returned.
 
 ```lisp
 (def global-var 10)
 
-(let ((local-var 20))
+(let* ((local-var 20))
   (+ global-var local-var)) ;; returns 30
 ```
 
@@ -91,7 +91,7 @@ list-expression) body)`. The `body` is executed for each item in the list. The
 ```lisp
 (for (x (list 1 2 3 4))
   ;; This code runs 4 times, with x being 1, 2, 3, and 4
-  (let ((squared (* x x)))
+  (let* ((squared (* x x)))
     ;; ... do something with squared ...
     ))
 ```
@@ -115,7 +115,7 @@ Spore includes a set of built-in functions for common operations.
 -   **Comparison**: `=`
     ```lisp
     (= 5 5)   ;; returns true
-    (= 5 6)   ;; returns nil
+    (= 5 6)   ;; returns false
     (= 5 5.0) ;; returns true
     ```
 
@@ -165,7 +165,7 @@ Spore includes a set of built-in functions for common operations.
     (number? "123")     ;; returns false
     ```
 
--   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. `print`, `println`. Use `->string` to convert any single value to its string representation. `print` concatenates the string representations of multiple values and displays them. `println` does the same but appends a newline character at the end.
+-   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation.  `print` displays the string representation of each of its arguments. `println` does the same, but adds a newline at the end.
     ```lisp
     (->string (list 1 2)) ;; returns "(1 2)"
     (print "Hello, " 1)   ;; displays "Hello, 1" to the console
@@ -183,15 +183,15 @@ calculates the sum of the squares of numbers in a list.
 
 ;; Iterate through the list of numbers
 (for (x (list 1 2 3 4))
-  ;; Use a let block for temporary variables
-  (let ((squared (* x x))
+  ;; Use a let* block for temporary variables
+  (let* ((squared (* x x))
         (new-sum (+ squared squared-sum)))
     ;; Update the global sum
     (def squared-sum new-sum)))
 squared-sum
 ```
 
-The final expression is the value of squared-sum, which is 30 squared-sum
+The final expression is the value of `squared-sum`, which is `30`.
 
 ## Running Spore Programs
 

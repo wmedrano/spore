@@ -40,7 +40,7 @@ symbols: struct {
     internal_define: Symbol.Interned,
     def: Symbol.Interned,
     defun: Symbol.Interned,
-    let: Symbol.Interned,
+    @"let*": Symbol.Interned,
     @"for": Symbol.Interned,
     car: Symbol.Interned,
     cdr: Symbol.Interned,
@@ -92,7 +92,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .internal_define = try Symbol.init("internal-define").intern(vm.heap.allocator, &vm.heap.string_interner),
             .def = try Symbol.init("def").intern(vm.heap.allocator, &vm.heap.string_interner),
             .defun = try Symbol.init("defun").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .let = try Symbol.init("let").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"let*" = try Symbol.init("let*").intern(vm.heap.allocator, &vm.heap.string_interner),
             .@"for" = try Symbol.init("for").intern(vm.heap.allocator, &vm.heap.string_interner),
             .car = try Symbol.init("car").intern(vm.heap.allocator, &vm.heap.string_interner),
             .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
@@ -223,8 +223,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addDef(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.defun)))
                 return self.addDefun(&vals);
-            if (std.meta.eql(val, Val.from(self.symbols.let)))
-                return self.addLet(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.@"let*")))
+                return self.addLetStar(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.@"for")))
                 return self.addFor(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.@"or")))
@@ -373,20 +373,20 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     try self.addInstruction(Instruction{ .push = Val.from(bytecode_handle) });
 }
 
-// Compiles a `let` expression.
-// A `let` expression introduces new local variables within its scope.
+// Compiles a `let*` expression.
+// A `let*` expression introduces new local variables within its scope.
 // It takes a list of bindings, where each binding is a pair of a variable name
 // (a symbol) and an expression to evaluate for that variable's initial value.
-// After evaluating and setting the bindings, it evaluates the body of the `let`
-// expression. If the `let` body has multiple expressions, they are compiled
+// After evaluating and setting the bindings, it evaluates the body of the `let*`
+// expression. If the `let*` body has multiple expressions, they are compiled
 // with a `squash` instruction to return the value of the last expression.
 // If there are no expressions in the body, `nil` is returned.
 //  * Args:
-//     exprs: An iterator over the expressions in the `let` expression.
+//     exprs: An iterator over the expressions in the `let*` expression.
 //  * Returns:
-//     An error if the `let` expression is malformed or if there is an issue
+//     An error if the `let*` expression is malformed or if there is an issue
 //     during compilation.
-fn addLet(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.inspector().listIter(bindings);
     var lexical_binds = std.ArrayList(LexicalScope.Binding).init(self.arena.allocator());
@@ -1021,14 +1021,14 @@ test "compile defun with missing args fails" {
     );
 }
 
-test "let evaluates bindings" {
+test "let* evaluates bindings" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(let ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
+    try compiler.addExpr(try Reader.readOne("(let* ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
     const plus_sym = try Symbol.init("+").intern(testing.allocator, &vm.heap.string_interner);
@@ -1057,14 +1057,14 @@ test "let evaluates bindings" {
     );
 }
 
-test "multiple expressions in let squashed to single" {
+test "multiple expressions in let* squashed to single" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(let () 1 2 3 4)", testing.allocator, &vm));
+    try compiler.addExpr(try Reader.readOne("(let* () 1 2 3 4)", testing.allocator, &vm));
     var bytecode = try compiler.compile();
     defer bytecode.deinit(testing.allocator);
     try testing.expectEqualDeep(

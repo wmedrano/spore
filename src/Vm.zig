@@ -98,7 +98,7 @@ test evalStr {
         \\
         \\ ; Iterate over a list
         \\ (for (x (list 1 2 3 4))
-        \\   (let ((squared (square x))
+        \\   (let* ((squared (square x))
         \\         (new-sum (+ squared squared-sum)))
         \\     (def squared-sum new-sum)))
         \\ squared-sum
