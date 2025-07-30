@@ -26,6 +26,7 @@ pub const Code = enum {
     jump_if,
     jump_if_not,
     jump_or_else_pop,
+    pop_or_else_jump,
     eval,
     squash,
     ret,
@@ -58,6 +59,8 @@ pub const Instruction = union(Code) {
     jump_if_not: i32,
     /// Jump if the top value of the stack is true or pop it otherwise.
     jump_or_else_pop: i32,
+    /// Pop the top value of the stack if it is truthy or jump otherwise.
+    pop_or_else_jump: i32,
     ///Evaluate the top n values of the stack as a function call.
     eval: i32,
     /// Remove the top n values and only keep the top. For example:
@@ -103,6 +106,13 @@ pub const Instruction = union(Code) {
                     vm.execution_context.call_frame.instruction_index += n
                 else
                     _ = vm.execution_context.stack.pop();
+            },
+            .pop_or_else_jump => |n| {
+                const idx = vm.execution_context.stack.len - 1;
+                if (vm.execution_context.stack.buffer[idx].isTruthy())
+                    _ = vm.execution_context.stack.pop()
+                else
+                    vm.execution_context.call_frame.instruction_index += n;
             },
             .eval => |n| try executeEval(vm, @intCast(n)),
             .squash => |n| try executeSquash(vm, @intCast(n)),
@@ -332,6 +342,42 @@ test "jump_or_else_pop with falsey value pops value and does not increment instr
     );
     try testing.expectEqual(
         50,
+        vm.execution_context.call_frame.instruction_index,
+    );
+}
+
+test "pop_or_else_jump with truthy value pops value and does not increment instruction_index" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(true) });
+    vm.execution_context.call_frame.instruction_index = 50;
+
+    try (Instruction{ .pop_or_else_jump = 5 }).execute(&vm);
+
+    try testing.expectEqualDeep(
+        &.{Val.from(10)},
+        vm.execution_context.stack.constSlice(),
+    );
+    try testing.expectEqual(
+        50,
+        vm.execution_context.call_frame.instruction_index,
+    );
+}
+
+test "pop_or_else_jump with falsey value does not pop value and increments instruction_index" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(false) });
+    vm.execution_context.call_frame.instruction_index = 50;
+
+    try (Instruction{ .pop_or_else_jump = 5 }).execute(&vm);
+
+    try testing.expectEqualDeep(
+        &.{ Val.from(10), Val.from(false) },
+        vm.execution_context.stack.constSlice(),
+    );
+    try testing.expectEqual(
+        55,
         vm.execution_context.call_frame.instruction_index,
     );
 }

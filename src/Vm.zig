@@ -200,6 +200,74 @@ test "or with all falsy arguments returns last value" {
     );
 }
 
+test "and with no arguments returns an error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        error.InvalidExpression,
+        vm.evalStr("(and)"),
+    );
+}
+
+test "and with truthy argument returns that value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from(42),
+        try vm.evalStr("(and 42)"),
+    );
+}
+
+test "and short-circuits evaluation on false" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const source = "(and 10 20 false (uncalled))";
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr(source),
+    );
+}
+
+test "and does not short-circuit evaluation on true" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const source = "(and true (uncalled))";
+    try testing.expectError(
+        error.SymbolNotFound,
+        vm.evalStr(source),
+    );
+}
+
+test "and with all truthy arguments returns last value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from({}),
+        try vm.evalStr("(and 10 20 nil)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(and 10 20 false)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(30),
+        try vm.evalStr("(and 10 20 30)"),
+    );
+}
+
+test "and with all falsy arguments returns first value" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.from({}),
+        try vm.evalStr("(and nil false)"),
+    );
+    try testing.expectEqualDeep(
+        Val.from(false),
+        try vm.evalStr("(and false nil)"),
+    );
+}
+
 test garbageCollect {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();

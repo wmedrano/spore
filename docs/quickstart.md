@@ -119,17 +119,31 @@ Spore includes a set of built-in functions for common operations.
     (= 5 5.0) ;; returns true
     ```
 
--   **Logical Operators**: `or`
-    Spore provides `or` for logical disjunction.
+-   **Logical Operators**: `or`, `and`
+    Spore provides `or` and `and` for logical disjunction and conjunction, respectively.
 
-    -   `or`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "truthy" value. If all arguments are "falsey" (i.e., `false`), it returns `false`. This operator is "short-circuiting"; once a truthy value is found, no further arguments are evaluated.
+    -   `or`: Evaluates arguments from left to right. It returns the first
+        argument that evaluates to a "truthy" value. If all arguments are
+        "falsey" (`false` and `nil`), it returns the last falsey value. This
+        operator is "short-circuiting"; once a truthy value is found, no further
+        arguments are evaluated.
 
     ```lisp
-    (or false true)           ;; returns true
-    (or nil 0)                ;; returns 0 (since 0 is truthy)
-    (or (null? (list 1)) "hello") ;; returns "hello" (since (null? (list 1)) is false)
-    (or false nil)            ;; returns nil (all falsey, returns last falsey value, which is nil in Spore)
-    (or (= 1 2) (= 3 3))      ;; returns true (short-circuits after (= 3 3))
+    (or false true)                   ;; returns true
+    (or nil 0)                        ;; returns 0 (since 0 is truthy)
+    (or (null? (list 1)) "hello")     ;; returns "hello" (since (null? (list 1)) is false)
+    (or false nil)                    ;; returns nil (all falsey, returns last falsey value, which is nil in Spore)
+    (or (= 1 2) (= 3 3) (not-called)) ;; returns true (short-circuits after (= 3 3))
+    ```
+
+    -   `and`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "falsey" value. If all arguments are "truthy", it returns the last argument. This operator is "short-circuiting"; once a falsey value is found, no further arguments are evaluated.
+
+    ```lisp
+    (and true false)                   ;; returns false
+    (and 10 "hello")                   ;; returns "hello" (since 10 and "hello" are truthy, returns last truthy)
+    (and true (null? (list 1)))        ;; returns false (since (null? (list 1)) is false)
+    (and 0 nil false)                  ;; returns nil (since 0 is truthy, nil is falsey, returns first falsey)
+    (and (= 1 1) (= 2 3) (not-called)) ;; returns false (short-circuits after (= 2 3))
     ```
 
 -   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` and `cdr` access the first element (the "head") and the rest of the list (the "tail"), respectively.
@@ -142,13 +156,13 @@ Spore includes a set of built-in functions for common operations.
 
 -   **Type Predicates**: `number?`, `symbol?`, `null?`, `string?`. These functions check the type of a value, returning `true` or `false`.
     ```lisp
-    (number? 123)     ;; returns true
-    (string? "hello") ;; returns true
-    (symbol? 'sym)    ;; returns true
-    (null? nil)       ;; returns true
-    (empty? (list))   ;; returns true
+    (number? 123)       ;; returns true
+    (string? "hello")   ;; returns true
+    (symbol? 'sym)      ;; returns true
+    (null? nil)         ;; returns true
+    (empty? (list))     ;; returns true
     (empty? (list 1 2)) ;; returns false
-    (number? "123")   ;; returns false
+    (number? "123")     ;; returns false
     ```
 
 -   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation. `print`, `println`. Use `->string` to convert any single value to its string representation. `print` concatenates the string representations of multiple values and displays them. `println` does the same but appends a newline character at the end.
@@ -174,9 +188,10 @@ calculates the sum of the squares of numbers in a list.
         (new-sum (+ squared squared-sum)))
     ;; Update the global sum
     (def squared-sum new-sum)))
-
-The final expression is the value of squared-sum, which is 30
 squared-sum
+```
+
+The final expression is the value of squared-sum, which is 30 squared-sum
 
 ## Running Spore Programs
 
@@ -184,9 +199,6 @@ To run a Spore program, save your Spore code in a file (e.g., `my_program.spore`
 
 ```sh
 spore my_program.spore
-```
-
-squared-sum
 ```
 
 ## Next Steps

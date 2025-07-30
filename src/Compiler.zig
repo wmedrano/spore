@@ -45,6 +45,7 @@ symbols: struct {
     car: Symbol.Interned,
     cdr: Symbol.Interned,
     @"or": Symbol.Interned,
+    @"and": Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -96,6 +97,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .car = try Symbol.init("car").intern(vm.heap.allocator, &vm.heap.string_interner),
             .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
             .@"or" = try Symbol.init("or").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"and" = try Symbol.init("and").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
@@ -227,6 +229,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addFor(&vals);
             if (std.meta.eql(val, Val.from(self.symbols.@"or")))
                 return self.addOr(&vals);
+            if (std.meta.eql(val, Val.from(self.symbols.@"and")))
+                return self.addAnd(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -485,6 +489,25 @@ fn addOr(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const want_idx = self.instructions.items.len;
     for (jumps.items) |idx| {
         self.instructions.items[idx].jump_or_else_pop = jumpDistance(idx + 1, want_idx);
+    }
+}
+
+fn addAnd(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    if (exprs.empty()) {
+        return Error.InvalidExpression;
+    }
+    var jumps = std.ArrayList(usize).init(self.arena.allocator());
+    defer jumps.deinit();
+    while (try exprs.next(self.vm)) |expr| {
+        try self.addExpr(expr);
+        if (!exprs.empty()) {
+            try jumps.append(self.instructions.items.len);
+            try self.addInstruction(Instruction{ .pop_or_else_jump = 0 });
+        }
+    }
+    const want_idx = self.instructions.items.len;
+    for (jumps.items) |idx| {
+        self.instructions.items[idx].pop_or_else_jump = jumpDistance(idx + 1, want_idx);
     }
 }
 
@@ -1126,5 +1149,63 @@ test "empty or statement with single value returns value" {
             .args = 0,
         },
         bytecode,
+    );
+}
+
+test "and statement with multiple truthy exprs" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(and 1 2 3)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.from(1) },
+                Instruction{ .pop_or_else_jump = 3 },
+                Instruction{ .push = Val.from(2) },
+                Instruction{ .pop_or_else_jump = 1 },
+                Instruction{ .push = Val.from(3) },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "and statement with single expr returns expr" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(and 10)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.from(10) },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "empty and statement is compile error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try testing.expectError(
+        Compiler.Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(and)", testing.allocator, &vm)),
     );
 }
