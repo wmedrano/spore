@@ -48,6 +48,6 @@ pub fn register(self: *const NativeFunction, vm: *Vm) !void {
     try vm.execution_context.setGlobal(
         vm.heap.allocator,
         try Symbol.init(self.name).intern(vm.heap.allocator, &vm.heap.string_interner),
-        Val.from(self),
+        Val.init(self),
     );
 }

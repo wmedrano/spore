@@ -85,19 +85,19 @@ fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
 test format {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try testing.expectFmt("nil", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from({}) }});
-    try testing.expectFmt("45", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from(45) }});
-    try testing.expectFmt("45.5", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.from(45.5) }});
+    try testing.expectFmt("nil", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.init({}) }});
+    try testing.expectFmt("45", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.init(45) }});
+    try testing.expectFmt("45.5", "{}", .{PrettyPrinter{ .vm = &vm, .val = Val.init(45.5) }});
 }
 
 test "pretty print cons pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const cons = Val.from(
+    const cons = Val.init(
         try vm.heap.cons_cells.create(
             vm.heap.allocator,
-            ConsCell.init(Val.from(1), Val.from(2)),
-            vm.heap.dead_color,
+            ConsCell.init(Val.init(1), Val.init(2)),
+            vm.heap.unreachable_color,
         ),
     );
     try testing.expectFmt("(1 . 2)", "{}", .{PrettyPrinter{ .vm = &vm, .val = cons }});
@@ -106,11 +106,11 @@ test "pretty print cons pair" {
 test "pretty print cons list" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const cons = Val.from(
+    const cons = Val.init(
         try vm.heap.cons_cells.create(
             vm.heap.allocator,
-            ConsCell.init(Val.from(1), Val.from({})),
-            vm.heap.dead_color,
+            ConsCell.init(Val.init(1), Val.init({})),
+            vm.heap.unreachable_color,
         ),
     );
     try testing.expectFmt("(1)", "{}", .{PrettyPrinter{ .vm = &vm, .val = cons }});

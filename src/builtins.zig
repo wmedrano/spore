@@ -44,8 +44,8 @@ fn numberQImpl(vm: *Vm) NativeFunction.Error!Val {
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     const val = args[0];
     switch (val.repr) {
-        .int, .float => return Val.from(true),
-        else => return Val.from(false),
+        .int, .float => return Val.init(true),
+        else => return Val.init(false),
     }
 }
 
@@ -60,8 +60,8 @@ fn symbolQImpl(vm: *Vm) NativeFunction.Error!Val {
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     const val = args[0];
     switch (val.repr) {
-        .symbol => return Val.from(true),
-        else => return Val.from(false),
+        .symbol => return Val.init(true),
+        else => return Val.init(false),
     }
 }
 
@@ -76,8 +76,8 @@ fn nullQImpl(vm: *Vm) NativeFunction.Error!Val {
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     const val = args[0];
     switch (val.repr) {
-        .nil => return Val.from(true),
-        else => return Val.from(false),
+        .nil => return Val.init(true),
+        else => return Val.init(false),
     }
 }
 
@@ -91,8 +91,8 @@ fn stringQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     switch (args[0].repr) {
-        .string => return Val.from(true),
-        else => return Val.from(false),
+        .string => return Val.init(true),
+        else => return Val.init(false),
     }
 }
 
@@ -109,9 +109,9 @@ fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
     defer buffer.deinit();
     const val = vm.inspector().pretty(args[0]);
     try val.format("any", .{}, buffer.writer());
-    const string = try String.init(vm.heap.allocator, buffer.items);
-    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.dead_color);
-    return Val.from(handle);
+    const string = try String.initCopy(vm.heap.allocator, buffer.items);
+    const handle = try vm.heap.strings.create(vm.heap.allocator, string, vm.heap.unreachable_color);
+    return Val.init(handle);
 }
 
 const print = NativeFunction{
@@ -126,7 +126,7 @@ fn printImpl(vm: *Vm) NativeFunction.Error!Val {
     defer buffer.deinit();
     const vals = vm.inspector().prettySlice(args);
     std.debug.print("{any}", .{vals});
-    return Val.from({});
+    return Val.init({});
 }
 
 const println = NativeFunction{
@@ -141,7 +141,7 @@ fn printlnImpl(vm: *Vm) NativeFunction.Error!Val {
     defer buffer.deinit();
     const vals = vm.inspector().prettySlice(args);
     std.debug.print("{any}\n", .{vals});
-    return Val.from({});
+    return Val.init({});
 }
 
 const add = NativeFunction{
@@ -167,9 +167,9 @@ fn addSlice(vals: []const Val) NativeFunction.Error!Val {
     }
     if (has_float) {
         const sum_as_float: f64 = float_sum + @as(f64, @floatFromInt(int_sum));
-        return Val.from(sum_as_float);
+        return Val.init(sum_as_float);
     }
-    return Val.from(int_sum);
+    return Val.init(int_sum);
 }
 
 fn addImpl(vm: *Vm) NativeFunction.Error!Val {
@@ -184,8 +184,8 @@ const subtract = NativeFunction{
 
 fn negate(val: Val) !Val {
     switch (val.repr) {
-        .int => |x| return Val.from(-x),
-        .float => |x| return Val.from(-x),
+        .int => |x| return Val.init(-x),
+        .float => |x| return Val.init(-x),
         else => return NativeFunction.Error.TypeError,
     }
 }
@@ -197,15 +197,15 @@ fn subtractTwo(val1: Val, val2: Val) NativeFunction.Error!Val {
     switch (x1) {
         .int => |int1| {
             switch (x2) {
-                .int => |int2| return Val.from(int1 - int2),
-                .float => |float2| return Val.from(@as(f64, @floatFromInt(int1)) - float2),
+                .int => |int2| return Val.init(int1 - int2),
+                .float => |float2| return Val.init(@as(f64, @floatFromInt(int1)) - float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
         .float => |float1| {
             switch (x2) {
-                .int => |int2| return Val.from(float1 - @as(f64, @floatFromInt(int2))),
-                .float => |float2| return Val.from(float1 - float2),
+                .int => |int2| return Val.init(float1 - @as(f64, @floatFromInt(int2))),
+                .float => |float2| return Val.init(float1 - float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
@@ -249,9 +249,9 @@ fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
     }
     if (has_float) {
         const product_as_float: f64 = float_product * @as(f64, @floatFromInt(int_product));
-        return Val.from(product_as_float);
+        return Val.init(product_as_float);
     }
-    return Val.from(int_product);
+    return Val.init(int_product);
 }
 
 fn multiplyImpl(vm: *Vm) NativeFunction.Error!Val {
@@ -284,13 +284,13 @@ fn divideImpl(vm: *Vm) NativeFunction.Error!Val {
         1 => {
             const denominator = try toFloat(args[0]);
             if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
-            return Val.from(1.0 / denominator);
+            return Val.init(1.0 / denominator);
         },
         2 => return {
             const numerator = try toFloat(args[0]);
             const denominator = try toFloat(args[1]);
             if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
-            return Val.from(numerator / denominator);
+            return Val.init(numerator / denominator);
         },
         else => return NativeFunction.Error.WrongArity,
     }
@@ -302,7 +302,7 @@ fn modImpl(vm: *Vm) NativeFunction.Error!Val {
     const a = try args[0].to(i64);
     const b = try args[1].to(i64);
     if (b == 0) return NativeFunction.Error.DivisionByZero;
-    return Val.from(@mod(a, b));
+    return Val.init(@mod(a, b));
 }
 
 const equal_q = NativeFunction{
@@ -318,15 +318,15 @@ fn equalQImpl(vm: *Vm) NativeFunction.Error!Val {
     switch (args[0].repr) {
         .int => |int1| {
             switch (args[1].repr) {
-                .int => |int2| return Val.from(int1 == int2),
-                .float => |float2| return Val.from(@as(f64, @floatFromInt(int1)) == float2),
+                .int => |int2| return Val.init(int1 == int2),
+                .float => |float2| return Val.init(@as(f64, @floatFromInt(int1)) == float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
         .float => |float1| {
             switch (args[1].repr) {
-                .int => |int2| return Val.from(float1 == @as(f64, @floatFromInt(int2))),
-                .float => |float2| return Val.from(float1 == float2),
+                .int => |int2| return Val.init(float1 == @as(f64, @floatFromInt(int2))),
+                .float => |float2| return Val.init(float1 == float2),
                 else => return NativeFunction.Error.TypeError,
             }
         },
@@ -347,7 +347,7 @@ fn internalDefineImpl(vm: *Vm) NativeFunction.Error!Val {
     const symbol = try args[0].to(Symbol.Interned);
     const value = args[1];
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, value);
-    return Val.from({});
+    return Val.init({});
 }
 
 const cons = NativeFunction{
@@ -363,9 +363,9 @@ fn consImpl(vm: *Vm) NativeFunction.Error!Val {
     const cons_handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
         cons_cell,
-        vm.heap.dead_color,
+        vm.heap.unreachable_color,
     );
-    return Val.from(cons_handle);
+    return Val.init(cons_handle);
 }
 
 const car = NativeFunction{
@@ -407,8 +407,8 @@ fn consQImpl(vm: *Vm) NativeFunction.Error!Val {
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     const val = args[0];
     switch (val.repr) {
-        .cons => return Val.from(true),
-        else => return Val.from(false),
+        .cons => return Val.init(true),
+        else => return Val.init(false),
     }
 }
 
@@ -433,40 +433,40 @@ fn emptyQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 1) return NativeFunction.Error.WrongArity;
     switch (args[0].repr) {
-        .nil => return Val.from(true),
-        .cons => return Val.from(false),
+        .nil => return Val.init(true),
+        .cons => return Val.init(false),
         else => return NativeFunction.Error.TypeError,
     }
 }
 
 // Helper function, adapted from Reader.zig's listToVal
 fn buildListFromVals(vals: []const Val, vm: *Vm) NativeFunction.Error!Val {
-    if (vals.len == 0) return Val.from({}); // Base case: empty list is nil
+    if (vals.len == 0) return Val.init({}); // Base case: empty list is nil
     const head = vals[0];
     const tail = try buildListFromVals(vals[1..], vm); // Recursive call for the rest of the list
     const cons_cell = ConsCell.init(head, tail);
     const cons_handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
         cons_cell,
-        vm.heap.dead_color,
+        vm.heap.unreachable_color,
     );
-    return Val.from(cons_handle);
+    return Val.init(cons_handle);
 }
 
 test "+ sums integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2), Val.from(3) });
+    try vm.execution_context.pushVals(&.{ Val.init(1), Val.init(2), Val.init(3) });
     const result = try add.call(&vm);
-    try testing.expectEqualDeep(Val.from(6), result);
+    try testing.expectEqualDeep(Val.init(6), result);
 }
 
 test "+ sums floats" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(7.5),
+        Val.init(7.5),
         try vm.evalStr("(+ 3.0 4.5)"),
     );
 }
@@ -476,7 +476,7 @@ test "+ sums mixed integers and floats and returns float" {
     defer vm.deinit();
 
     try testing.expectEqualDeep(
-        Val.from(6.5),
+        Val.init(6.5),
         try vm.evalStr("(+ 1 2.5 3)"),
     );
 }
@@ -497,7 +497,7 @@ test "define sets global variable" {
 
     _ = try vm.evalStr("(internal-define 'x 42)");
     try testing.expectEqualDeep(
-        Val.from(42),
+        Val.init(42),
         vm.evalStr("x"),
     );
 }
@@ -508,7 +508,7 @@ test "car returns first element of a cons cell" {
 
     const result = try vm.evalStr("(car (cons 1 2))");
     try testing.expectEqualDeep(
-        Val.from(1),
+        Val.init(1),
         result,
     );
 }
@@ -529,7 +529,7 @@ test "cdr returns second element of a cons cell" {
 
     const result = try vm.evalStr("(cdr (cons 1 2))");
     try testing.expectEqualDeep(
-        Val.from(2),
+        Val.init(2),
         result,
     );
 }
@@ -548,7 +548,7 @@ test "cons? returns true for cons cell" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(cons? (cons 1 2))"),
     );
 }
@@ -557,19 +557,19 @@ test "cons? returns false for non-cons cell" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(cons? 1)"),
     );
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(cons? 'a)"),
     );
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(cons? nil)"),
     );
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(cons? \"hello\")"),
     );
 }
@@ -591,7 +591,7 @@ test "number? returns true for integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(number? 123)"),
     );
 }
@@ -600,7 +600,7 @@ test "number? returns true for float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(number? 3.14)"),
     );
 }
@@ -609,7 +609,7 @@ test "number? returns false for symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(number? 'hello)"),
     );
 }
@@ -618,7 +618,7 @@ test "number? returns false for nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(number? nil)"),
     );
 }
@@ -627,7 +627,7 @@ test "symbol? returns true for symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(symbol? 'my-symbol)"),
     );
 }
@@ -636,7 +636,7 @@ test "symbol? returns false for integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(symbol? 123)"),
     );
 }
@@ -645,7 +645,7 @@ test "symbol? returns false for nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(symbol? nil)"),
     );
 }
@@ -654,7 +654,7 @@ test "null? returns true for nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(null? nil)"),
     );
 }
@@ -663,7 +663,7 @@ test "null? returns false for integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(null? 1)"),
     );
 }
@@ -672,7 +672,7 @@ test "null? returns false for symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(null? 'a)"),
     );
 }
@@ -681,7 +681,7 @@ test "string? returns true for string" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(string? \"hello\")"),
     );
 }
@@ -690,7 +690,7 @@ test "string? returns false for symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(string? 'hello)"),
     );
 }
@@ -699,7 +699,7 @@ test "string? returns false for number" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(string? 123)"),
     );
 }
@@ -717,15 +717,15 @@ test "- with one argument negates number" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(-5),
+        Val.init(-5),
         try vm.evalStr("(- 5)"),
     );
     try testing.expectEqualDeep(
-        Val.from(5),
+        Val.init(5),
         try vm.evalStr("(- -5)"),
     );
     try testing.expectEqualDeep(
-        Val.from(-3.5),
+        Val.init(-3.5),
         try vm.evalStr("(- 3.5)"),
     );
     try testing.expectError(
@@ -738,15 +738,15 @@ test "- with two arguments subtracts args[1] from args[0]" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(3),
+        Val.init(3),
         try vm.evalStr("(- 5 2)"),
     );
     try testing.expectEqualDeep(
-        Val.from(3.25),
+        Val.init(3.25),
         try vm.evalStr("(- 5.5 2.25)"),
     );
     try testing.expectEqualDeep(
-        Val.from(2.5),
+        Val.init(2.5),
         try vm.evalStr("(- 5 2.5)"),
     );
     try testing.expectError(
@@ -759,11 +759,11 @@ test "- with multiple arguments subtracts args[1..] from args[0]." {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(4),
+        Val.init(4),
         try vm.evalStr("(- 10 1 2 3)"),
     );
     try testing.expectEqualDeep(
-        Val.from(13.0),
+        Val.init(13.0),
         try vm.evalStr("(- 20.5 5 2.5)"),
     );
     try testing.expectError(
@@ -776,11 +776,11 @@ test "mod returns the modulus of two integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(1),
+        Val.init(1),
         try vm.evalStr("(mod 10 3)"),
     );
     try testing.expectEqualDeep(
-        Val.from(2),
+        Val.init(2),
         try vm.evalStr("(mod -10 3)"),
     );
 }
@@ -824,7 +824,7 @@ test "= returns true for equal integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(= 5 5)"),
     );
 }
@@ -833,7 +833,7 @@ test "= returns false for unequal integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(= 5 6)"),
     );
 }
@@ -842,7 +842,7 @@ test "= returns true for equal floats" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(= 5.0 5.0)"),
     );
 }
@@ -851,7 +851,7 @@ test "= returns false for unequal floats" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(= 5.0 5.1)"),
     );
 }
@@ -860,11 +860,11 @@ test "= returns true for equal mixed int and float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(= 5 5.0)"),
     );
     try testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try vm.evalStr("(= 5.0 5)"),
     );
 }
@@ -873,11 +873,11 @@ test "= returns false for unequal mixed int and float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(= 5 5.1)"),
     );
     try testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try vm.evalStr("(= 5.1 5)"),
     );
 }
@@ -928,7 +928,7 @@ test "/ divides two integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(2.0),
+        Val.init(2.0),
         try vm.evalStr("(/ 4 2)"),
     );
 }
@@ -937,7 +937,7 @@ test "/ divides two floats" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(2.5),
+        Val.init(2.5),
         try vm.evalStr("(/ 5.0 2.0)"),
     );
 }
@@ -946,11 +946,11 @@ test "/ divides mixed integer and float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(2.5),
+        Val.init(2.5),
         try vm.evalStr("(/ 5 2.0)"),
     );
     try testing.expectEqualDeep(
-        Val.from(2.5),
+        Val.init(2.5),
         try vm.evalStr("(/ 5.0 2)"),
     );
 }
@@ -959,11 +959,11 @@ test "/ with one argument returns 1.0 divided by argument" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
-        Val.from(0.5),
+        Val.init(0.5),
         try vm.evalStr("(/ 2)"),
     );
     try testing.expectEqualDeep(
-        Val.from(1.0),
+        Val.init(1.0),
         try vm.evalStr("(/ 1.0)"),
     );
 }

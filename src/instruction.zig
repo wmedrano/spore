@@ -4,6 +4,7 @@ const testing = @import("std").testing;
 const Symbol = @import("datastructures/Symbol.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const String = @import("String.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -87,8 +88,21 @@ pub const Instruction = union(Code) {
                 vm.execution_context.localStack()[@intCast(idx)] = val;
             },
             .deref => |s| {
-                const val = vm.execution_context.getGlobal(s) orelse return Error.SymbolNotFound;
-                try vm.execution_context.pushVal(val);
+                if (vm.execution_context.getGlobal(s)) |val| {
+                    return try vm.execution_context.pushVal(val);
+                }
+                const err_str = try std.fmt.allocPrint(
+                    vm.heap.allocator,
+                    "`{any}` not defined.",
+                    .{vm.inspector().pretty(Val.init(s))},
+                );
+                const string_handle = try vm.heap.strings.create(
+                    vm.heap.allocator,
+                    String.initOwned(err_str),
+                    vm.heap.unreachable_color,
+                );
+                vm.execution_context.last_error = Val.init(string_handle);
+                return Error.SymbolNotFound;
             },
             .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),
             .jump => |n| vm.execution_context.call_frame.instruction_index += n,
@@ -145,7 +159,7 @@ pub const Instruction = union(Code) {
                     const extra_slots =
                         vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch
                             return Error.StackOverflow;
-                    for (extra_slots) |*v| v.* = Val.from({});
+                    for (extra_slots) |*v| v.* = Val.init({});
                 }
             },
             .native_function => |function| {
@@ -176,12 +190,12 @@ pub const Instruction = union(Code) {
             .nil => false,
             else => return Error.TypeError,
         };
-        try vm.execution_context.pushVal(Val.from(has_value));
+        try vm.execution_context.pushVal(Val.init(has_value));
     }
 
     fn returnVal(vm: *Vm) Val {
         const local_stack = vm.execution_context.localStack();
-        if (local_stack.len == 0) return Val.from({});
+        if (local_stack.len == 0) return Val.init({});
         return local_stack[local_stack.len - 1];
     }
 
@@ -210,8 +224,8 @@ test "instruction is small" {
 test "push val pushes to stack" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try (Instruction{ .push = Val.from(42) }).execute(&vm);
-    try (Instruction{ .push = Val.from(43) }).execute(&vm);
+    try (Instruction{ .push = Val.init(42) }).execute(&vm);
+    try (Instruction{ .push = Val.init(43) }).execute(&vm);
 
     try testing.expectFmt(
         "42 43",
@@ -224,7 +238,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
-    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.from(123));
+    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try (Instruction{ .deref = symbol }).execute(&vm);
 
@@ -240,8 +254,8 @@ test "eval calls function" {
     defer vm.deinit();
     const plus = try Symbol.init("+").intern(vm.heap.allocator, &vm.heap.string_interner);
     try (Instruction{ .deref = plus }).execute(&vm);
-    try (Instruction{ .push = Val.from(10) }).execute(&vm);
-    try (Instruction{ .push = Val.from(20) }).execute(&vm);
+    try (Instruction{ .push = Val.init(10) }).execute(&vm);
+    try (Instruction{ .push = Val.init(20) }).execute(&vm);
     try (Instruction{ .eval = 3 }).execute(&vm);
     try testing.expectFmt(
         "30",
@@ -253,7 +267,7 @@ test "eval calls function" {
 test "eval on non function produces TypeErrorError" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try (Instruction{ .push = Val.from(123) }).execute(&vm);
+    try (Instruction{ .push = Val.init(123) }).execute(&vm);
     try testing.expectError(
         Error.TypeError,
         (Instruction{ .eval = 1 }).execute(&vm),
@@ -276,13 +290,13 @@ test "jump_if with truthy value pops value and increments instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(2) });
+    try vm.execution_context.pushVals(&.{ Val.init(1), Val.init(2) });
     vm.execution_context.call_frame.instruction_index = 100;
 
     try (Instruction{ .jump_if = 20 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{Val.from(1)},
+        &.{Val.init(1)},
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(
@@ -295,13 +309,13 @@ test "jump_if with falsey value pops value and does not increment instruction_in
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    try vm.execution_context.pushVals(&.{ Val.from(1), Val.from(false) });
+    try vm.execution_context.pushVals(&.{ Val.init(1), Val.init(false) });
     vm.execution_context.call_frame.instruction_index = 100;
 
     try (Instruction{ .jump_if = 20 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{Val.from(1)},
+        &.{Val.init(1)},
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(
@@ -313,13 +327,13 @@ test "jump_if with falsey value pops value and does not increment instruction_in
 test "jump_or_else_pop with truthy value keeps value and increments instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(true) });
+    try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(true) });
     vm.execution_context.call_frame.instruction_index = 50;
 
     try (Instruction{ .jump_or_else_pop = 5 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{ Val.from(10), Val.from(true) },
+        &.{ Val.init(10), Val.init(true) },
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(
@@ -331,13 +345,13 @@ test "jump_or_else_pop with truthy value keeps value and increments instruction_
 test "jump_or_else_pop with falsey value pops value and does not increment instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(false) });
+    try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(false) });
     vm.execution_context.call_frame.instruction_index = 50;
 
     try (Instruction{ .jump_or_else_pop = 5 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{Val.from(10)},
+        &.{Val.init(10)},
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(
@@ -349,13 +363,13 @@ test "jump_or_else_pop with falsey value pops value and does not increment instr
 test "pop_or_else_jump with truthy value pops value and does not increment instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(true) });
+    try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(true) });
     vm.execution_context.call_frame.instruction_index = 50;
 
     try (Instruction{ .pop_or_else_jump = 5 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{Val.from(10)},
+        &.{Val.init(10)},
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(
@@ -367,13 +381,13 @@ test "pop_or_else_jump with truthy value pops value and does not increment instr
 test "pop_or_else_jump with falsey value does not pop value and increments instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    try vm.execution_context.pushVals(&.{ Val.from(10), Val.from(false) });
+    try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(false) });
     vm.execution_context.call_frame.instruction_index = 50;
 
     try (Instruction{ .pop_or_else_jump = 5 }).execute(&vm);
 
     try testing.expectEqualDeep(
-        &.{ Val.from(10), Val.from(false) },
+        &.{ Val.init(10), Val.init(false) },
         vm.execution_context.stack.constSlice(),
     );
     try testing.expectEqual(

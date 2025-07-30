@@ -38,33 +38,34 @@ pub fn run(self: *GarbageCollector) !void {
 /// Marks all reachable objects from the VM's roots.
 ///
 /// This function traverses the VM's stack and global values, marking all
-/// `Val` instances and their reachable sub-objects as alive.
+/// `Val` instances and their reachable sub-objects as reachable.
 fn mark(self: *GarbageCollector) !void {
+    try self.markOne(self.vm.execution_context.last_error);
     for (self.vm.execution_context.stack.constSlice()) |val| try self.markOne(val);
     var globals_iter = self.vm.execution_context.global_values.valueIterator();
     while (globals_iter.next()) |val| try self.markOne(val.*);
 }
 
-/// Marks a single `Val` and its reachable sub-objects as alive.
+/// Marks a single `Val` and its reachable sub-objects as reachable.
 ///
 /// Args:
 ///     val: The `Val` to mark.
 fn markOne(self: *GarbageCollector, val: Val) Error!void {
-    const alive_color = self.vm.heap.dead_color.swap();
+    const reachable_color = self.vm.heap.unreachable_color.swap();
     switch (val.repr) {
         .boolean, .nil, .int, .float, .symbol, .native_function => {},
         .cons => |handle| {
-            if (self.vm.heap.cons_cells.setColor(handle, alive_color) != alive_color) {
+            if (self.vm.heap.cons_cells.setColor(handle, reachable_color) != reachable_color) {
                 const cons = try self.vm.heap.cons_cells.get(handle);
                 try self.markOne(cons.car);
                 try self.markOne(cons.cdr);
             }
         },
         .string => |handle| {
-            _ = self.vm.heap.strings.setColor(handle, alive_color);
+            _ = self.vm.heap.strings.setColor(handle, reachable_color);
         },
         .bytecode_function => |handle| {
-            if (self.vm.heap.bytecode_functions.setColor(handle, alive_color) != alive_color) {
+            if (self.vm.heap.bytecode_functions.setColor(handle, reachable_color) != reachable_color) {
                 const function = try self.vm.heap.bytecode_functions.get(handle);
                 try self.markInstructions(function.instructions);
             }
@@ -72,7 +73,7 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
     }
 }
 
-/// Marks all `Val` instances within a slice of `Instruction`s as alive.
+/// Marks all `Val` instances within a slice of `Instruction`s as reachable.
 ///
 /// Args:
 ///     instructions: A slice of `Instruction`s to traverse.
@@ -99,17 +100,17 @@ fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) 
 /// Sweeps (frees) all unmarked (unreachable) objects in the heap.
 ///
 /// This function iterates through the heap's object pools, freeing any objects
-/// that were not marked as alive during the marking phase.
+/// that were not marked as reachable during the marking phase.
 fn sweep(self: *GarbageCollector) !void {
-    _ = try self.vm.heap.cons_cells.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
+    _ = try self.vm.heap.cons_cells.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
 
-    var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
+    var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.vm.heap.allocator);
 
-    var string_iter = try self.vm.heap.strings.sweep(self.vm.heap.allocator, self.vm.heap.dead_color);
+    var string_iter = try self.vm.heap.strings.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
     while (string_iter.next()) |string| string.deinit(self.vm.heap.allocator);
 
-    self.vm.heap.dead_color = self.vm.heap.dead_color.swap();
+    self.vm.heap.unreachable_color = self.vm.heap.unreachable_color.swap();
 }
 
 test "run GC reuseses function slot" {

@@ -1,5 +1,5 @@
-//! A memory heap for managing the lifetime of various VM objects like cons
-//cells, strings, and functions.
+//! A memory heap for managing the lifetime of various VM objects like cons !
+//! cells, strings, and functions.
 const std = @import("std");
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
@@ -14,8 +14,12 @@ const Heap = @This();
 
 /// The allocator used for the Vms objects and metadata.
 allocator: std.mem.Allocator,
-/// The color for live objects.
-dead_color: Color = .red,
+/// The color of objects that aren't reachable.
+///
+/// Objects that are newly made should be marked as unreachable. If not, the
+/// garbage collector will not scan child values which could lead to premature
+/// garbage collection of those values.
+unreachable_color: Color = .red,
 /// The string interner used by the Vm. This should also be used when creating
 /// symbols through `Symbols.intern`.
 string_interner: StringInterner,

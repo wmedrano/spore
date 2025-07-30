@@ -9,8 +9,14 @@ data: []const u8,
 
 /// Initializes a new String by allocating and copying the provided byte slice.
 /// The returned String owns this memory.
-pub fn init(allocator: std.mem.Allocator, s: []const u8) !String {
+pub fn initCopy(allocator: std.mem.Allocator, s: []const u8) !String {
     return String{ .data = try allocator.dupe(u8, s) };
+}
+
+/// Initializes a new String from an existing slice.
+/// This does not allocate memory.
+pub fn initOwned(s: []const u8) String {
+    return String{ .data = s };
 }
 
 /// Deinitializes the String, freeing its allocated memory.

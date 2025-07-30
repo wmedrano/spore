@@ -75,31 +75,26 @@ pub const Repr = union(Tag) {
     }
 };
 
-/// Create a new `Val` from its internal representation. For internal use only.
-fn init(repr: Repr) Val {
-    return .{ .repr = repr };
-}
-
 /// Create a new `Val` from a given value, deducing its type.
 /// Supports `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
-pub fn from(val: anytype) Val {
+pub fn init(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
-        void => return init(.{ .nil = {} }),
-        bool => return init(.{ .boolean = val }),
-        i64, comptime_int => return init(.{ .int = val }),
-        f64, comptime_float => return init(.{ .float = val }),
-        Symbol.Interned => return init(.{ .symbol = val }),
-        Handle(ConsCell) => return init(.{ .cons = val }),
+        void => return Val{ .repr = .{ .nil = {} } },
+        bool => return Val{ .repr = .{ .boolean = val } },
+        i64, comptime_int => return Val{ .repr = .{ .int = val } },
+        f64, comptime_float => return Val{ .repr = .{ .float = val } },
+        Symbol.Interned => return Val{ .repr = .{ .symbol = val } },
+        Handle(ConsCell) => return Val{ .repr = .{ .cons = val } },
         ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell)) ++ "?"),
-        Handle(String) => return init(.{ .string = val }),
+        Handle(String) => return Val{ .repr = .{ .string = val } },
         String => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(String)) ++ "?"),
-        *const NativeFunction => return init(.{ .native_function = val }),
+        *const NativeFunction => return Val{ .repr = .{ .native_function = val } },
         NativeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(*const NativeFunction) ++ "?"),
-        Handle(BytecodeFunction) => return init(.{ .bytecode_function = val }),
+        Handle(BytecodeFunction) => return Val{ .repr = .{ .bytecode_function = val } },
         BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ "?"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
@@ -181,19 +176,19 @@ test "Val is small" {
 }
 
 test "Val.to nil/void" {
-    const nil_val = Val.from({});
+    const nil_val = Val.init({});
     _ = try nil_val.to(void);
     try testing.expectError(ToValError.TypeError, nil_val.to(i64));
 }
 
 test "Val.to i64" {
-    const int_val = Val.from(42);
+    const int_val = Val.init(42);
     try testing.expectEqual(42, try int_val.to(i64));
     try testing.expectError(ToValError.TypeError, int_val.to(f64));
 }
 
 test "Val.to f64" {
-    const float_val = Val.from(3.14);
+    const float_val = Val.init(3.14);
     try testing.expectEqual(3.14, try float_val.to(f64));
     try testing.expectError(ToValError.TypeError, float_val.to(i64));
 }
@@ -203,7 +198,7 @@ test "Val.to Symbol.Interned" {
     defer vm.deinit();
 
     const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
-    const symbol_val = Val.from(symbol);
+    const symbol_val = Val.init(symbol);
     try testing.expectEqual(symbol, try symbol_val.to(Symbol.Interned));
     try testing.expectError(ToValError.TypeError, symbol_val.to(i64));
 }
@@ -214,36 +209,36 @@ test "Val.to Handle(ConsCell)" {
 
     const handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
-        ConsCell.init(Val.from(1), Val.from(2)),
-        vm.heap.dead_color,
+        ConsCell.init(Val.init(1), Val.init(2)),
+        vm.heap.unreachable_color,
     );
-    const cons_val = Val.from(handle);
+    const cons_val = Val.init(handle);
     try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
     try testing.expectError(ToValError.TypeError, cons_val.to(i64));
 }
 
 test "bool true is truthy" {
-    const bool_val = Val.from(true);
+    const bool_val = Val.init(true);
     try testing.expectEqual(true, bool_val.isTruthy());
 }
 
 test "bool false is falsey" {
-    const bool_val = Val.from(false);
+    const bool_val = Val.init(false);
     try testing.expectEqual(false, bool_val.isTruthy());
 }
 
 test "nil is falsey" {
-    const nil_val = Val.from({});
+    const nil_val = Val.init({});
     try testing.expectEqual(false, nil_val.isTruthy());
 }
 
 test "int is truthy" {
-    const int_val = Val.from(42);
+    const int_val = Val.init(42);
     try testing.expectEqual(true, int_val.isTruthy());
 }
 
 test "float is truthy" {
-    const float_val = Val.from(3.14);
+    const float_val = Val.init(3.14);
     try testing.expect(float_val.isTruthy());
 }
 
@@ -252,7 +247,7 @@ test "symbol is truthy" {
     defer vm.deinit();
 
     const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
-    const symbol_val = Val.from(symbol);
+    const symbol_val = Val.init(symbol);
     try testing.expect(symbol_val.isTruthy());
 }
 
@@ -262,9 +257,9 @@ test "cons is truthy" {
 
     const handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
-        ConsCell.init(Val.from(1), Val.from(2)),
-        vm.heap.dead_color,
+        ConsCell.init(Val.init(1), Val.init(2)),
+        vm.heap.unreachable_color,
     );
-    const cons_val = Val.from(handle);
+    const cons_val = Val.init(handle);
     try testing.expect(cons_val.isTruthy());
 }

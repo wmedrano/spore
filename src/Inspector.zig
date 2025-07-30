@@ -26,7 +26,7 @@ pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
 }
 
 /// Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
-pub fn listIter(self: *const Inspector, val: Val) !ConsCell.ListIter {
+pub fn listIter(self: Inspector, val: Val) !ConsCell.ListIter {
     switch (val.repr) {
         .nil => return ConsCell.iterEmpty(),
         .cons => |handle| {
@@ -35,4 +35,9 @@ pub fn listIter(self: *const Inspector, val: Val) !ConsCell.ListIter {
         },
         else => return error.TypeError,
     }
+}
+
+/// Pretty prints the last error.
+pub fn lastError(self: Inspector) PrettyPrinter {
+    return self.pretty(self.vm.execution_context.last_error);
 }

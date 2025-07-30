@@ -29,6 +29,8 @@ stack: std.BoundedArray(Val, 1024) = .{},
 call_frame: CallFrame = .{},
 /// Holds the previous call frames.
 previous_call_frames: std.BoundedArray(CallFrame, 64) = .{},
+/// Holds the last error that occurred during execution.
+last_error: Val = Val.init({}),
 
 /// Deinitialize self and free all memory.
 pub fn deinit(self: *ExecutionContext, allocator: std.mem.Allocator) void {
@@ -97,28 +99,28 @@ test "initial stack is empty" {
 
 test "push val adds to stack" {
     var ctx = ExecutionContext{};
-    try ctx.pushVals(&.{ Val.from(1), Val.from(2) });
+    try ctx.pushVals(&.{ Val.init(1), Val.init(2) });
     try testing.expectFmt("{ 1, 2 }", "{any}", .{ctx.stack.constSlice()});
 }
 
 test "push to many vals returns stack overflow" {
     var ctx = ExecutionContext{};
     for (0..ctx.stack.capacity()) |_| {
-        try ctx.pushVal(Val.from(1));
+        try ctx.pushVal(Val.init(1));
     }
 
     try testing.expectError(
         error.StackOverflow,
-        ctx.pushVal(Val.from(1)),
+        ctx.pushVal(Val.init(1)),
     );
 }
 
 test "pop val removes from stack" {
     var ctx = ExecutionContext{};
-    try ctx.pushVals(&.{ Val.from(1), Val.from(2), Val.from(3) });
+    try ctx.pushVals(&.{ Val.init(1), Val.init(2), Val.init(3) });
 
     try testing.expectEqualDeep(
-        Val.from(3),
+        Val.init(3),
         ctx.popVal(),
     );
     try testing.expectFmt(
@@ -154,10 +156,10 @@ test "getGlobal on symbol registered with setGlobal returns that symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
-    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.from(123));
+    try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try testing.expectEqualDeep(
-        Val.from(123),
+        Val.init(123),
         vm.execution_context.getGlobal(symbol),
     );
 }

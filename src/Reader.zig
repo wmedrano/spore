@@ -95,14 +95,14 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
 
 /// Converts a string identifier into a Lisp Object.
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
-    if (std.mem.eql(u8, identifier, "nil")) return Val.from({});
-    if (std.mem.eql(u8, identifier, "true")) return Val.from(true);
-    if (std.mem.eql(u8, identifier, "false")) return Val.from(false);
-    if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.from(x);
-    if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.from(x);
+    if (std.mem.eql(u8, identifier, "nil")) return Val.init({});
+    if (std.mem.eql(u8, identifier, "true")) return Val.init(true);
+    if (std.mem.eql(u8, identifier, "false")) return Val.init(false);
+    if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.init(x);
+    if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.init(x);
     const symbol = Symbol.init(identifier);
     const interned_symbol = try symbol.intern(vm.heap.allocator, &vm.heap.string_interner);
-    return Val.from(interned_symbol);
+    return Val.init(interned_symbol);
 }
 
 /// Converts a string representation into a Lisp string.
@@ -129,25 +129,25 @@ fn stringToVal(identifier: []const u8, vm: *Vm) !Val {
     if (escaped) return error.ParseError;
     const string_handle = try vm.heap.strings.create(
         vm.heap.allocator,
-        try String.init(vm.heap.allocator, string.items),
-        vm.heap.dead_color,
+        try String.initCopy(vm.heap.allocator, string.items),
+        vm.heap.unreachable_color,
     );
-    return Val.from(string_handle);
+    return Val.init(string_handle);
 }
 
 /// Recursively constructs a Lisp list (a chain of `ConsCell`s) from a slice of
 /// `Val`s.
 fn listToVal(list: []const Val, vm: *Vm) !Val {
-    if (list.len == 0) return Val.from({});
+    if (list.len == 0) return Val.init({});
     const head = list[0];
     const tail = try listToVal(list[1..], vm);
     const cons = ConsCell.init(head, tail);
     const cons_handle = try vm.heap.cons_cells.create(
         vm.heap.allocator,
         cons,
-        vm.heap.dead_color,
+        vm.heap.unreachable_color,
     );
-    return Val.from(cons_handle);
+    return Val.init(cons_handle);
 }
 
 test Reader {
@@ -194,7 +194,7 @@ test "parse nil" {
     defer vm.deinit();
     var reader = try Reader.init("nil");
     try std.testing.expectEqualDeep(
-        Val.from({}),
+        Val.init({}),
         try reader.next(testing.allocator, &vm),
     );
 }
@@ -204,7 +204,7 @@ test "parse integer" {
     defer vm.deinit();
     var reader = try Reader.init("-1");
     try std.testing.expectEqualDeep(
-        Val.from(-1),
+        Val.init(-1),
         try reader.next(testing.allocator, &vm),
     );
 }
@@ -214,7 +214,7 @@ test "parse float" {
     defer vm.deinit();
     var reader = try Reader.init("3.14");
     try std.testing.expectEqualDeep(
-        Val.from(3.14),
+        Val.init(3.14),
         try reader.next(testing.allocator, &vm),
     );
 }
@@ -227,7 +227,7 @@ test "comment is ignored" {
         \\42
     );
     const val = try reader.next(testing.allocator, &vm);
-    try testing.expectEqualDeep(Val.from(42), val);
+    try testing.expectEqualDeep(Val.init(42), val);
     try testing.expectEqualDeep(null, try reader.next(testing.allocator, &vm));
 }
 
@@ -255,7 +255,7 @@ test "multiple comments are ignored" {
         \\()
     );
     try testing.expectEqual(
-        Val.from({}),
+        Val.init({}),
         try reader.next(testing.allocator, &vm),
     );
 }
@@ -264,7 +264,7 @@ test "readOne single expression" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try std.testing.expectEqualDeep(
-        Val.from(4),
+        Val.init(4),
         try Reader.readOne("4", testing.allocator, &vm),
     );
 }
@@ -292,7 +292,7 @@ test "parse true" {
     defer vm.deinit();
     var reader = try Reader.init("true");
     try std.testing.expectEqualDeep(
-        Val.from(true),
+        Val.init(true),
         try reader.next(testing.allocator, &vm),
     );
 }
@@ -302,7 +302,7 @@ test "parse false" {
     defer vm.deinit();
     var reader = try Reader.init("false");
     try std.testing.expectEqualDeep(
-        Val.from(false),
+        Val.init(false),
         try reader.next(testing.allocator, &vm),
     );
 }

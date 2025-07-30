@@ -21,7 +21,11 @@ pub fn main() !void {
 
     var vm = try spore.Vm.init(gpa.allocator());
     defer vm.deinit();
-    _ = try vm.evalStr(program_str);
+    _ = vm.evalStr(program_str) catch |err| {
+        std.debug.print("Error encountered!\n", .{});
+        std.debug.print("  {any}\n", .{vm.inspector().lastError()});
+        return err;
+    };
 }
 
 fn loadProgram(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
