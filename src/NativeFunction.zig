@@ -1,11 +1,13 @@
 const std = @import("std");
-const Vm = @import("Vm.zig");
-const Val = @import("Val.zig");
+
 const Symbol = @import("datastructures/Symbol.zig");
+const Val = @import("Val.zig");
+const Vm = @import("Vm.zig");
 
 const NativeFunction = @This();
 
 /// An error that can occur when calling a function.
+/// An error that can occur when calling a native function.
 pub const Error = error{
     /// The function was called with the wrong number of arguments.
     WrongArity,
@@ -15,6 +17,12 @@ pub const Error = error{
     ObjectNotFound,
     /// A division by zero was attempted.
     DivisionByZero,
+    /// A symbol was not found.
+    SymbolNotFound,
+    /// The stack unexpectedly ran out of items.
+    StackUnderflow,
+    /// The stack has overflowed.
+    StackOverflow,
 } || std.mem.Allocator.Error;
 
 /// The name of the function.

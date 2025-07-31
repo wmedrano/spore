@@ -41,7 +41,7 @@ const number_q = NativeFunction{
 
 fn numberQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const val = args[0];
     switch (val.repr) {
         .int, .float => return Val.init(true),
@@ -57,7 +57,7 @@ const symbol_q = NativeFunction{
 
 fn symbolQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const val = args[0];
     switch (val.repr) {
         .symbol => return Val.init(true),
@@ -73,7 +73,7 @@ const null_q = NativeFunction{
 
 fn nullQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const val = args[0];
     switch (val.repr) {
         .nil => return Val.init(true),
@@ -89,7 +89,7 @@ const string_q = NativeFunction{
 
 fn stringQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     switch (args[0].repr) {
         .string => return Val.init(true),
         else => return Val.init(false),
@@ -104,7 +104,7 @@ const to_string = NativeFunction{
 
 fn toStringImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     const val = vm.inspector().pretty(args[0]);
@@ -150,7 +150,7 @@ const add = NativeFunction{
     .ptr = addImpl,
 };
 
-fn addSlice(vals: []const Val) NativeFunction.Error!Val {
+fn addSlice(vm: *Vm, vals: []const Val) NativeFunction.Error!Val {
     var int_sum: i64 = 0;
     var float_sum: f64 = 0.0;
     var has_float = false;
@@ -161,7 +161,7 @@ fn addSlice(vals: []const Val) NativeFunction.Error!Val {
                 has_float = true;
                 float_sum += x;
             },
-            else => return NativeFunction.Error.TypeError,
+            else => return vm.builder().typeError("int or float", val),
         }
     }
     if (has_float) {
@@ -172,7 +172,7 @@ fn addSlice(vals: []const Val) NativeFunction.Error!Val {
 }
 
 fn addImpl(vm: *Vm) NativeFunction.Error!Val {
-    return try addSlice(vm.execution_context.localStack());
+    return try addSlice(vm, vm.execution_context.localStack());
 }
 
 const subtract = NativeFunction{
@@ -181,46 +181,44 @@ const subtract = NativeFunction{
     .ptr = subtractImpl,
 };
 
-fn negate(val: Val) !Val {
+fn negate(vm: *Vm, val: Val) !Val {
     switch (val.repr) {
         .int => |x| return Val.init(-x),
         .float => |x| return Val.init(-x),
-        else => return NativeFunction.Error.TypeError,
+        else => return vm.builder().typeError("int or float", val),
     }
 }
 
-fn subtractTwo(val1: Val, val2: Val) NativeFunction.Error!Val {
-    const x1 = val1.repr;
-    const x2 = val2.repr;
-
-    switch (x1) {
+fn subtractTwo(vm: *Vm, val1: Val, val2: Val) NativeFunction.Error!Val {
+    switch (val1.repr) {
         .int => |int1| {
-            switch (x2) {
+            switch (val2.repr) {
                 .int => |int2| return Val.init(int1 - int2),
                 .float => |float2| return Val.init(@as(f64, @floatFromInt(int1)) - float2),
-                else => return NativeFunction.Error.TypeError,
+                else => return vm.builder().typeError("int or float", val2),
             }
         },
         .float => |float1| {
-            switch (x2) {
+            switch (val2.repr) {
                 .int => |int2| return Val.init(float1 - @as(f64, @floatFromInt(int2))),
                 .float => |float2| return Val.init(float1 - float2),
-                else => return NativeFunction.Error.TypeError,
+                else => return vm.builder().typeError("int or float", val2),
             }
         },
-        else => return NativeFunction.Error.TypeError,
+        else => return vm.builder().typeError("int or float", val1),
     }
 }
 
 fn subtractImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     switch (args.len) {
-        0 => return NativeFunction.Error.WrongArity,
-        1 => return try negate(args[0]),
-        2 => return try subtractTwo(args[0], args[1]),
+        0 => return vm.builder().arityError("at least 1", args.len),
+        1 => return try negate(vm, args[0]),
+        2 => return try subtractTwo(vm, args[0], args[1]),
         else => return try subtractTwo(
+            vm,
             args[0],
-            try addSlice(args[1..]),
+            try addSlice(vm, args[1..]),
         ),
     }
 }
@@ -232,7 +230,7 @@ const multiply = NativeFunction{
     .ptr = multiplyImpl,
 };
 
-fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
+fn multiplySlice(vm: *Vm, vals: []const Val) NativeFunction.Error!Val {
     var int_product: i64 = 1;
     var float_product: f64 = 1.0;
     var has_float = false;
@@ -243,7 +241,7 @@ fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
                 has_float = true;
                 float_product *= x;
             },
-            else => return NativeFunction.Error.TypeError,
+            else => return vm.builder().typeError("int or float", val),
         }
     }
     if (has_float) {
@@ -254,7 +252,7 @@ fn multiplySlice(vals: []const Val) NativeFunction.Error!Val {
 }
 
 fn multiplyImpl(vm: *Vm) NativeFunction.Error!Val {
-    return try multiplySlice(vm.execution_context.localStack());
+    return try multiplySlice(vm, vm.execution_context.localStack());
 }
 
 const mod = NativeFunction{
@@ -263,11 +261,11 @@ const mod = NativeFunction{
     .ptr = modImpl,
 };
 
-fn toFloat(val: Val) NativeFunction.Error!f64 {
+fn toFloat(vm: *Vm, val: Val) NativeFunction.Error!f64 {
     switch (val.repr) {
         .int => |x| return @floatFromInt(x),
         .float => |x| return x,
-        else => return NativeFunction.Error.TypeError,
+        else => return vm.builder().typeError("int or float", val),
     }
 }
 
@@ -281,23 +279,23 @@ fn divideImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
     switch (args.len) {
         1 => {
-            const denominator = try toFloat(args[0]);
+            const denominator = try toFloat(vm, args[0]);
             if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
             return Val.init(1.0 / denominator);
         },
         2 => return {
-            const numerator = try toFloat(args[0]);
-            const denominator = try toFloat(args[1]);
+            const numerator = try toFloat(vm, args[0]);
+            const denominator = try toFloat(vm, args[1]);
             if (denominator == 0.0) return NativeFunction.Error.DivisionByZero;
             return Val.init(numerator / denominator);
         },
-        else => return NativeFunction.Error.WrongArity,
+        else => return vm.builder().arityError("1 or 2", args.len),
     }
 }
 
 fn modImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 2) return NativeFunction.Error.WrongArity;
+    if (args.len != 2) return vm.builder().arityError("2", args.len);
     const a = try args[0].to(i64);
     const b = try args[1].to(i64);
     if (b == 0) return NativeFunction.Error.DivisionByZero;
@@ -312,24 +310,24 @@ const equal_q = NativeFunction{
 
 fn equalQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 2) return NativeFunction.Error.WrongArity;
+    if (args.len != 2) return vm.builder().arityError("2", args.len);
 
     switch (args[0].repr) {
         .int => |int1| {
             switch (args[1].repr) {
                 .int => |int2| return Val.init(int1 == int2),
                 .float => |float2| return Val.init(@as(f64, @floatFromInt(int1)) == float2),
-                else => return NativeFunction.Error.TypeError,
+                else => return vm.builder().typeError("int or float", args[1]),
             }
         },
         .float => |float1| {
             switch (args[1].repr) {
                 .int => |int2| return Val.init(float1 == @as(f64, @floatFromInt(int2))),
                 .float => |float2| return Val.init(float1 == float2),
-                else => return NativeFunction.Error.TypeError,
+                else => return vm.builder().typeError("int or float", args[1]),
             }
         },
-        else => return NativeFunction.Error.TypeError,
+        else => return vm.builder().typeError("int or float", args[0]),
     }
 }
 
@@ -342,7 +340,7 @@ const internal_define = NativeFunction{
 
 fn internalDefineImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 2) return NativeFunction.Error.WrongArity;
+    if (args.len != 2) return vm.builder().arityError("2", args.len);
     const symbol = try args[0].to(Symbol.Interned);
     const value = args[1];
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, value);
@@ -357,7 +355,7 @@ const cons = NativeFunction{
 
 fn consImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 2) return NativeFunction.Error.WrongArity;
+    if (args.len != 2) return vm.builder().arityError("2", args.len);
     return vm.builder().cons(args[0], args[1]);
 }
 
@@ -369,7 +367,7 @@ const car = NativeFunction{
 
 fn carImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const cons_handle = try args[0].to(Handle(ConsCell));
     const cons_cell = try vm.heap.cons_cells.get(cons_handle);
     return cons_cell.car;
@@ -383,7 +381,7 @@ const cdr = NativeFunction{
 
 fn cdrImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const cons_handle = try args[0].to(Handle(ConsCell));
     const cons_cell = try vm.heap.cons_cells.get(cons_handle);
     return cons_cell.cdr;
@@ -397,7 +395,7 @@ const cons_q = NativeFunction{
 
 fn consQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     const val = args[0];
     switch (val.repr) {
         .cons => return Val.init(true),
@@ -424,11 +422,11 @@ const empty_q = NativeFunction{
 
 fn emptyQImpl(vm: *Vm) NativeFunction.Error!Val {
     const args = vm.execution_context.localStack();
-    if (args.len != 1) return NativeFunction.Error.WrongArity;
+    if (args.len != 1) return vm.builder().arityError("1", args.len);
     switch (args[0].repr) {
         .nil => return Val.init(true),
         .cons => return Val.init(false),
-        else => return NativeFunction.Error.TypeError,
+        else => return vm.builder().typeError("list", args[0]),
     }
 }
 

@@ -84,7 +84,7 @@ pub const Instruction = union(Code) {
                 try vm.execution_context.pushVal(val);
             },
             .set => |idx| {
-                const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackUnderflow();
                 vm.execution_context.localStack()[@intCast(idx)] = val;
             },
             .deref => |s| {
@@ -100,16 +100,17 @@ pub const Instruction = union(Code) {
                     try vm.builder().stringOwned(err_str),
                     vm.execution_context.last_error,
                 );
-                return Error.SymbolNotFound;
+
+                return vm.builder().symbolNotFound(s);
             },
             .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),
             .jump => |n| vm.execution_context.call_frame.instruction_index += n,
             .jump_if => |n| {
-                const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackOverflow();
                 if (val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
             },
             .jump_if_not => |n| {
-                const val = vm.execution_context.stack.pop() orelse return Error.StackUnderflow;
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackOverflow();
                 if (!val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
             },
             .jump_or_else_pop => |n| {
@@ -141,8 +142,8 @@ pub const Instruction = union(Code) {
         if (n == 0) return Error.StackUnderflow;
         const function_idx = vm.execution_context.stack.len - n;
         const stack_start = function_idx + 1;
-        const val = vm.execution_context.stack.get(function_idx);
-        switch (val.repr) {
+        const function_val = vm.execution_context.stack.get(function_idx);
+        switch (function_val.repr) {
             .bytecode_function => |handle| {
                 const function = try vm.heap.bytecode_functions.get(handle);
                 try vm.execution_context.pushCallFrame(ExecutionContext.CallFrame{
@@ -155,8 +156,7 @@ pub const Instruction = union(Code) {
                 const extra_slots_size = function.initial_local_stack_size - function.args;
                 if (extra_slots_size > 0) {
                     const extra_slots =
-                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch
-                            return Error.StackOverflow;
+                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch return vm.builder().stackOverflow();
                     for (extra_slots) |*v| v.* = Val.init({});
                 }
             },
@@ -164,10 +164,10 @@ pub const Instruction = union(Code) {
                 try vm.execution_context.pushCallFrame(
                     ExecutionContext.CallFrame{ .stack_start = stack_start },
                 );
-                vm.execution_context.stack.append(try function.call(vm)) catch return Error.StackOverflow;
+                vm.execution_context.stack.append(try function.call(vm)) catch return vm.builder().stackOverflow();
                 try (Instruction{ .ret = {} }).execute(vm);
             },
-            else => return Error.TypeError,
+            else => return vm.builder().typeError("function", function_val),
         }
     }
 
@@ -178,7 +178,8 @@ pub const Instruction = union(Code) {
     fn executeIterNext(vm: *Vm, next_index: usize) Error!void {
         const iterable_index = next_index + 1;
         const local_stack = vm.execution_context.localStack();
-        const has_value = switch (local_stack[iterable_index].repr) {
+        const iterable_val = local_stack[iterable_index];
+        const has_value = switch (iterable_val.repr) {
             .cons => |handle| blk: {
                 const cons = try vm.heap.cons_cells.get(handle);
                 local_stack[next_index] = cons.car;
@@ -186,7 +187,7 @@ pub const Instruction = union(Code) {
                 break :blk true;
             },
             .nil => false,
-            else => return Error.TypeError,
+            else => return vm.builder().typeError("iterable", iterable_val),
         };
         try vm.execution_context.pushVal(Val.init(has_value));
     }
@@ -200,10 +201,10 @@ pub const Instruction = union(Code) {
     fn executeRet(vm: *Vm) !void {
         const return_val = returnVal(vm);
         const previous_stack_len = vm.execution_context.call_frame.stack_start;
-        vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return Error.StackUnderflow;
+        vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return vm.builder().stackUnderflow();
         vm.execution_context.stack.len = previous_stack_len;
         if (vm.execution_context.localStack().len == 0)
-            return Error.StackUnderflow;
+            return vm.builder().stackUnderflow();
         vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
     }
 
