@@ -55,7 +55,7 @@ pub fn format(
         },
         .string => |handle| {
             const string = self.vm.heap.strings.get(handle) catch return writer.print("@bad-string", .{});
-            try writer.print("{s}", .{string});
+            try writer.print("\"{s}\"", .{string});
         },
         .native_function => |func| try writer.print("{any}", .{func}),
         .bytecode_function => |handle| {

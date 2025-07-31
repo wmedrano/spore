@@ -91,16 +91,6 @@ pub const Instruction = union(Code) {
                 if (vm.execution_context.getGlobal(s)) |val| {
                     return try vm.execution_context.pushVal(val);
                 }
-                const err_str = try std.fmt.allocPrint(
-                    vm.heap.allocator,
-                    "`{any}` not defined.",
-                    .{vm.inspector().pretty(Val.init(s))},
-                );
-                vm.execution_context.last_error = try vm.builder().cons(
-                    try vm.builder().stringOwned(err_str),
-                    vm.execution_context.last_error,
-                );
-
                 return vm.builder().symbolNotFound(s);
             },
             .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),
