@@ -146,6 +146,15 @@ Spore includes a set of built-in functions for common operations.
     (and (= 1 1) (= 2 3) (not-called)) ;; returns false (short-circuits after (= 2 3))
     ```
 
+-   **Quoting**: `quote`
+    The `quote` form prevents the evaluation of its argument. Instead of executing the expression, `quote` returns the expression itself as a literal value. This is useful for treating code or data structures literally. `quote` expects exactly one argument.
+    ```lisp
+    (quote (+ 1 2))     ;; returns the list (+ 1 2), not 3
+    (quote my-symbol)   ;; returns the symbol my-symbol, not its assigned value
+    (quote "hello")     ;; returns the string "hello"
+    (quote 42)          ;; returns the number 42
+    ```
+
 -   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` and `cdr` access the first element (the "head") and the rest of the list (the "tail"), respectively.
     ```lisp
     (list 1 2 3)        ;; returns a list containing (1 2 3)
