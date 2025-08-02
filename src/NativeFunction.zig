@@ -23,6 +23,8 @@ pub const Error = error{
     StackUnderflow,
     /// The stack has overflowed.
     StackOverflow,
+    /// An error with IO.
+    IoError,
 } || std.mem.Allocator.Error;
 
 /// The name of the function.

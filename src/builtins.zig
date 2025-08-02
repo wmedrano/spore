@@ -124,7 +124,7 @@ fn printImpl(vm: *Vm) NativeFunction.Error!Val {
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     const vals = vm.inspector().prettySlice(args);
-    std.debug.print("{any}", .{vals});
+    std.fmt.format(std.io.getStdOut().writer(), "{any}", .{vals}) catch return NativeFunction.Error.IoError;
     return Val.init({});
 }
 
@@ -139,7 +139,7 @@ fn printlnImpl(vm: *Vm) NativeFunction.Error!Val {
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     const vals = vm.inspector().prettySlice(args);
-    std.debug.print("{any}\n", .{vals});
+    std.fmt.format(std.io.getStdOut().writer(), "{any}\n", .{vals}) catch return NativeFunction.Error.IoError;
     return Val.init({});
 }
 
