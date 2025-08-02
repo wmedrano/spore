@@ -6,6 +6,7 @@ const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
 const Symbol = @import("datastructures/Symbol.zig");
+const errors = @import("errors.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const LexicalScope = @import("LexicalScope.zig");
 const Reader = @import("Reader.zig");
@@ -14,19 +15,7 @@ const Vm = @import("Vm.zig");
 
 const Compiler = @This();
 
-pub const Error = error{
-    /// A wrong type was supplied.
-    TypeError,
-    /// An error occurred while resolving a ConsCell handle.
-    ObjectNotFound,
-    /// An invalid expression. For example, an if statement without any
-    /// arguments.
-    InvalidExpression,
-    /// An attempt to define a variable with a non-symbol name.
-    InvalidDefinitionName,
-    /// An error internal to the interpreter. These should be reported.
-    Internal,
-} || std.mem.Allocator.Error;
+pub const Error = error{InvalidExpression} || errors.Error || std.mem.Allocator.Error;
 
 /// The `Vm` for the compiler.
 vm: *Vm,
@@ -87,19 +76,19 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
         .vm = vm,
         .arena = arena,
         .symbols = .{
-            .@"if" = try Symbol.init("if").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .function = try Symbol.init("function").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .@"return" = try Symbol.init("return").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .internal_define = try Symbol.init("internal-define").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .def = try Symbol.init("def").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .defun = try Symbol.init("defun").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .@"let*" = try Symbol.init("let*").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .@"for" = try Symbol.init("for").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .car = try Symbol.init("car").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .@"or" = try Symbol.init("or").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .@"and" = try Symbol.init("and").intern(vm.heap.allocator, &vm.heap.string_interner),
-            .quote = try Symbol.init("quote").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .@"if" = try vm.builder().internedSymbol(Symbol.init("if")),
+            .function = try vm.builder().internedSymbol(Symbol.init("function")),
+            .@"return" = try vm.builder().internedSymbol(Symbol.init("return")),
+            .internal_define = try vm.builder().internedSymbol(Symbol.init("internal-define")),
+            .def = try vm.builder().internedSymbol(Symbol.init("def")),
+            .defun = try vm.builder().internedSymbol(Symbol.init("defun")),
+            .@"let*" = try vm.builder().internedSymbol(Symbol.init("let*")),
+            .@"for" = try vm.builder().internedSymbol(Symbol.init("for")),
+            .car = try vm.builder().internedSymbol(Symbol.init("car")),
+            .cdr = try vm.builder().internedSymbol(Symbol.init("cdr")),
+            .@"or" = try vm.builder().internedSymbol(Symbol.init("or")),
+            .@"and" = try vm.builder().internedSymbol(Symbol.init("and")),
+            .quote = try vm.builder().internedSymbol(Symbol.init("quote")),
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
@@ -111,10 +100,11 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
 ///
 /// The instructions accumulated during `addExpr` calls are duplicated using the
 /// VM's heap allocator.
-pub fn compile(self: *Compiler) !BytecodeFunction {
+pub fn compile(self: *Compiler, name: ?Symbol.Interned) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
     return .{
         .instructions = instructions,
+        .name = name,
         .args = self.arg_count,
         .initial_local_stack_size = self.lexical_scope.minimumLocalStackSize(),
     };
@@ -213,7 +203,7 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
             if (std.meta.eql(val, Val.init(self.symbols.@"if")))
                 return self.addIf(&vals);
             if (std.meta.eql(val, Val.init(self.symbols.function)))
-                return self.addFunction(&vals);
+                return self.addFunction(null, &vals);
             if (std.meta.eql(val, Val.init(self.symbols.@"return")))
                 return self.addReturn(&vals);
             if (std.meta.eql(val, Val.init(self.symbols.def)))
@@ -338,13 +328,13 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///     An error if the `defun` expression is malformed.
 fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    _ = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
+    const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
 
     try self.addInstructions(&.{
         Instruction{ .deref = self.symbols.internal_define },
         Instruction{ .push = symbol },
     });
-    try self.addFunction(exprs);
+    try self.addFunction(interned_symbol, exprs);
     try self.addInstruction(Instruction{ .eval = 3 });
 }
 
@@ -354,14 +344,14 @@ fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// the function body. It compiles the function body into a new
 /// `BytecodeFunction` and pushes a `Val` representing its handle onto the
 /// current compilation context's instructions.
-fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addFunction(self: *Compiler, name: ?Symbol.Interned, exprs: *ConsCell.ListIter) Error!void {
     const args = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
 
     var function_compiler = try initFunction(self.arena, self.vm, args);
     while (try exprs.next(self.vm)) |expr| try function_compiler.addExpr(expr);
     if (function_compiler.isEmpty()) try function_compiler.addExpr(Val.init({}));
 
-    const bytecode = try function_compiler.compile();
+    const bytecode = try function_compiler.compile(name);
     const bytecode_handle = try self.vm.heap.bytecode_functions.create(
         self.vm.heap.allocator,
         bytecode,
@@ -395,7 +385,7 @@ fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         var binding_parts = try self.vm.inspector().listIter(binding);
         const binding_name = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
-        if (binding_parts.empty()) return Error.InvalidExpression;
+        if (!binding_parts.empty()) return Error.InvalidExpression;
         try self.addExpr(binding_expr);
         const name = binding_name.to(Symbol.Interned) catch return Error.InvalidExpression;
         const lexical_bind = try self.lexical_scope.add(self.arena.allocator(), name);
@@ -427,7 +417,7 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const binding_name_val = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
     const binding_name = binding_name_val.to(Symbol.Interned) catch return Error.InvalidExpression;
     const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
-    if (bindings_iter.empty()) return Error.InvalidExpression;
+    if (!bindings_iter.empty()) return Error.InvalidExpression;
 
     // Setup: Evaluate and store cons.
     const next_bind = try self.lexical_scope.add(self.arena.allocator(), binding_name);
@@ -528,15 +518,12 @@ fn addAnd(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 test compile {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try Symbol.init("+").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
+    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(+ 1 (+ 2 3))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -562,12 +549,12 @@ test "compile improper list" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     const cons = try vm.builder().cons(
-        Val.init(try Symbol.init("a").intern(testing.allocator, &vm.heap.string_interner)),
+        Val.init(try vm.builder().internedSymbol(Symbol.init("a"))),
         Val.init(42),
     );
 
     try testing.expectError(
-        Compiler.Error.TypeError,
+        Compiler.Error.WrongType,
         compiler.addExpr(cons),
     );
 }
@@ -580,7 +567,7 @@ test "compile atom" {
     var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(Val.init(42));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -595,13 +582,10 @@ test "compile simple list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    const plus_sym = try Symbol.init("plus").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
+    const plus_sym = try vm.builder().internedSymbol(Symbol.init("plus"));
 
     try compiler.addExpr(try Reader.readOne("(plus 1 2)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -618,15 +602,12 @@ test "compile simple list" {
 test "compile if statement" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try Symbol.init("+").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
+    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4) (+ 5 6))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -655,15 +636,12 @@ test "compile if statement" {
 test "compile if statement without false branch uses nil false branch" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try Symbol.init("+").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
+    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -693,7 +671,7 @@ test "compile function makes function" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(function () (+ 1 2))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqual(1, bytecode.instructions.len);
@@ -719,7 +697,7 @@ test "compile function body is compiled" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(function () 1 2 3)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -744,7 +722,7 @@ test "compile function without body has nil body" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(function ())", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -767,7 +745,7 @@ test "compile function with args has correct number of args" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(function (a b c))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -786,7 +764,7 @@ test "compile function with reference to arg resolves to correct reference" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(function (func a b) (func a b))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -814,7 +792,7 @@ test "compile return with value" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(return 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -836,7 +814,7 @@ test "compile return without value" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(return)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -871,11 +849,11 @@ test "compile def turns to define" {
     var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(try Reader.readOne("(def my-var 123)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
-    const define_sym = try Symbol.init("internal-define").intern(testing.allocator, &vm.heap.string_interner);
-    const my_var_sym = try Symbol.init("my-var").intern(testing.allocator, &vm.heap.string_interner);
+    const define_sym = try vm.builder().internedSymbol(Symbol.init("internal-define"));
+    const my_var_sym = try vm.builder().internedSymbol(Symbol.init("my-var"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
@@ -924,11 +902,11 @@ test "compile defun turns to define with correct function bytecode" {
     var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(try Reader.readOne("(defun my-func (a) a)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
-    const define_sym = try Symbol.init("internal-define").intern(testing.allocator, &vm.heap.string_interner);
-    const my_func_sym = try Symbol.init("my-func").intern(testing.allocator, &vm.heap.string_interner);
+    const define_sym = try vm.builder().internedSymbol(Symbol.init("internal-define"));
+    const my_func_sym = try vm.builder().internedSymbol(Symbol.init("my-func"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
@@ -951,6 +929,7 @@ test "compile defun turns to define with correct function bytecode" {
             },
             .args = 1,
             .initial_local_stack_size = 1,
+            .name = try vm.builder().internedSymbol(Symbol.init("my-func")),
         },
         function_bytecode,
     );
@@ -1016,9 +995,9 @@ test "let* evaluates bindings" {
     var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(try Reader.readOne("(let* ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
-    const plus_sym = try Symbol.init("+").intern(testing.allocator, &vm.heap.string_interner);
+    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
@@ -1052,7 +1031,7 @@ test "multiple expressions in let* squashed to single" {
     var compiler = try init(&arena, &vm);
 
     try compiler.addExpr(try Reader.readOne("(let* () 1 2 3 4)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
     try testing.expectEqualDeep(
         BytecodeFunction{
@@ -1077,7 +1056,7 @@ test "or statement with multiple exprs" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(or false nil 1 2)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1104,7 +1083,7 @@ test "empty or statement returns nil" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(or)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1125,7 +1104,7 @@ test "empty or statement with single value returns value" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(or 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1146,7 +1125,7 @@ test "and statement with multiple truthy exprs" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(and 1 2 3)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1171,7 +1150,7 @@ test "and statement with single expr returns expr" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(and 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1204,7 +1183,7 @@ test "compile quote with atom returns atom" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(quote 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1225,7 +1204,7 @@ test "compile quote with list returns list" {
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
     try compiler.addExpr(try Reader.readOne("(quote (1 2))", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
+    var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
     const list_val = bytecode.instructions[0].push;

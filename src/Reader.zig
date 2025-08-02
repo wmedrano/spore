@@ -100,9 +100,7 @@ fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     if (std.mem.eql(u8, identifier, "false")) return Val.init(false);
     if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.init(x);
     if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.init(x);
-    const symbol = Symbol.init(identifier);
-    const interned_symbol = try symbol.intern(vm.heap.allocator, &vm.heap.string_interner);
-    return Val.init(interned_symbol);
+    return vm.builder().symbol(Symbol.init(identifier));
 }
 
 /// Converts a string representation into a Lisp string.

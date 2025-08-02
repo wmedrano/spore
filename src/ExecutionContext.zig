@@ -3,8 +3,9 @@ const testing = std.testing;
 
 const StringInterner = @import("datastructures/StringInterner.zig");
 const Symbol = @import("datastructures/Symbol.zig");
+const errors = @import("errors.zig");
+const DetailedError = errors.DetailedError;
 const Instruction = @import("instruction.zig").Instruction;
-const Tokenizer = @import("parser/Tokenizer.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -18,7 +19,7 @@ pub const CallFrame = struct {
     /// The index of the next instruction to be executed.
     instruction_index: i32 = 0,
     /// The index in the main stack where this function's local stack starts.
-    stack_start: usize = 0,
+    stack_start: i32 = 0,
 };
 
 /// A map from symbol to its value in the global namespace.
@@ -30,7 +31,7 @@ call_frame: CallFrame = .{},
 /// Holds the previous call frames.
 previous_call_frames: std.BoundedArray(CallFrame, 64) = .{},
 /// Holds the last error that occurred during execution.
-last_error: Val = Val.init({}),
+last_error: ?DetailedError = null,
 
 /// Deinitialize self and free all memory.
 pub fn deinit(self: *ExecutionContext, allocator: std.mem.Allocator) void {
@@ -66,7 +67,7 @@ pub fn getGlobal(self: ExecutionContext, symbol: Symbol.Interned) ?Val {
 /// Get the portion of the stack belonging to the current call frame. If in the
 /// global scope, this returns the entire stack.
 pub fn localStack(self: *ExecutionContext) []Val {
-    return self.stack.slice()[self.call_frame.stack_start..];
+    return self.stack.slice()[@intCast(self.call_frame.stack_start)..];
 }
 
 /// Retrieves the next instruction from the current call frame and advances the
@@ -141,10 +142,7 @@ test "pop empty stack returns stack underflow" {
 test "getGlobal on non-existant symbol returns null" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try Symbol.init("my-var").intern(
-        vm.heap.allocator,
-        &vm.heap.string_interner,
-    );
+    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
 
     try testing.expectEqualDeep(
         null,
@@ -155,7 +153,7 @@ test "getGlobal on non-existant symbol returns null" {
 test "getGlobal on symbol registered with setGlobal returns that symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
+    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try testing.expectEqualDeep(

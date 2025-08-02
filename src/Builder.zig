@@ -2,6 +2,8 @@ const std = @import("std");
 
 const ConsCell = @import("ConsCell.zig");
 const Symbol = @import("datastructures/Symbol.zig");
+const errors = @import("errors.zig");
+const DetailedError = errors.DetailedError;
 const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const String = @import("String.zig");
@@ -14,7 +16,7 @@ vm: *Vm,
 
 /// Converts a slice of Vals to a list.
 /// Converts a slice of Vals to a list.
-pub fn list(self: Builder, vals: []const Val) NativeFunction.Error!Val {
+pub fn list(self: Builder, vals: []const Val) errors.Error!Val {
     if (vals.len == 0) return Val.init({});
     const head = vals[0];
     const tail = try self.list(vals[1..]);
@@ -37,12 +39,14 @@ pub fn list(self: Builder, vals: []const Val) NativeFunction.Error!Val {
 ///
 /// Returns:
 ///     A Val representing the new cons cell.
-pub fn cons(self: Builder, car: Val, cdr: Val) NativeFunction.Error!Val {
-    const cons_handle = try self.vm.heap.cons_cells.create(
+pub fn cons(self: Builder, car: Val, cdr: Val) errors.Error!Val {
+    const cons_handle = self.vm.heap.cons_cells.create(
         self.vm.heap.allocator,
         ConsCell.init(car, cdr),
         self.vm.heap.unreachable_color,
-    );
+    ) catch |err| switch (err) {
+        error.OutOfMemory => return self.addError(DetailedError{ .out_of_memory = {} }),
+    };
     return Val.init(cons_handle);
 }
 
@@ -60,7 +64,7 @@ pub fn cons(self: Builder, car: Val, cdr: Val) NativeFunction.Error!Val {
 ///
 /// Returns:
 ///     A Val representing the new string.
-pub fn string(self: Builder, s: []const u8) NativeFunction.Error!Val {
+pub fn string(self: Builder, s: []const u8) errors.Error!Val {
     const handle = try self.vm.heap.strings.create(
         self.vm.heap.allocator,
         try String.initCopy(self.vm.heap.allocator, s),
@@ -85,7 +89,7 @@ pub fn string(self: Builder, s: []const u8) NativeFunction.Error!Val {
 ///
 /// Returns:
 ///     A Val representing the new string.
-pub fn stringOwned(self: Builder, s: []const u8) NativeFunction.Error!Val {
+pub fn stringOwned(self: Builder, s: []const u8) errors.Error!Val {
     const handle = try self.vm.heap.strings.create(
         self.vm.heap.allocator,
         String.initOwned(s),
@@ -94,87 +98,34 @@ pub fn stringOwned(self: Builder, s: []const u8) NativeFunction.Error!Val {
     return Val.init(handle);
 }
 
-/// Creates and adds an error to the VM's error list when a symbol is not found.
+/// Creates a new symbol from the given Symbol object.
 ///
 /// Args:
-///     sym: The interned symbol that was not found.
+///     sym: The Symbol object to convert.
 ///
 /// Returns:
-///     A NativeFunction.Error.SymbolNotFound error.
-pub fn symbolNotFound(self: Builder, sym: Symbol.Interned) NativeFunction.Error {
-    const err_str = try std.fmt.allocPrint(
-        self.vm.heap.allocator,
-        "`{any}` not defined.",
-        .{self.vm.inspector().pretty(Val.init(sym))},
-    );
-    self.vm.execution_context.last_error = try self.cons(
-        try self.vm.builder().stringOwned(err_str),
-        self.vm.execution_context.last_error,
-    );
-    return NativeFunction.Error.SymbolNotFound;
+///     A Val representing the new symbol.
+pub fn symbol(self: Builder, sym: Symbol) errors.Error!Val {
+    return Val.init(try self.internedSymbol(sym));
 }
 
-/// Creates and adds an error to the VM's error list when a stack underflow occurs.
+/// Interns the given Symbol object.
 ///
-/// Returns:
-///     A NativeFunction.Error.StackUnderflow error.
-pub fn stackUnderflow(self: Builder) NativeFunction.Error {
-    const err_str = try self.string("Stack underflow! Likely a language bug.");
-    try self.addError(err_str);
-    return NativeFunction.Error.StackUnderflow;
-}
-
-/// Creates and adds an error to the VM's error list when a stack overflow occurs.
-///
-/// Returns:
-///     A NativeFunction.Error.StackUnderflow error.
-pub fn stackOverflow(self: Builder) NativeFunction.Error {
-    const err_str = try self.string("Stack overflow!\nFunction call stack is probably too deep, but file a bug if this is a perfectly valid program.");
-    try self.addError(err_str);
-    return NativeFunction.Error.StackUnderflow;
-}
-
-/// Creates and adds a type error to the VM's error list.
+/// This function takes a Symbol object and interns its string representation
+/// using the VM's string interner, ensuring that only one copy of each unique
+/// symbol string exists in memory.
 ///
 /// Args:
-///     expected: The expected type as a string.
-///     got: The actual value that caused the type error.
+///     sym: The Symbol object to intern.
 ///
 /// Returns:
-///     A NativeFunction.Error.TypeError error.
-pub fn typeError(self: Builder, expected: []const u8, got: Val) NativeFunction.Error {
-    const err_str = try std.fmt.allocPrint(
-        self.vm.heap.allocator,
-        "expected type {s} but got {any}",
-        .{ expected, self.vm.inspector().pretty(got) },
-    );
-    const err = try self.stringOwned(err_str);
-    try self.addError(err);
-    return NativeFunction.Error.TypeError;
+///     An Interned symbol.
+pub fn internedSymbol(self: Builder, sym: Symbol) errors.Error!Symbol.Interned {
+    return sym.intern(self.vm.heap.allocator, &self.vm.heap.string_interner);
 }
 
-/// Creates and adds an arity error to the VM's error list.
-///
-/// Args:
-///     expected_arity: A string describing the expected arity (e.g., "1", "2 or more", "at least 1").
-///     actual: The actual number of arguments received.
-///
-/// Returns:
-///     A NativeFunction.Error.WrongArity error.
-pub fn arityError(self: Builder, expected_arity: []const u8, actual: usize) NativeFunction.Error {
-    const err_str = try std.fmt.allocPrint(
-        self.vm.heap.allocator,
-        "Wrong number of arguments: expected {s}, got {d}",
-        .{ expected_arity, actual },
-    );
-    const err = try self.stringOwned(err_str);
-    try self.addError(err);
-    return NativeFunction.Error.WrongArity;
-}
-
-fn addError(self: Builder, err: Val) !void {
-    self.vm.execution_context.last_error = try self.cons(
-        err,
-        self.vm.execution_context.last_error,
-    );
+/// Add an error to the virtual machine.
+pub fn addError(self: Builder, err: errors.DetailedError) errors.Error {
+    self.vm.execution_context.last_error = err;
+    return err.err();
 }

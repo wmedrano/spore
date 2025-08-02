@@ -29,7 +29,7 @@ pub const ListIter = struct {
 
     /// Errors that can occur during list iteration.
     pub const Error = error{
-        TypeError,
+        WrongType,
         ObjectNotFound,
     };
 
@@ -43,7 +43,7 @@ pub const ListIter = struct {
     /// Advances the iterator and returns the next element in the list or `null`
     /// if the end of the list is reached.
     ///
-    /// Returns `ListIter.Error.TypeError` if the `cdr` is not a `cons` or `nil`.
+    /// Returns `ListIter.Error.WrongType` if the `cdr` is not a `cons` or `nil`.
     /// This is a property of valid lists.
     pub fn next(self: *ListIter, vm: *const Vm) Error!?Val {
         const cons = self.cons orelse return null;
@@ -51,7 +51,7 @@ pub const ListIter = struct {
         switch (cons.cdr.repr) {
             .cons => |handle| self.cons = try vm.heap.cons_cells.get(handle),
             .nil => self.cons = null,
-            else => return Error.TypeError,
+            else => return Error.WrongType,
         }
         return ret;
     }

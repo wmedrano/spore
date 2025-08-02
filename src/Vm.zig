@@ -56,9 +56,10 @@ fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
     while (try reader.next(self.heap.allocator, self)) |expr| {
         try compiler.addExpr(expr);
     }
+    const bytecode_name = try self.builder().internedSymbol(Symbol.init("user-source"));
     const bytecode_handle = try self.heap.bytecode_functions.create(
         self.heap.allocator,
-        try compiler.compile(),
+        try compiler.compile(bytecode_name),
         self.heap.unreachable_color,
     );
     return bytecode_handle;
@@ -66,7 +67,7 @@ fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
 
 /// Evaluates a `BytecodeFunction` by executing its instructions within the VM's execution context.
 fn evalBytecode(self: *Vm, bytecode_handle: Handle(BytecodeFunction)) !Val {
-    self.execution_context.last_error = Val.init({});
+    self.execution_context.last_error = null;
     const initial_call_stack_size = self.execution_context.previous_call_frames.len;
     try self.execution_context.pushVal(Val.init(bytecode_handle));
     try (Instruction{ .eval = 1 }).execute(self);

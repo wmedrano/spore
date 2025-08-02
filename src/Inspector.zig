@@ -33,11 +33,17 @@ pub fn listIter(self: Inspector, val: Val) !ConsCell.ListIter {
             const cons = try self.vm.heap.cons_cells.get(handle);
             return cons.iterList();
         },
-        else => return error.TypeError,
+        else => return error.WrongType,
     }
 }
 
+/// Pretty prints the stack trace.
+pub fn stackTrace(self: Inspector) ?PrettyPrinter.StackTrace {
+    return PrettyPrinter.StackTrace{ .vm = self.vm };
+}
+
 /// Pretty prints the last error.
-pub fn lastError(self: Inspector) PrettyPrinter {
-    return self.pretty(self.vm.execution_context.last_error);
+pub fn lastError(self: Inspector) ?PrettyPrinter.Err {
+    const err = self.vm.execution_context.last_error orelse return null;
+    return PrettyPrinter.Err{ .vm = self.vm, .err = err };
 }

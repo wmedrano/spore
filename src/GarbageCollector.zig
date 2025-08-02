@@ -40,7 +40,9 @@ pub fn run(self: *GarbageCollector) !void {
 /// This function traverses the VM's stack and global values, marking all
 /// `Val` instances and their reachable sub-objects as reachable.
 fn mark(self: *GarbageCollector) !void {
-    try self.markOne(self.vm.execution_context.last_error);
+    if (self.vm.execution_context.last_error) |err| {
+        if (err.referencedVal()) |val| try self.markOne(val);
+    }
     for (self.vm.execution_context.stack.constSlice()) |val| try self.markOne(val);
     var globals_iter = self.vm.execution_context.global_values.valueIterator();
     while (globals_iter.next()) |val| try self.markOne(val.*);

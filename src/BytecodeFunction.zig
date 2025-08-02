@@ -1,15 +1,18 @@
 //! Defines `BytecodeFunction`, which represents a function implemented in bytecode.
 const std = @import("std");
-const Vm = @import("Vm.zig");
-const Val = @import("Val.zig");
+
 const Symbol = @import("datastructures/Symbol.zig");
 const Instruction = @import("instruction.zig").Instruction;
+const Val = @import("Val.zig");
+const Vm = @import("Vm.zig");
 
 /// A function that is implemented in bytecode.
 const BytecodeFunction = @This();
 
 /// The instructions to execute.
 instructions: []const Instruction,
+/// The name of the bytecode function.
+name: ?Symbol.Interned = null,
 /// The number of arguments the function takes.
 args: i32 = 0,
 /// The size of the initial local stack. This is the space used up by the `args`
@@ -25,12 +28,15 @@ pub fn deinit(self: *BytecodeFunction, allocator: std.mem.Allocator) void {
 /// Formats the `NativeFunction` for printing, implementing the `std.fmt.Format`
 /// interface.
 pub fn format(
-    _: BytecodeFunction,
+    self: BytecodeFunction,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
     writer: anytype,
 ) !void {
     _ = fmt;
     _ = options;
-    try writer.print("@function", .{});
+    if (self.name) |name|
+        try writer.print("@function-{any}", .{name})
+    else
+        try writer.print("@function", .{});
 }

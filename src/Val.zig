@@ -102,7 +102,7 @@ pub fn init(val: anytype) Val {
 }
 
 /// An error that occurs when converting a Zig object into a Spore object.
-pub const ToValError = error{TypeError};
+pub const ToValError = error{WrongType};
 
 /// Convert `Val` into a value of type `T`.
 /// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
@@ -110,45 +110,45 @@ pub fn to(self: Val, T: type) ToValError!T {
     switch (T) {
         void => switch (self.repr) {
             .nil => return {},
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         bool => switch (self.repr) {
             .boolean => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         i64 => switch (self.repr) {
             .int => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         f64 => switch (self.repr) {
             .float => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         Symbol.Interned => switch (self.repr) {
             .symbol => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         Symbol => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Symbol.Interned)),
         Handle(ConsCell) => switch (self.repr) {
             .cons => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(ConsCell))),
         Handle(String) => switch (self.repr) {
             .string => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         String => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(String))),
         Handle(NativeFunction) => switch (self.repr) {
             .native_function => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         Handle(BytecodeFunction) => switch (self.repr) {
             .bytecode_function => |x| return x,
-            else => return ToValError.TypeError,
+            else => return ToValError.WrongType,
         },
         else => @compileError("Unsupported type for Val.to: " ++ @typeName(T)),
     }
@@ -178,29 +178,34 @@ test "Val is small" {
 test "Val.to nil/void" {
     const nil_val = Val.init({});
     _ = try nil_val.to(void);
-    try testing.expectError(ToValError.TypeError, nil_val.to(i64));
+    try testing.expectError(ToValError.WrongType, nil_val.to(i64));
 }
 
 test "Val.to i64" {
     const int_val = Val.init(42);
     try testing.expectEqual(42, try int_val.to(i64));
-    try testing.expectError(ToValError.TypeError, int_val.to(f64));
+    try testing.expectError(ToValError.WrongType, int_val.to(f64));
 }
 
 test "Val.to f64" {
     const float_val = Val.init(3.14);
     try testing.expectEqual(3.14, try float_val.to(f64));
-    try testing.expectError(ToValError.TypeError, float_val.to(i64));
+    try testing.expectError(ToValError.WrongType, float_val.to(i64));
 }
 
 test "Val.to Symbol.Interned" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
-    const symbol_val = Val.init(symbol);
-    try testing.expectEqual(symbol, try symbol_val.to(Symbol.Interned));
-    try testing.expectError(ToValError.TypeError, symbol_val.to(i64));
+    const symbol = try vm.builder().symbol(Symbol.init("hello"));
+    try testing.expectEqual(
+        try vm.builder().internedSymbol(Symbol.init("hello")),
+        symbol.to(Symbol.Interned),
+    );
+    try testing.expectError(
+        ToValError.WrongType,
+        symbol.to(i64),
+    );
 }
 
 test "Val.to Handle(ConsCell)" {
@@ -214,7 +219,7 @@ test "Val.to Handle(ConsCell)" {
     );
     const cons_val = Val.init(handle);
     try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
-    try testing.expectError(ToValError.TypeError, cons_val.to(i64));
+    try testing.expectError(ToValError.WrongType, cons_val.to(i64));
 }
 
 test "bool true is truthy" {
@@ -246,9 +251,8 @@ test "symbol is truthy" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const symbol = try Symbol.init("hello").intern(testing.allocator, &vm.heap.string_interner);
-    const symbol_val = Val.init(symbol);
-    try testing.expect(symbol_val.isTruthy());
+    const symbol = try vm.builder().symbol(Symbol.init("hello"));
+    try testing.expect(symbol.isTruthy());
 }
 
 test "cons is truthy" {
