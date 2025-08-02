@@ -464,7 +464,7 @@ test "+ returns TypeError for non-numeric values" {
 
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(+ 1 'my-var)"),
+        vm.evalStr("(+ 1 \"my-var\")"),
     );
 }
 
@@ -472,7 +472,7 @@ test "define sets global variable" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    _ = try vm.evalStr("(internal-define 'x 42)");
+    _ = try vm.evalStr("(internal-define (quote x) 42)");
     try testing.expectEqualDeep(
         Val.init(42),
         vm.evalStr("x"),
@@ -539,7 +539,7 @@ test "cons? returns false for non-cons cell" {
     );
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(cons? 'a)"),
+        try vm.evalStr("(cons? (quote a))"),
     );
     try testing.expectEqualDeep(
         Val.init(false),
@@ -587,7 +587,7 @@ test "number? returns false for symbol" {
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(number? 'hello)"),
+        try vm.evalStr("(number? (quote hello))"),
     );
 }
 
@@ -605,7 +605,7 @@ test "symbol? returns true for symbol" {
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(true),
-        try vm.evalStr("(symbol? 'my-symbol)"),
+        try vm.evalStr("(symbol? (quote my-symbol))"),
     );
 }
 
@@ -650,7 +650,7 @@ test "null? returns false for symbol" {
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(null? 'a)"),
+        try vm.evalStr("(null? (quote a))"),
     );
 }
 
@@ -668,7 +668,7 @@ test "string? returns false for symbol" {
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(string? 'hello)"),
+        try vm.evalStr("(string? (quote hello))"),
     );
 }
 
@@ -707,7 +707,7 @@ test "- with one argument negates number" {
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(- 'a)"),
+        vm.evalStr("(- (quote a))"),
     );
 }
 
@@ -728,7 +728,7 @@ test "- with two arguments subtracts args[1] from args[0]" {
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(- 5 'a)"),
+        vm.evalStr("(- 5 (quote a))"),
     );
 }
 
@@ -745,7 +745,7 @@ test "- with multiple arguments subtracts args[1..] from args[0]." {
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(- 10 1 'a)"),
+        vm.evalStr("(- 10 1 (quote a))"),
     );
 }
 
@@ -771,7 +771,7 @@ test "mod with non-integer returns type error" {
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(mod 10 'a)"),
+        vm.evalStr("(mod 10 (quote a))"),
     );
 }
 
@@ -864,15 +864,15 @@ test "= returns TypeError for non-numeric arguments" {
     defer vm.deinit();
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(= 5 'a)"),
+        vm.evalStr("(= 5 (quote a))"),
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(= 'a 5)"),
+        vm.evalStr("(= (quote a) 5)"),
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(= 'a 'b)"),
+        vm.evalStr("(= (quote a) 'b)"),
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
@@ -963,15 +963,15 @@ test "/ returns TypeError for non-numeric arguments" {
     defer vm.deinit();
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(/ 10 'a)"),
+        vm.evalStr("(/ 10 (quote a))"),
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(/ 'a 10)"),
+        vm.evalStr("(/ (quote a) 10)"),
     );
     try testing.expectError(
         NativeFunction.Error.TypeError,
-        vm.evalStr("(/ 'a)"),
+        vm.evalStr("(/ (quote a))"),
     );
 }
 

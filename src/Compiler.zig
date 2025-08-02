@@ -46,6 +46,7 @@ symbols: struct {
     cdr: Symbol.Interned,
     @"or": Symbol.Interned,
     @"and": Symbol.Interned,
+    quote: Symbol.Interned,
 },
 /// The compiled expression.
 instructions: std.ArrayListUnmanaged(Instruction) = .{},
@@ -98,6 +99,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .cdr = try Symbol.init("cdr").intern(vm.heap.allocator, &vm.heap.string_interner),
             .@"or" = try Symbol.init("or").intern(vm.heap.allocator, &vm.heap.string_interner),
             .@"and" = try Symbol.init("and").intern(vm.heap.allocator, &vm.heap.string_interner),
+            .quote = try Symbol.init("quote").intern(vm.heap.allocator, &vm.heap.string_interner),
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
@@ -131,12 +133,7 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
             const instruction = Instruction{ .push = expr };
             try self.addInstruction(instruction);
         },
-        .symbol => |s| {
-            if (s.unquote()) |interned_symbol|
-                try self.addInstruction(Instruction{ .push = Val.init(interned_symbol) })
-            else
-                try self.deref(s);
-        },
+        .symbol => |s| try self.deref(s),
         .cons => |cons_handle| try self.addCons(cons_handle),
     }
 }
@@ -231,6 +228,8 @@ fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
                 return self.addOr(&vals);
             if (std.meta.eql(val, Val.init(self.symbols.@"and")))
                 return self.addAnd(&vals);
+            if (std.meta.eql(val, Val.init(self.symbols.quote)))
+                return self.addQuote(&vals);
         }
         try self.addExpr(val);
         items += 1;
@@ -257,7 +256,7 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const pred = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const true_branch = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const false_branch = (try exprs.next(self.vm)) orelse Val.init({});
-    if ((try exprs.next(self.vm)) != null) return Error.InvalidExpression;
+    if (!exprs.empty()) return Error.InvalidExpression;
 
     try self.addExpr(pred);
     const jump_if_idx = self.instructions.items.len;
@@ -287,7 +286,7 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// provided.
 fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const return_val = try exprs.next(self.vm);
-    if ((try exprs.next(self.vm)) != null) return Error.InvalidExpression;
+    if (!exprs.empty()) return Error.InvalidExpression;
 
     if (return_val) |val|
         try self.addExpr(val)
@@ -311,10 +310,9 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///     of arguments, non-symbol name, or a quoted symbol).
 fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    _ = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
     const expr = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
-    if (interned_symbol.quoted) return Error.InvalidExpression;
-    if (try exprs.next(self.vm)) |_| return Error.InvalidExpression;
+    if (!exprs.empty()) return Error.InvalidExpression;
 
     try self.addInstructions(&.{
         Instruction{ .deref = self.symbols.internal_define },
@@ -340,8 +338,7 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///     An error if the `defun` expression is malformed.
 fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
-    if (interned_symbol.quoted) return Error.InvalidExpression;
+    _ = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
 
     try self.addInstructions(&.{
         Instruction{ .deref = self.symbols.internal_define },
@@ -373,19 +370,19 @@ fn addFunction(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     try self.addInstruction(Instruction{ .push = Val.init(bytecode_handle) });
 }
 
-// Compiles a `let*` expression.
-// A `let*` expression introduces new local variables within its scope.
-// It takes a list of bindings, where each binding is a pair of a variable name
-// (a symbol) and an expression to evaluate for that variable's initial value.
-// After evaluating and setting the bindings, it evaluates the body of the `let*`
-// expression. If the `let*` body has multiple expressions, they are compiled
-// with a `squash` instruction to return the value of the last expression.
-// If there are no expressions in the body, `nil` is returned.
-//  * Args:
-//     exprs: An iterator over the expressions in the `let*` expression.
-//  * Returns:
-//     An error if the `let*` expression is malformed or if there is an issue
-//     during compilation.
+/// Compiles a `let*` expression.
+/// A `let*` expression introduces new local variables within its scope.
+/// It takes a list of bindings, where each binding is a pair of a variable name
+/// (a symbol) and an expression to evaluate for that variable's initial value.
+/// After evaluating and setting the bindings, it evaluates the body of the `let*`
+/// expression. If the `let*` body has multiple expressions, they are compiled
+/// with a `squash` instruction to return the value of the last expression.
+/// If there are no expressions in the body, `nil` is returned.
+///  * Args:
+///     exprs: An iterator over the expressions in the `let*` expression.
+///  * Returns:
+///     An error if the `let*` expression is malformed or if there is an issue
+///     during compilation.
 fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.inspector().listIter(bindings);
@@ -398,7 +395,7 @@ fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
         var binding_parts = try self.vm.inspector().listIter(binding);
         const binding_name = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
-        if (try binding_parts.next(self.vm)) |_| return Error.InvalidExpression;
+        if (binding_parts.empty()) return Error.InvalidExpression;
         try self.addExpr(binding_expr);
         const name = binding_name.to(Symbol.Interned) catch return Error.InvalidExpression;
         const lexical_bind = try self.lexical_scope.add(self.arena.allocator(), name);
@@ -430,7 +427,7 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const binding_name_val = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
     const binding_name = binding_name_val.to(Symbol.Interned) catch return Error.InvalidExpression;
     const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
-    if (try bindings_iter.next(self.vm)) |_| return Error.InvalidExpression;
+    if (bindings_iter.empty()) return Error.InvalidExpression;
 
     // Setup: Evaluate and store cons.
     const next_bind = try self.lexical_scope.add(self.arena.allocator(), binding_name);
@@ -490,6 +487,23 @@ fn addOr(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     for (jumps.items) |idx| {
         self.instructions.items[idx].jump_or_else_pop = jumpDistance(idx + 1, want_idx);
     }
+}
+
+/// Compiles a `quote` expression.
+///
+/// It expects exactly one argument. This argument is pushed directly onto the
+/// stack without being evaluated. If more or less than one argument is
+/// provided, an `InvalidExpression` error is returned.
+///
+/// Args:
+///     exprs: An iterator over the expressions in the `quote` expression.
+///
+/// Returns:
+///     An error if the `quote` expression is malformed.
+fn addQuote(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+    const quoted_val = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
+    if (!exprs.empty()) return Error.InvalidExpression;
+    try self.addInstruction(Instruction{ .push = quoted_val });
 }
 
 fn addAnd(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
@@ -596,28 +610,6 @@ test "compile simple list" {
             Instruction{ .push = Val.init(1) },
             Instruction{ .push = Val.init(2) },
             Instruction{ .eval = 3 },
-        } },
-        bytecode,
-    );
-}
-
-test "quoted symbol is unquoted" {
-    var vm = try Vm.init(testing.allocator);
-    defer vm.deinit();
-    const sym = try Symbol.init("sym").intern(
-        testing.allocator,
-        &vm.heap.string_interner,
-    );
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("'sym", testing.allocator, &vm));
-    var bytecode = try compiler.compile();
-    defer bytecode.deinit(testing.allocator);
-
-    try testing.expectEqualDeep(
-        BytecodeFunction{ .instructions = &[_]Instruction{
-            Instruction{ .push = Val.init(sym) },
         } },
         bytecode,
     );
@@ -898,7 +890,7 @@ test "compile def turns to define" {
     );
 }
 
-test "compile def with quoted symbol fails" {
+test "compile def without symbol fails" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -907,7 +899,7 @@ test "compile def with quoted symbol fails" {
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(def 'my-var 123)", testing.allocator, &vm)),
+        compiler.addExpr(try Reader.readOne("(def \"my-var\" 123)", testing.allocator, &vm)),
     );
 }
 
@@ -977,7 +969,7 @@ test "compile defun with non-symbol name fails" {
     );
 }
 
-test "compile defun with quoted symbol fails" {
+test "compile defun without symbol fails" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
@@ -986,7 +978,7 @@ test "compile defun with quoted symbol fails" {
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(defun 'my-func () 1)", testing.allocator, &vm)),
+        compiler.addExpr(try Reader.readOne("(defun \"my-func\" () 1)", testing.allocator, &vm)),
     );
 }
 
@@ -1202,5 +1194,77 @@ test "empty and statement is compile error" {
     try testing.expectError(
         Compiler.Error.InvalidExpression,
         compiler.addExpr(try Reader.readOne("(and)", testing.allocator, &vm)),
+    );
+}
+
+test "compile quote with atom returns atom" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(quote 10)", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = Val.init(10) },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "compile quote with list returns list" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try compiler.addExpr(try Reader.readOne("(quote (1 2))", testing.allocator, &vm));
+    var bytecode = try compiler.compile();
+    defer bytecode.deinit(testing.allocator);
+
+    const list_val = bytecode.instructions[0].push;
+    try testing.expectFmt(
+        "(1 2)",
+        "{any}",
+        .{vm.inspector().pretty(list_val)},
+    );
+    try testing.expectEqualDeep(
+        BytecodeFunction{
+            .instructions = &[_]Instruction{
+                Instruction{ .push = list_val },
+            },
+            .args = 0,
+        },
+        bytecode,
+    );
+}
+
+test "compile quote with no arguments is compile error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try testing.expectError(
+        Compiler.Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(quote)", testing.allocator, &vm)),
+    );
+}
+
+test "compile quote with too many arguments is compile error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var compiler = try init(&arena, &vm);
+    try testing.expectError(
+        Compiler.Error.InvalidExpression,
+        compiler.addExpr(try Reader.readOne("(quote 1 2)", testing.allocator, &vm)),
     );
 }

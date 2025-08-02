@@ -1,4 +1,2 @@
 (println "Hello World!")
 (println "Bye World!")
-
-(printss 32)
