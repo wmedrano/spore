@@ -2,6 +2,8 @@ const std = @import("std");
 const testing = @import("std").testing;
 
 const Symbol = @import("datastructures/Symbol.zig");
+const errors = @import("errors.zig");
+const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const String = @import("String.zig");
@@ -12,9 +14,9 @@ pub const Error = error{
     StackOverflow,
     StackUnderflow,
     SymbolNotFound,
-    TypeError,
+    WrongType,
     WrongArity,
-} || NativeFunction.Error || std.mem.Allocator.Error;
+} || errors.Error || std.mem.Allocator.Error;
 
 pub const Code = enum {
     push,
@@ -84,23 +86,23 @@ pub const Instruction = union(Code) {
                 try vm.execution_context.pushVal(val);
             },
             .set => |idx| {
-                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackUnderflow();
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().addError(DetailedError{ .stack_underflow = {} });
                 vm.execution_context.localStack()[@intCast(idx)] = val;
             },
             .deref => |s| {
                 if (vm.execution_context.getGlobal(s)) |val| {
                     return try vm.execution_context.pushVal(val);
                 }
-                return vm.builder().symbolNotFound(s);
+                return vm.builder().addError(DetailedError{ .symbol_not_found = .{ .symbol = s } });
             },
             .iter_next => |iter| try executeIterNext(vm, @intCast(iter.index)),
             .jump => |n| vm.execution_context.call_frame.instruction_index += n,
             .jump_if => |n| {
-                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackOverflow();
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().addError(DetailedError{ .stack_overflow = {} });
                 if (val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
             },
             .jump_if_not => |n| {
-                const val = vm.execution_context.stack.pop() orelse return vm.builder().stackOverflow();
+                const val = vm.execution_context.stack.pop() orelse return vm.builder().addError(DetailedError{ .stack_overflow = {} });
                 if (!val.isTruthy()) vm.execution_context.call_frame.instruction_index += n;
             },
             .jump_or_else_pop => |n| {
@@ -128,11 +130,11 @@ pub const Instruction = union(Code) {
     /// The first of the `n` items is the function to be called, and the remaining
     /// `n - 1` items are the arguments. After the call, the function and its
     /// arguments are replaced on the stack with the single return value.
-    fn executeEval(vm: *Vm, n: usize) Error!void {
+    fn executeEval(vm: *Vm, n: i32) Error!void {
         if (n == 0) return Error.StackUnderflow;
-        const function_idx = vm.execution_context.stack.len - n;
+        const function_idx: i32 = @as(i32, @intCast(vm.execution_context.stack.len)) - n;
         const stack_start = function_idx + 1;
-        const function_val = vm.execution_context.stack.get(function_idx);
+        const function_val = vm.execution_context.stack.get(@intCast(function_idx));
         switch (function_val.repr) {
             .bytecode_function => |handle| {
                 const function = try vm.heap.bytecode_functions.get(handle);
@@ -146,7 +148,7 @@ pub const Instruction = union(Code) {
                 const extra_slots_size = function.initial_local_stack_size - function.args;
                 if (extra_slots_size > 0) {
                     const extra_slots =
-                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch return vm.builder().stackOverflow();
+                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch return vm.builder().addError(DetailedError{ .stack_overflow = {} });
                     for (extra_slots) |*v| v.* = Val.init({});
                 }
             },
@@ -154,10 +156,10 @@ pub const Instruction = union(Code) {
                 try vm.execution_context.pushCallFrame(
                     ExecutionContext.CallFrame{ .stack_start = stack_start },
                 );
-                vm.execution_context.stack.append(try function.call(vm)) catch return vm.builder().stackOverflow();
+                vm.execution_context.stack.append(try function.call(vm)) catch return vm.builder().addError(DetailedError{ .stack_overflow = {} });
                 try (Instruction{ .ret = {} }).execute(vm);
             },
-            else => return vm.builder().typeError("function", function_val),
+            else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "function", .got = function_val } }),
         }
     }
 
@@ -177,7 +179,7 @@ pub const Instruction = union(Code) {
                 break :blk true;
             },
             .nil => false,
-            else => return vm.builder().typeError("iterable", iterable_val),
+            else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "iterable", .got = iterable_val } }),
         };
         try vm.execution_context.pushVal(Val.init(has_value));
     }
@@ -191,10 +193,10 @@ pub const Instruction = union(Code) {
     fn executeRet(vm: *Vm) !void {
         const return_val = returnVal(vm);
         const previous_stack_len = vm.execution_context.call_frame.stack_start;
-        vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return vm.builder().stackUnderflow();
-        vm.execution_context.stack.len = previous_stack_len;
+        vm.execution_context.call_frame = vm.execution_context.previous_call_frames.pop() orelse return vm.builder().addError(DetailedError{ .stack_underflow = {} });
+        vm.execution_context.stack.len = @intCast(previous_stack_len);
         if (vm.execution_context.localStack().len == 0)
-            return vm.builder().stackUnderflow();
+            return vm.builder().addError(DetailedError{ .stack_underflow = {} });
         vm.execution_context.stack.set(vm.execution_context.stack.len - 1, return_val);
     }
 
@@ -226,7 +228,7 @@ test "push val pushes to stack" {
 test "get symbol pushes value referred to by symbol onto stack" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try Symbol.init("my-var").intern(vm.heap.allocator, &vm.heap.string_interner);
+    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try (Instruction{ .deref = symbol }).execute(&vm);
@@ -241,7 +243,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
 test "eval calls function" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus = try Symbol.init("+").intern(vm.heap.allocator, &vm.heap.string_interner);
+    const plus = try vm.builder().internedSymbol(Symbol.init("+"));
     try (Instruction{ .deref = plus }).execute(&vm);
     try (Instruction{ .push = Val.init(10) }).execute(&vm);
     try (Instruction{ .push = Val.init(20) }).execute(&vm);
@@ -253,12 +255,12 @@ test "eval calls function" {
     );
 }
 
-test "eval on non function produces TypeErrorError" {
+test "eval on non function produces Wrong Type Error" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try (Instruction{ .push = Val.init(123) }).execute(&vm);
     try testing.expectError(
-        Error.TypeError,
+        Error.WrongType,
         (Instruction{ .eval = 1 }).execute(&vm),
     );
 }

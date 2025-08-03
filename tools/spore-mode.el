@@ -33,7 +33,7 @@
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.sp\\'" . spore-mode))
 
-(setq-default spore-bin "spore")
+(defvar spore-bin "spore")
 
 (defun org-babel-execute:spore (body params)
   "Execute block BODY as a Spore program in Org Babel.

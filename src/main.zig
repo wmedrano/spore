@@ -15,7 +15,10 @@ pub fn main() !void {
     defer vm.deinit();
     _ = vm.evalStr(program_str) catch |err| {
         std.debug.print("Error encountered!\n", .{});
-        std.debug.print("  {any}\n\n\n", .{vm.inspector().lastError()});
+        std.debug.print("{any}\n{any}\n\n\n", .{
+            vm.inspector().stackTrace(),
+            vm.inspector().lastError(),
+        });
         return err;
     };
 }

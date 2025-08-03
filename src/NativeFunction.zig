@@ -1,31 +1,11 @@
 const std = @import("std");
 
 const Symbol = @import("datastructures/Symbol.zig");
+const Error = @import("errors.zig").Error;
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
 const NativeFunction = @This();
-
-/// An error that can occur when calling a function.
-/// An error that can occur when calling a native function.
-pub const Error = error{
-    /// The function was called with the wrong number of arguments.
-    WrongArity,
-    /// An argument to the function had an incorrect type.
-    TypeError,
-    /// An object was not found, likely due to being garbage collected.
-    ObjectNotFound,
-    /// A division by zero was attempted.
-    DivisionByZero,
-    /// A symbol was not found.
-    SymbolNotFound,
-    /// The stack unexpectedly ran out of items.
-    StackUnderflow,
-    /// The stack has overflowed.
-    StackOverflow,
-    /// An error with IO.
-    IoError,
-} || std.mem.Allocator.Error;
 
 /// The name of the function.
 name: []const u8,
@@ -57,7 +37,7 @@ pub fn format(
 pub fn register(self: *const NativeFunction, vm: *Vm) !void {
     try vm.execution_context.setGlobal(
         vm.heap.allocator,
-        try Symbol.init(self.name).intern(vm.heap.allocator, &vm.heap.string_interner),
+        try vm.builder().internedSymbol(Symbol.init(self.name)),
         Val.init(self),
     );
 }
