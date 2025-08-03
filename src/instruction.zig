@@ -58,7 +58,7 @@ pub const Instruction = union(Code) {
     /// value is truthy.
     jump_if: i32,
     /// Pop the top value of the stack and skip the next `n` instructions if the
-    /// value is falsey.
+    /// value is falsy.
     jump_if_not: i32,
     /// Jump if the top value of the stack is true or pop it otherwise.
     jump_or_else_pop: i32,
@@ -296,7 +296,7 @@ test "jump_if with truthy value pops value and increments instruction_index" {
     );
 }
 
-test "jump_if with falsey value pops value and does not increment instruction_index" {
+test "jump_if with falsy value pops value and does not increment instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -333,7 +333,7 @@ test "jump_or_else_pop with truthy value keeps value and increments instruction_
     );
 }
 
-test "jump_or_else_pop with falsey value pops value and does not increment instruction_index" {
+test "jump_or_else_pop with falsy value pops value and does not increment instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(false) });
@@ -369,7 +369,7 @@ test "pop_or_else_jump with truthy value pops value and does not increment instr
     );
 }
 
-test "pop_or_else_jump with falsey value does not pop value and increments instruction_index" {
+test "pop_or_else_jump with falsy value does not pop value and increments instruction_index" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try vm.execution_context.pushVals(&.{ Val.init(10), Val.init(false) });
