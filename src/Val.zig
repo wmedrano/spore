@@ -227,12 +227,12 @@ test "bool true is truthy" {
     try testing.expectEqual(true, bool_val.isTruthy());
 }
 
-test "bool false is falsey" {
+test "bool false is falsy" {
     const bool_val = Val.init(false);
     try testing.expectEqual(false, bool_val.isTruthy());
 }
 
-test "nil is falsey" {
+test "nil is falsy" {
     const nil_val = Val.init({});
     try testing.expectEqual(false, nil_val.isTruthy());
 }

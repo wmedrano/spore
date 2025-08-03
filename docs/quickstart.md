@@ -1,5 +1,34 @@
 # Spore Quickstart
 
+## Running Spore Programs
+
+Spore reads from standard input. There are two ways to run a program:
+
+1.  **From a file:**
+    ```sh
+    spore < my_program.spore
+    ```
+
+2.  **Interactively:** Run `spore`, type the program into the terminal, and
+    send an end-of-file character (typically `Ctrl+d`).
+
+### Emacs Org Mode
+
+Alternatively, programs may be edited and executed within Emacs Org mode.
+
+1. Load `tools/spore-mode.el`.
+2. Create an org block and execute it (typically with `C-c C-c`).
+
+```org
+#+BEGIN_SRC spore
+(defun foo (a b) (+ a b))
+(println (foo 1 2))
+#+END_SRC
+
+#+RESULTS:
+: 3
+```
+
 ## Basic Syntax and Data Types
 
 Spore is a Lisp-like scripting language built on S-expressions (e.g., `(+ 1 2)`). It is dynamically typed and supports several data types:
@@ -7,9 +36,9 @@ Spore is a Lisp-like scripting language built on S-expressions (e.g., `(+ 1 2)`)
 -   **Numbers**: `42`, `3.14`
 -   **Booleans**: `true`, `false`
 -   **Strings**: `"Hello"`
--   **Nil**: Represents nothingness (`nil` or `()`).
--   **Symbols**: `x`, `'my-symbol`
--   **Lists**: `(list 1 "two")`
+-   **Nil**: Represents nothingness (`nil`).
+-   **Symbols**: `x`.
+-   **Lists**: `(list 1 "two")` or `(quote (1 "two"))`.
 -   **Functions**: Defined with the `function` keyword.
 
 ### Comments
@@ -21,7 +50,6 @@ Spore supports single-line comments using two semicolons (`;;`). Anything after
 ;; This is a comment
 (print "Hello") ;; This is also a comment
 ```
-
 
 
 ## Variables
@@ -42,6 +70,40 @@ Functions are first-class citizens in Spore. You can create an anonymous
 function (also called a lambda) using the `function` keyword.
 
 The syntax is `(function (parameters) body)`.
+
+For convenience, Spore also provides the `defun` macro for defining named
+functions. `defun` is syntactic sugar that allows you to define a function and
+assign it to a symbol in one step, equivalent to using `def` with a `function`
+expression.
+
+The syntax is `(defun name (parameters) body)`.
+
+For example:
+```lisp
+(defun add (a b)
+  (+ a b))
+
+(add 5 3) ;; returns 8
+```
+
+### Early Returns with `return`
+
+Spore supports early returns from within functions using the `return` form. When
+`(return <expression>)` is evaluated, the enclosing function immediately stops
+execution and returns the value of `<expression>`. This is useful for exiting
+early from loops or handling base cases in recursion.
+
+For example:
+```lisp
+(defun find-first-positive (numbers)
+  (for (n numbers)
+    (if (> n 0)
+      (return n))) ;; Immediately exits the function and returns n
+  nil) ;; Returned if no positive number is found
+
+(find-first-positive (list -1 -5 3 8)) ;; returns 3
+(find-first-positive (list -2 -1))     ;; returns nil
+```
 
 Here's a function that takes two arguments, `a` and `b`, and returns their sum:
 
@@ -107,6 +169,7 @@ Spore includes a set of built-in functions for common operations.
     (- 10 4)  ;; returns 6
     (- 5)     ;; returns -5 (negation)
     (mod 10 3) ;; returns 1
+    The division operator `/` can take one or two arguments. When given two arguments, it returns their quotient. When given a single argument, it returns the reciprocal (1.0 divided by the argument). Division in Spore always results in a floating-point number.
     (/ 4 2)    ;; returns 2.0
     (/ 5.0 2.0) ;; returns 2.5
     (/ 2)      ;; returns 0.5 (1.0 / 2)
@@ -120,11 +183,12 @@ Spore includes a set of built-in functions for common operations.
     ```
 
 -   **Logical Operators**: `or`, `and`
+
     Spore provides `or` and `and` for logical disjunction and conjunction, respectively.
 
     -   `or`: Evaluates arguments from left to right. It returns the first
         argument that evaluates to a "truthy" value. If all arguments are
-        "falsey" (`false` and `nil`), it returns the last falsey value. This
+        "falsy" (`false` and `nil`), it returns the last falsy value. This
         operator is "short-circuiting"; once a truthy value is found, no further
         arguments are evaluated.
 
@@ -132,17 +196,17 @@ Spore includes a set of built-in functions for common operations.
     (or false true)                   ;; returns true
     (or nil 0)                        ;; returns 0 (since 0 is truthy)
     (or (null? (list 1)) "hello")     ;; returns "hello" (since (null? (list 1)) is false)
-    (or false nil)                    ;; returns nil (all falsey, returns last falsey value, which is nil in Spore)
+    (or false nil)                    ;; returns nil (all falsy, returns last falsy value, which is nil in Spore)
     (or (= 1 2) (= 3 3) (not-called)) ;; returns true (short-circuits after (= 3 3))
     ```
 
-    -   `and`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "falsey" value. If all arguments are "truthy", it returns the last argument. This operator is "short-circuiting"; once a falsey value is found, no further arguments are evaluated.
+    -   `and`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "falsy" value. If all arguments are "truthy", it returns the last argument. This operator is "short-circuiting"; once a falsy value is found, no further arguments are evaluated.
 
     ```lisp
     (and true false)                   ;; returns false
     (and 10 "hello")                   ;; returns "hello" (since 10 and "hello" are truthy, returns last truthy)
     (and true (null? (list 1)))        ;; returns false (since (null? (list 1)) is false)
-    (and 0 nil false)                  ;; returns nil (since 0 is truthy, nil is falsey, returns first falsey)
+    (and 0 nil false)                  ;; returns nil (since 0 is truthy, nil is falsy, returns first falsy)
     (and (= 1 1) (= 2 3) (not-called)) ;; returns false (short-circuits after (= 2 3))
     ```
 
@@ -174,7 +238,11 @@ Spore includes a set of built-in functions for common operations.
     (number? "123")     ;; returns false
     ```
 
--   **String Operations**: `->string`, `print`. Use `->string` to convert any single value to its string representation.  `print` displays the string representation of each of its arguments. `println` does the same, but adds a newline at the end.
+-   **String Operations**: `->string`, `print`, `println`
+
+    Use `->string` to convert any single value to its string representation.
+    `print` displays the string representation of each of its arguments.
+    `println` does the same, but adds a newline at the end.
     ```lisp
     (->string (list 1 2)) ;; returns "(1 2)"
     (print "Hello, " 1)   ;; displays "Hello, 1" to the console
@@ -201,14 +269,6 @@ squared-sum
 ```
 
 The final expression is the value of `squared-sum`, which is `30`.
-
-## Running Spore Programs
-
-To run a Spore program, save your Spore code in a file (e.g., `my_program.spore`) and execute it from your terminal:
-
-```sh
-spore my_program.spore
-```
 
 ## Next Steps
 
