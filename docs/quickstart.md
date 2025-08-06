@@ -9,8 +9,29 @@ Spore reads from standard input. There are two ways to run a program:
     spore < my_program.spore
     ```
 
-2.  **Interactively:** Run `spore`, type the program into the terminal, and
-    send an end-of-file character (typically `Ctrl+d`).
+2.  **Interactively:** Run `spore`, type the program into the terminal, and send
+    an end-of-file character (typically `Ctrl+d`).
+
+### Your First Program: Hello, World!
+
+Save the following line to a file named `hello.spore`:
+
+
+```lisp
+(println "Hello, World!")
+```
+
+Then, run it from your terminal:
+
+```sh
+spore < hello.spore
+```
+
+The program will output:
+
+```
+Hello, World!
+```
 
 ### Emacs Org Mode
 
@@ -66,17 +87,14 @@ scope. The last expression in a `let*` body is returned.
 
 ## Functions
 
-Functions are first-class citizens in Spore. You can create an anonymous
-function (also called a lambda) using the `function` keyword.
+Functions are first-class citizens in Spoer. The primary way to define a named
+function is with the `defun` macro.
 
-The syntax is `(function (parameters) body)`.
 
-For convenience, Spore also provides the `defun` macro for defining named
-functions. `defun` is syntactic sugar that allows you to define a function and
-assign it to a symbol in one step, equivalent to using `def` with a `function`
-expression.
+### Defun
 
-The syntax is `(defun name (parameters) body)`.
+
+Functions can be defined with: `(defun name (parameters) body)`.
 
 For example:
 ```lisp
@@ -86,7 +104,30 @@ For example:
 (add 5 3) ;; returns 8
 ```
 
-### Early Returns with `return`
+### Anonymous Functions
+
+You can also create an anonymous function (also called a lambda) using the
+`function` keyword. This is useful for functions that are passed as arguments
+or used only once.
+
+The syntax is `(function (parameters) body)`.
+
+Here's a function that takes two arguments, `a` and `b`, and returns their sum:
+
+```lisp
+(function (a b) (+ a b))
+```
+
+To call an anonymous function immediately after defining it, you can wrap the
+definition and its arguments in another S-expression:
+
+```lisp
+;; Defines a function and calls it with 1 and 2, resulting in 3
+((function (a b) (+ a b)) 1 2)
+```
+
+
+### Early Returns
 
 Spore supports early returns from within functions using the `return` form. When
 `(return <expression>)` is evaluated, the enclosing function immediately stops
@@ -105,20 +146,6 @@ For example:
 (find-first-positive (list -2 -1))     ;; returns nil
 ```
 
-Here's a function that takes two arguments, `a` and `b`, and returns their sum:
-
-```lisp
-(function (a b) (+ a b))
-```
-
-To call a function immediately after defining it, you can wrap the definition
-and its arguments in another S-expression:
-
-```lisp
-;; Defines a function and calls it with 1 and 2, resulting in 3
-((function (a b) (+ a b)) 1 2)
-```
-
 ## Control Flow
 
 Spore provides constructs for controlling the flow of execution.
@@ -128,10 +155,11 @@ Spore provides constructs for controlling the flow of execution.
 You can conditionally execute code using `if`. The syntax is `(if condition
 then-expression else-expression)`.
 
-If the `condition` evaluates to a truthy value (meaning anything other than
-`false` or `nil`), the `then-expression` is executed. Otherwise, the optional
-`else-expression` is executed. If the condition is false and no
-`else-expression` is provided, the entire expression evaluates to `nil`.
+If the `condition` evaluates to a truthy value, then the `then-expresion` is evaluated. otherwise, the `else-expression` is evaluated. If there is no `else-expression` then it is defaulted to `nil`.
+
+In Spore, only =false= and =nil= are considered **falsy** values. All other
+values (including =0=, and the empty string =""=) are **truthy**.
+
 
 ```lisp
 ;; With an else-expression
@@ -162,17 +190,17 @@ list-expression) body)`. The `body` is executed for each item in the list. The
 
 Spore includes a set of built-in functions for common operations.
 
--   **Arithmetic**: `+`, `*`, `-`, `mod`
+-   **Arithmetic**: `+`, `*`, `-`, `/`, `mod`
     ```lisp
     (+ 10 20) ;; returns 30
     (* 5 5)   ;; returns 25
     (- 10 4)  ;; returns 6
     (- 5)     ;; returns -5 (negation)
-    (mod 10 3) ;; returns 1
-    The division operator `/` can take one or two arguments. When given two arguments, it returns their quotient. When given a single argument, it returns the reciprocal (1.0 divided by the argument). Division in Spore always results in a floating-point number.
-    (/ 4 2)    ;; returns 2.0
     (/ 5.0 2.0) ;; returns 2.5
+    (/ 4 2)    ;; returns 2.0, always returns a float.
+    ;; A single argument division gets the reciprocal.
     (/ 2)      ;; returns 0.5 (1.0 / 2)
+    (mod 10 3) ;; returns 1
     ```
 
 -   **Comparison**: `=`
@@ -200,7 +228,11 @@ Spore includes a set of built-in functions for common operations.
     (or (= 1 2) (= 3 3) (not-called)) ;; returns true (short-circuits after (= 3 3))
     ```
 
-    -   `and`: Evaluates arguments from left to right. It returns the first argument that evaluates to a "falsy" value. If all arguments are "truthy", it returns the last argument. This operator is "short-circuiting"; once a falsy value is found, no further arguments are evaluated.
+    -   `and`: Evaluates arguments from left to right. It returns the first
+        argument that evaluates to a "falsy" value. If all arguments are
+        "truthy", it returns the last argument. This operator is
+        "short-circuiting"; once a falsy value is found, no further arguments
+        are evaluated.
 
     ```lisp
     (and true false)                   ;; returns false
