@@ -4,7 +4,7 @@ const testing = std.testing;
 
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
@@ -28,7 +28,7 @@ pub const Slice = struct {
         _ = options;
         for (self.vals, 0..self.vals.len) |v, idx| {
             if (idx == 0) {
-                try writer.print("{}", .{PrettyPrinter{ .vm = self.vm, .val = v }});
+                try writer.print("{any}", .{PrettyPrinter{ .vm = self.vm, .val = v }});
             } else {
                 try writer.print(" {}", .{PrettyPrinter{ .vm = self.vm, .val = v }});
             }
@@ -97,11 +97,11 @@ pub fn format(
     switch (self.val.repr) {
         .nil => try writer.print("nil", .{}),
         .boolean => |x| try writer.print("{any}", .{x}),
-        .int => |x| try writer.print("{}", .{x}),
+        .int => |x| try writer.print("{d}", .{x}),
         .float => |x| try writer.print("{d}", .{x}),
         .symbol => |x| {
             const symbol = x.get(self.vm.heap.string_interner) catch return writer.print("@bad-symbol", .{});
-            try writer.print("{}", .{symbol});
+            try writer.print("{any}", .{symbol});
         },
         .cons => |handle| {
             const cons = self.vm.heap.cons_cells.get(handle) catch return writer.print("@bad-cons", .{});
@@ -109,7 +109,7 @@ pub fn format(
         },
         .string => |handle| {
             const string = self.vm.heap.strings.get(handle) catch return writer.print("@bad-string", .{});
-            try writer.print("\"{s}\"", .{string});
+            try writer.print("\"{s}\"", .{string.data});
         },
         .native_function => |func| try writer.print("{any}", .{func}),
         .bytecode_function => |handle| {
@@ -124,7 +124,7 @@ pub fn format(
 }
 
 fn formatCons(cons: ConsCell, vm: *const Vm, writer: anytype) !void {
-    try writer.print("({}", .{PrettyPrinter{ .vm = vm, .val = cons.car }});
+    try writer.print("({any}", .{PrettyPrinter{ .vm = vm, .val = cons.car }});
     try formatCdr(cons.cdr, vm, writer);
 }
 
@@ -133,10 +133,10 @@ fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
         .nil => try writer.print(")", .{}),
         .cons => |handle| {
             const next = try vm.heap.cons_cells.get(handle);
-            try writer.print(" {}", .{PrettyPrinter{ .vm = vm, .val = next.car }});
+            try writer.print(" {any}", .{PrettyPrinter{ .vm = vm, .val = next.car }});
             try formatCdr(next.cdr, vm, writer);
         },
-        else => try writer.print(" . {})", .{PrettyPrinter{ .vm = vm, .val = cdr }}),
+        else => try writer.print(" . {any})", .{PrettyPrinter{ .vm = vm, .val = cdr }}),
     }
 }
 
@@ -145,17 +145,17 @@ test format {
     defer vm.deinit();
     try testing.expectFmt(
         "nil",
-        "{}",
+        "{any}",
         .{PrettyPrinter{ .vm = &vm, .val = Val.init({}) }},
     );
     try testing.expectFmt(
         "45",
-        "{}",
+        "{any}",
         .{PrettyPrinter{ .vm = &vm, .val = Val.init(45) }},
     );
     try testing.expectFmt(
         "45.5",
-        "{}",
+        "{any}",
         .{PrettyPrinter{ .vm = &vm, .val = Val.init(45.5) }},
     );
 }
@@ -166,7 +166,7 @@ test "pretty print cons pair" {
     const cons = try vm.builder().cons(Val.init(1), Val.init(2));
     try testing.expectFmt(
         "(1 . 2)",
-        "{}",
+        "{any}",
         .{PrettyPrinter{ .vm = &vm, .val = cons }},
     );
 }
@@ -177,7 +177,7 @@ test "pretty print cons list" {
     const cons = try vm.builder().cons(Val.init(1), Val.init({}));
     try testing.expectFmt(
         "(1)",
-        "{}",
+        "{any}",
         .{PrettyPrinter{ .vm = &vm, .val = cons }},
     );
 }
@@ -188,7 +188,7 @@ test "PrettyPrinter.Err: formats wrong_arity" {
     const err = errors.DetailedError{ .wrong_arity = .{ .function = "test-func", .want = 2, .got = 1 } };
     try testing.expectFmt(
         "Wrong arity for function 'test-func': want 2 got 1",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -202,7 +202,7 @@ test "PrettyPrinter.Err: formats symbol_not_found" {
     };
     try testing.expectFmt(
         "Symbol not found: my-symbol",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -215,7 +215,7 @@ test "PrettyPrinter.Err: formats object_not_found" {
     } };
     try testing.expectFmt(
         "Object not found: @cons-4294967295",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -226,7 +226,7 @@ test "PrettyPrinter.Err: formats io_error" {
     const err = errors.DetailedError{ .io_error = {} };
     try testing.expectFmt(
         "IO Error",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -238,7 +238,7 @@ test "PrettyPrinter.Err: formats wrong_type" {
     const err = errors.DetailedError{ .wrong_type = .{ .want = "string", .got = val } };
     try testing.expectFmt(
         "Wrong type: want string got 123",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -249,7 +249,7 @@ test "PrettyPrinter.Err: formats divide_by_zero" {
     const err = errors.DetailedError{ .divide_by_zero = {} };
     try testing.expectFmt(
         "Division by zero",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -260,7 +260,7 @@ test "PrettyPrinter.Err: formats stack_overflow" {
     const err = errors.DetailedError{ .stack_overflow = {} };
     try testing.expectFmt(
         "Stack overflow",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }
@@ -271,7 +271,7 @@ test "PrettyPrinter.Err: formats stack_underflow" {
     const err = errors.DetailedError{ .stack_underflow = {} };
     try testing.expectFmt(
         "Stack underflow",
-        "{}",
+        "{any}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );
 }

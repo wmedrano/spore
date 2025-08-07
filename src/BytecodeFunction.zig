@@ -1,7 +1,7 @@
 //! Defines `BytecodeFunction`, which represents a function implemented in bytecode.
 const std = @import("std");
 
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");

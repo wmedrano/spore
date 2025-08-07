@@ -5,7 +5,7 @@ const testing = std.testing;
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const String = @import("String.zig");
@@ -64,7 +64,7 @@ pub const Repr = union(Tag) {
         switch (self) {
             .nil => try writer.print("nil", .{}),
             .boolean => |x| try writer.print("{any}", .{x}),
-            .int => |x| try writer.print("{}", .{x}),
+            .int => |x| try writer.print("{any}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("@symbol-{}", .{x}),
             .cons => |handle| try writer.print("@cons-{}", .{handle.id}),

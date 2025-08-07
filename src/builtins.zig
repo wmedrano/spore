@@ -3,7 +3,7 @@ const testing = std.testing;
 
 const ConsCell = @import("ConsCell.zig");
 const Handle = @import("datastructures/object_pool.zig").Handle;
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const NativeFunction = @import("NativeFunction.zig");
@@ -129,7 +129,11 @@ fn toStringImpl(vm: *Vm) errors.Error!Val {
     } });
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
-    try vm.inspector().pretty(args[0]).format("any", .{}, buffer.writer());
+    switch (args[0].repr) {
+        .string => return args[0],
+        else => {},
+    }
+    try vm.inspector().pretty(args[0]).format("{any}", .{}, buffer.writer());
     const return_val = try vm.builder().string(buffer.items);
     return return_val;
 }

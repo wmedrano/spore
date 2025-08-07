@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = @import("std").testing;
 
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
@@ -220,7 +220,7 @@ test "push val pushes to stack" {
 
     try testing.expectFmt(
         "42 43",
-        "{}",
+        "{any}",
         .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }
@@ -235,7 +235,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
 
     try testing.expectFmt(
         "123",
-        "{}",
+        "{any}",
         .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }
@@ -250,7 +250,7 @@ test "eval calls function" {
     try (Instruction{ .eval = 3 }).execute(&vm);
     try testing.expectFmt(
         "30",
-        "{}",
+        "{any}",
         .{vm.inspector().prettySlice(vm.execution_context.stack.constSlice())},
     );
 }

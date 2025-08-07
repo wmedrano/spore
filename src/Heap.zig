@@ -6,7 +6,7 @@ const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
 const ObjectPool = @import("datastructures/object_pool.zig").ObjectPool;
 const Color = @import("datastructures/object_pool.zig").Color;
-const StringInterner = @import("datastructures/StringInterner.zig");
+const StringInterner = @import("StringInterner.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const String = @import("String.zig");
 
