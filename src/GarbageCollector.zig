@@ -4,7 +4,7 @@ const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
-const Handle = @import("datastructures/object_pool.zig").Handle;
+const Handle = @import("object_pool.zig").Handle;
 const ExecutionContext = @import("ExecutionContext.zig");
 const Heap = @import("Heap.zig");
 const Instruction = @import("instruction.zig").Instruction;

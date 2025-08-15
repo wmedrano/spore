@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const ConsCell = @import("ConsCell.zig");
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const NativeFunction = @import("NativeFunction.zig");

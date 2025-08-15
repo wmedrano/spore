@@ -4,8 +4,8 @@ const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const ConsCell = @import("ConsCell.zig");
-const Handle = @import("datastructures/object_pool.zig").Handle;
-const Symbol = @import("datastructures/Symbol.zig");
+const Handle = @import("object_pool.zig").Handle;
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const LexicalScope = @import("LexicalScope.zig");

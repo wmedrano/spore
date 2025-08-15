@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const Error = @import("errors.zig").Error;
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
