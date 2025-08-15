@@ -171,15 +171,33 @@ pub const Instruction = union(Code) {
         const iterable_index = next_index + 1;
         const local_stack = vm.execution_context.localStack();
         const iterable_val = local_stack[iterable_index];
-        const has_value = switch (iterable_val.repr) {
-            .cons => |handle| blk: {
+        const has_value = blk: switch (iterable_val.repr) {
+            // Next element in range.
+            .int => |end| {
+                const previous_val = local_stack[next_index];
+                const previous_int = switch (previous_val.repr) {
+                    .int => |int_val| int_val,
+                    else => return vm.builder().addError(DetailedError{
+                        .wrong_type = .{ .want = "int", .got = previous_val },
+                    }),
+                };
+                const next = previous_int + 1;
+                if (next >= end) break :blk false;
+                local_stack[next_index] = Val.init(next);
+                break :blk true;
+            },
+            // Next item of list.
+            .cons => |handle| {
                 const cons = try vm.heap.cons_cells.get(handle);
                 local_stack[next_index] = cons.car;
                 local_stack[iterable_index] = cons.cdr;
                 break :blk true;
             },
+            // End of list.
             .nil => false,
-            else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "iterable", .got = iterable_val } }),
+            else => return vm.builder().addError(DetailedError{
+                .wrong_type = .{ .want = "iterable", .got = iterable_val },
+            }),
         };
         try vm.execution_context.pushVal(Val.init(has_value));
     }

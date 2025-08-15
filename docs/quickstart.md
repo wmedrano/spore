@@ -162,6 +162,16 @@ list-expression) body)`. The `body` is executed for each item in the list. The
     ))
 ```
 
+For loops also allow iterating over a half-open integer range using a `cons`
+pair. The loop will include the `start` number and go up to, but not include,
+the `end` number.
+
+```lisp
+;; Iterates with x as 0, 1, 2, 3
+(for (x (cons 0 4))
+  (print x))
+```
+
 ## Basic Operations
 
 Spore includes a set of built-in functions for common operations.

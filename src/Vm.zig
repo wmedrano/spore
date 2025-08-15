@@ -127,6 +127,21 @@ test evalStr {
     );
 }
 
+test "evalStr with int cons iterates over each item" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const source =
+        \\ (def sum 0)
+        \\ (for (x (cons 1 5))
+        \\   (def sum (+ sum x)))
+        \\ sum
+    ;
+    try testing.expectEqualDeep(
+        Val.init(10),
+        try vm.evalStr(source),
+    );
+}
+
 test "evalStr returns last expression value for multiple expressions" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
