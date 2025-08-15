@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = @import("std").testing;
 
-const Symbol = @import("datastructures/Symbol.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");

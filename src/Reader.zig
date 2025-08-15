@@ -3,8 +3,8 @@ const std = @import("std");
 const testing = std.testing;
 
 const ConsCell = @import("ConsCell.zig");
-const Symbol = @import("datastructures/Symbol.zig");
-const Tokenizer = @import("parser/Tokenizer.zig");
+const Symbol = @import("Symbol.zig");
+const Tokenizer = @import("Tokenizer.zig");
 const String = @import("String.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");

@@ -1,8 +1,8 @@
 const std = @import("std");
 const testing = std.testing;
 
-const StringInterner = @import("datastructures/StringInterner.zig");
-const Symbol = @import("datastructures/Symbol.zig");
+const StringInterner = @import("StringInterner.zig");
+const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const Instruction = @import("instruction.zig").Instruction;
