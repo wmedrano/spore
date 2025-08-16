@@ -3,12 +3,12 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
-const Pair = @import("Pair.zig");
 const Handle = @import("object_pool.zig").Handle;
-const Symbol = @import("Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const String = @import("String.zig");
+const Symbol = @import("Symbol.zig");
 const Vm = @import("Vm.zig");
 
 const Val = @This();

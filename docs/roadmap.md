@@ -9,15 +9,15 @@ v0.0.2 focuses on documentations and infrastructure.
 
 ### Status
 
-This version is currently in progress.
+This version is complete! 🎉
 
 
 | Feature                                 | Status |
 |-----------------------------------------|--------|
-| Create User Guide                       | 🚧     |
-| Document built in functions.            | 🚧     |
-| Improve test coverage and code quality. | 🚧     |
-| Implement CI pipeline.                  | 🚧     |
+| Create User Guide                       | ✅     |
+| Document built in functions.            | ✅     |
+| Improve test coverage and code quality. | ✅     |
+| Implement CI pipeline.                  | ✅     |
 
 ## v0.0.1
 
