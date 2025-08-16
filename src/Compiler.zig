@@ -3,13 +3,13 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
-const ConsCell = @import("ConsCell.zig");
-const Handle = @import("object_pool.zig").Handle;
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
+const Handle = @import("object_pool.zig").Handle;
 const Instruction = @import("instruction.zig").Instruction;
 const LexicalScope = @import("LexicalScope.zig");
+const Pair = @import("Pair.zig");
 const Reader = @import("Reader.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -31,8 +31,8 @@ symbols: struct {
     defun: Symbol.Interned,
     @"let*": Symbol.Interned,
     @"for": Symbol.Interned,
-    car: Symbol.Interned,
-    cdr: Symbol.Interned,
+    first: Symbol.Interned,
+    second: Symbol.Interned,
     @"or": Symbol.Interned,
     @"and": Symbol.Interned,
     quote: Symbol.Interned,
@@ -67,8 +67,8 @@ pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
 ///     A new `Compiler` instance configured for function compilation.
 fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compiler {
     var args_iter = switch (args.repr) {
-        .nil => ConsCell.iterEmpty(),
-        .cons => |handle| (try vm.heap.cons_cells.get(handle)).iterList(),
+        .nil => Pair.iterEmpty(),
+        .pair => |handle| (try vm.heap.pairs.get(handle)).iterList(),
         else => return Error.InvalidExpression,
     };
     const lexical_scope = try LexicalScope.initWithArgs(arena.allocator(), vm, &args_iter);
@@ -84,8 +84,8 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
             .defun = try vm.builder().internedSymbol(Symbol.init("defun")),
             .@"let*" = try vm.builder().internedSymbol(Symbol.init("let*")),
             .@"for" = try vm.builder().internedSymbol(Symbol.init("for")),
-            .car = try vm.builder().internedSymbol(Symbol.init("car")),
-            .cdr = try vm.builder().internedSymbol(Symbol.init("cdr")),
+            .first = try vm.builder().internedSymbol(Symbol.init("first")),
+            .second = try vm.builder().internedSymbol(Symbol.init("second")),
             .@"or" = try vm.builder().internedSymbol(Symbol.init("or")),
             .@"and" = try vm.builder().internedSymbol(Symbol.init("and")),
             .quote = try vm.builder().internedSymbol(Symbol.init("quote")),
@@ -124,7 +124,7 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
             try self.addInstruction(instruction);
         },
         .symbol => |s| try self.deref(s),
-        .cons => |cons_handle| try self.addCons(cons_handle),
+        .pair => |pair_handle| try self.addPair(pair_handle),
     }
 }
 
@@ -140,7 +140,7 @@ pub fn addExpr(self: *Compiler, expr: Val) !void {
 ///     exprs: An iterator over the expressions to compile.
 ///     top_val: An enum indicating whether to keep the last expression's value
 ///              on the stack (`.last`) or pop all values (`.none`).
-fn addExprs(self: *Compiler, exprs: *ConsCell.ListIter, comptime top_val: enum { none, last }) !void {
+fn addExprs(self: *Compiler, exprs: *Pair.ListIter, comptime top_val: enum { none, last }) !void {
     var exprs_count: i32 = 0;
     while (try exprs.next(self.vm)) |expr| {
         exprs_count += 1;
@@ -189,14 +189,14 @@ fn deref(self: *Compiler, symbol: Symbol.Interned) !void {
     }
 }
 
-/// Compiles a `ConsCell` expression.
+/// Compiles a `Pair` expression.
 ///
 /// Handles special forms like `if` and `function` by calling their respective
 /// compilation helpers. For regular list expressions, it compiles each element
 /// and appends an `eval` instruction.
-fn addCons(self: *Compiler, cons_handle: Handle(ConsCell)) Error!void {
-    const cons = try self.vm.heap.cons_cells.get(cons_handle);
-    var vals = cons.iterList();
+fn addPair(self: *Compiler, pair_handle: Handle(Pair)) Error!void {
+    const pair = try self.vm.heap.pairs.get(pair_handle);
+    var vals = pair.iterList();
     var items: i32 = 0;
     while (try vals.next(self.vm)) |val| {
         if (items == 0) {
@@ -242,7 +242,7 @@ fn jumpDistance(from: usize, to: usize) i32 {
 /// It expects three arguments: a predicate, a true branch, and an optional
 /// false branch. It generates `jump_if` and `jump` instructions to implement
 /// the conditional logic.
-fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addIf(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const pred = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const true_branch = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const false_branch = (try exprs.next(self.vm)) orelse Val.init({});
@@ -274,7 +274,7 @@ fn addIf(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// the return value. It generates code to evaluate the argument (if any) and
 /// then a `ret` instruction. An error is returned if more than one argument is
 /// provided.
-fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addReturn(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const return_val = try exprs.next(self.vm);
     if (!exprs.empty()) return Error.InvalidExpression;
 
@@ -298,7 +298,7 @@ fn addReturn(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// Returns:
 ///     An error if the `def` expression is malformed (e.g., incorrect number
 ///     of arguments, non-symbol name, or a quoted symbol).
-fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addDef(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     _ = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
     const expr = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
@@ -326,7 +326,7 @@ fn addDef(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///
 /// Returns:
 ///     An error if the `defun` expression is malformed.
-fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addDefun(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const symbol = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
 
@@ -344,7 +344,7 @@ fn addDefun(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// the function body. It compiles the function body into a new
 /// `BytecodeFunction` and pushes a `Val` representing its handle onto the
 /// current compilation context's instructions.
-fn addFunction(self: *Compiler, name: ?Symbol.Interned, exprs: *ConsCell.ListIter) Error!void {
+fn addFunction(self: *Compiler, name: ?Symbol.Interned, exprs: *Pair.ListIter) Error!void {
     const args = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
 
     var function_compiler = try initFunction(self.arena, self.vm, args);
@@ -373,7 +373,7 @@ fn addFunction(self: *Compiler, name: ?Symbol.Interned, exprs: *ConsCell.ListIte
 ///  * Returns:
 ///     An error if the `let*` expression is malformed or if there is an issue
 ///     during compilation.
-fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addLetStar(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.inspector().listIter(bindings);
     var lexical_binds = std.ArrayList(LexicalScope.Binding).init(self.arena.allocator());
@@ -410,7 +410,7 @@ fn addLetStar(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 /// Returns:
 ///     An error if the `for` expression is malformed or if there is an issue
 ///     during compilation.
-fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addFor(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     // Get bindings
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     var bindings_iter = try self.vm.inspector().listIter(bindings);
@@ -419,7 +419,7 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
     const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
     if (!bindings_iter.empty()) return Error.InvalidExpression;
 
-    // Setup: Evaluate and store cons.
+    // Setup: Evaluate and store pair.
     const next_bind = try self.lexical_scope.add(self.arena.allocator(), binding_name);
     const iterable_bind = try self.lexical_scope.addAnonymous(self.arena.allocator());
     if (next_bind.local_index + 1 != iterable_bind.local_index) return Error.Internal;
@@ -459,7 +459,7 @@ fn addFor(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///
 /// Returns:
 ///     An error if there is an issue during compilation.
-fn addOr(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addOr(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     if (exprs.empty()) {
         try self.addInstruction(Instruction{ .push = Val.init({}) });
         return;
@@ -490,13 +490,13 @@ fn addOr(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
 ///
 /// Returns:
 ///     An error if the `quote` expression is malformed.
-fn addQuote(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addQuote(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const quoted_val = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
     if (!exprs.empty()) return Error.InvalidExpression;
     try self.addInstruction(Instruction{ .push = quoted_val });
 }
 
-fn addAnd(self: *Compiler, exprs: *ConsCell.ListIter) Error!void {
+fn addAnd(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     if (exprs.empty()) {
         return Error.InvalidExpression;
     }
@@ -548,14 +548,14 @@ test "compile improper list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    const cons = try vm.builder().cons(
+    const pair = try vm.builder().pair(
         Val.init(try vm.builder().internedSymbol(Symbol.init("a"))),
         Val.init(42),
     );
 
     try testing.expectError(
         Compiler.Error.WrongType,
-        compiler.addExpr(cons),
+        compiler.addExpr(pair),
     );
 }
 

@@ -3,7 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
-const ConsCell = @import("ConsCell.zig");
+const Pair = @import("Pair.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Symbol = @import("Symbol.zig");
 const NativeFunction = @import("NativeFunction.zig");
@@ -23,7 +23,7 @@ pub const Tag = enum {
     int,
     float,
     symbol,
-    cons,
+    pair,
     string,
     native_function,
     bytecode_function,
@@ -41,8 +41,8 @@ pub const Repr = union(Tag) {
     float: f64,
     /// A symbol. Interned to keep the size of `Repr` small.
     symbol: Symbol.Interned,
-    /// A cons cell pair. Stored as a handle to keep the size of `Repr` small.
-    cons: Handle(ConsCell),
+    /// A pair. Stored as a handle to keep the size of `Repr` small.
+    pair: Handle(Pair),
     /// A string. Stored as a handle to keep the size of `Repr` small.
     string: Handle(String),
     /// A native_function. Stored as a handle to keep the size of `Repr` small.
@@ -67,7 +67,7 @@ pub const Repr = union(Tag) {
             .int => |x| try writer.print("{}", .{x}),
             .float => |x| try writer.print("{d}", .{x}),
             .symbol => |x| try writer.print("@symbol-{}", .{x}),
-            .cons => |handle| try writer.print("@cons-{}", .{handle.id}),
+            .pair => |handle| try writer.print("@pair-{}", .{handle.id}),
             .string => |handle| try writer.print("@string-{}", .{handle.id}),
             .native_function => |func| try writer.print("@function-{s}", .{func.name}),
             .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
@@ -76,7 +76,7 @@ pub const Repr = union(Tag) {
 };
 
 /// Create a new `Val` from a given value, deducing its type.
-/// Supports `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
+/// Supports `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(Pair)`, and `Handle(String)`.
 pub fn init(val: anytype) Val {
     const T = @TypeOf(val);
     switch (T) {
@@ -85,9 +85,9 @@ pub fn init(val: anytype) Val {
         i64, comptime_int => return Val{ .repr = .{ .int = val } },
         f64, comptime_float => return Val{ .repr = .{ .float = val } },
         Symbol.Interned => return Val{ .repr = .{ .symbol = val } },
-        Handle(ConsCell) => return Val{ .repr = .{ .cons = val } },
-        ConsCell => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(ConsCell)) ++ "?"),
+        Handle(Pair) => return Val{ .repr = .{ .pair = val } },
+        Pair => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(Pair)) ++ "?"),
         Handle(String) => return Val{ .repr = .{ .string = val } },
         String => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(String)) ++ "?"),
@@ -105,7 +105,7 @@ pub fn init(val: anytype) Val {
 pub const ToValError = error{WrongType};
 
 /// Convert `Val` into a value of type `T`.
-/// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(ConsCell)`, and `Handle(String)`.
+/// Supported types for `T` are: `void`, `i64`, `f64`, `Symbol.Interned`, `Handle(Pair)`, and `Handle(String)`.
 pub fn to(self: Val, T: type) ToValError!T {
     switch (T) {
         void => switch (self.repr) {
@@ -130,12 +130,12 @@ pub fn to(self: Val, T: type) ToValError!T {
         },
         Symbol => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Symbol.Interned)),
-        Handle(ConsCell) => switch (self.repr) {
-            .cons => |x| return x,
+        Handle(Pair) => switch (self.repr) {
+            .pair => |x| return x,
             else => return ToValError.WrongType,
         },
-        ConsCell => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
-            ", did you mean " ++ @typeName(Handle(ConsCell))),
+        Pair => @compileError("Unsupported type for Val.to: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(Pair))),
         Handle(String) => switch (self.repr) {
             .string => |x| return x,
             else => return ToValError.WrongType,
@@ -208,18 +208,18 @@ test "Val.to Symbol.Interned" {
     );
 }
 
-test "Val.to Handle(ConsCell)" {
+test "Val.to Handle(Pair)" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const handle = try vm.heap.cons_cells.create(
+    const handle = try vm.heap.pairs.create(
         vm.heap.allocator,
-        ConsCell.init(Val.init(1), Val.init(2)),
+        Pair.init(Val.init(1), Val.init(2)),
         vm.heap.unreachable_color,
     );
-    const cons_val = Val.init(handle);
-    try testing.expectEqual(handle, try cons_val.to(Handle(ConsCell)));
-    try testing.expectError(ToValError.WrongType, cons_val.to(i64));
+    const pair_val = Val.init(handle);
+    try testing.expectEqual(handle, try pair_val.to(Handle(Pair)));
+    try testing.expectError(ToValError.WrongType, pair_val.to(i64));
 }
 
 test "bool true is truthy" {
@@ -255,15 +255,15 @@ test "symbol is truthy" {
     try testing.expect(symbol.isTruthy());
 }
 
-test "cons is truthy" {
+test "pair is truthy" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const handle = try vm.heap.cons_cells.create(
+    const handle = try vm.heap.pairs.create(
         vm.heap.allocator,
-        ConsCell.init(Val.init(1), Val.init(2)),
+        Pair.init(Val.init(1), Val.init(2)),
         vm.heap.unreachable_color,
     );
-    const cons_val = Val.init(handle);
-    try testing.expect(cons_val.isTruthy());
+    const pair_val = Val.init(handle);
+    try testing.expect(pair_val.isTruthy());
 }

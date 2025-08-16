@@ -1,6 +1,6 @@
 //! The `Inspector` provides functions for pretty printing `Val`s.
-//! Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
-const ConsCell = @import("ConsCell.zig");
+//! Returns a Pair.ListIter for the given value, or an error if the value is not a list.
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -25,13 +25,13 @@ pub fn prettySlice(self: Inspector, vals: []const Val) PrettyPrinter.Slice {
     };
 }
 
-/// Returns a ConsCell.ListIter for the given value, or an error if the value is not a list.
-pub fn listIter(self: Inspector, val: Val) !ConsCell.ListIter {
+/// Returns a Pair.ListIter for the given value, or an error if the value is not a list.
+pub fn listIter(self: Inspector, val: Val) !Pair.ListIter {
     switch (val.repr) {
-        .nil => return ConsCell.iterEmpty(),
-        .cons => |handle| {
-            const cons = try self.vm.heap.cons_cells.get(handle);
-            return cons.iterList();
+        .nil => return Pair.iterEmpty(),
+        .pair => |handle| {
+            const pair = try self.vm.heap.pairs.get(handle);
+            return pair.iterList();
         },
         else => return error.WrongType,
     }

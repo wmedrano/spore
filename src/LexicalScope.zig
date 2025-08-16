@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const ConsCell = @import("ConsCell.zig");
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
@@ -25,7 +25,7 @@ bindings: std.ArrayListUnmanaged(Binding) = .{},
 ///
 /// Each argument is added as a binding within the scope, associating its
 /// symbol with an index on the local stack.
-pub fn initWithArgs(allocator: std.mem.Allocator, vm: *const Vm, args: *ConsCell.ListIter) !LexicalScope {
+pub fn initWithArgs(allocator: std.mem.Allocator, vm: *const Vm, args: *Pair.ListIter) !LexicalScope {
     var bindings = std.ArrayListUnmanaged(Binding){};
     var arg_count: i32 = 0;
     while (try args.next(vm)) |arg| {

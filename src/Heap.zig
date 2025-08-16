@@ -1,14 +1,14 @@
-//! A memory heap for managing the lifetime of various VM objects like cons !
-//! cells, strings, and functions.
+//! A memory heap for managing the lifetime of various VM objects like pairs,
+//! strings, and functions.
 const std = @import("std");
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
-const ConsCell = @import("ConsCell.zig");
-const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Color = @import("object_pool.zig").Color;
-const StringInterner = @import("StringInterner.zig");
 const NativeFunction = @import("NativeFunction.zig");
+const ObjectPool = @import("object_pool.zig").ObjectPool;
+const Pair = @import("Pair.zig");
 const String = @import("String.zig");
+const StringInterner = @import("StringInterner.zig");
 
 const Heap = @This();
 
@@ -23,8 +23,8 @@ unreachable_color: Color = .red,
 /// The string interner used by the Vm. This should also be used when creating
 /// symbols through `Symbols.intern`.
 string_interner: StringInterner,
-/// Stores all cons cell objects.
-cons_cells: ObjectPool(ConsCell) = .{},
+/// Stores all pair objects.
+pairs: ObjectPool(Pair) = .{},
 /// Stores all string objects.
 strings: ObjectPool(String) = .{},
 /// Stores all bytecode function objects.
@@ -41,7 +41,7 @@ pub fn init(allocator: std.mem.Allocator) Heap {
 /// Deinitializes the heap, freeing all memory used by the objects it contains.
 pub fn deinit(self: *Heap) void {
     self.string_interner.deinit(self.allocator);
-    self.cons_cells.deinit(self.allocator);
+    self.pairs.deinit(self.allocator);
 
     var string_iter = self.strings.iter();
     while (string_iter.next()) |s| s.deinit(self.allocator);
