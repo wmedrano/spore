@@ -33,6 +33,7 @@ pub fn registerAll(vm: *Vm) !void {
     try list.register(vm);
     try empty_q.register(vm);
     try equal_q.register(vm);
+    try range.register(vm);
 }
 
 const number_q = NativeFunction{
@@ -499,6 +500,30 @@ fn emptyQImpl(vm: *Vm) errors.Error!Val {
         .pair => return Val.init(false),
         else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "list", .got = args[0] } }),
     }
+}
+
+const range = NativeFunction{
+    .name = "range",
+    .docstring = "Creates a pair representing a half-open integer range [start, end). Both arguments must be integers.",
+    .ptr = rangeImpl,
+};
+
+fn rangeImpl(vm: *Vm) errors.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 2) return vm.builder().addError(DetailedError{ .wrong_arity = .{
+        .function = "range",
+        .want = 2,
+        .got = @intCast(args.len),
+    } });
+    
+    const start = args[0].to(i64) catch return vm.builder().addError(
+        DetailedError{ .wrong_type = .{ .want = "int", .got = args[0] } },
+    );
+    const end = args[1].to(i64) catch return vm.builder().addError(
+        DetailedError{ .wrong_type = .{ .want = "int", .got = args[1] } },
+    );
+    
+    return vm.builder().pair(Val.init(start), Val.init(end));
 }
 
 test "+ sums integers" {
@@ -1056,5 +1081,104 @@ test "/ returns WrongArity error for wrong number of arguments" {
     try testing.expectError(
         errors.Error.WrongArity,
         vm.evalStr("(/ 10 2 3)"),
+    );
+}
+
+test "range creates a pair with two integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    try testing.expectEqualDeep(
+        Val.init(0),
+        try vm.evalStr("(first (range 0 5))"),
+    );
+    try testing.expectEqualDeep(
+        Val.init(5),
+        try vm.evalStr("(second (range 0 5))"),
+    );
+}
+
+test "range works with negative integers" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    try testing.expectEqualDeep(
+        Val.init(-3),
+        try vm.evalStr("(first (range -3 2))"),
+    );
+    try testing.expectEqualDeep(
+        Val.init(2),
+        try vm.evalStr("(second (range -3 2))"),
+    );
+}
+
+test "range returns WrongType for float arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range 0.0 5)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range 0 5.0)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range 0.5 5.5)"),
+    );
+}
+
+test "range returns WrongType for non-numeric arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range (quote a) 5)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range 0 (quote b))"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(range \"hello\" 5)"),
+    );
+}
+
+test "range returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(range)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(range 0)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(range 0 5 10)"),
+    );
+}
+
+test "range can be used in for loops like pair" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    
+    // Test that range works in a for loop by accumulating values
+    const result = try vm.evalStr(
+        \\(def sum 0)
+        \\(for (x (range 1 4))
+        \\  (def sum (+ sum x)))
+        \\sum
+    );
+    try testing.expectEqualDeep(
+        Val.init(6), // 1 + 2 + 3 = 6
+        result,
     );
 }
