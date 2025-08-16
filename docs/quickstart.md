@@ -103,75 +103,6 @@ To call a function immediately after defining it, you can wrap the definition an
 ((function (a b) (+ a b)) 1 2)
 ```
 
-### Early Returns with `return`
-
-Spore supports early returns from within functions using the `return` form. When
-`(return <expression>)` is evaluated, the enclosing function immediately stops
-execution and returns the value of `<expression>`.  This is useful for exiting
-early from loops or handling base cases in recursion.
-
-For example:
-```lisp
-(defun find-first-positive (numbers)
-  (for (n numbers)
-    (if (> n 0)
-      (return n))) ;; Immediately exits the function and returns n
-  nil) ;; Returned if no positive number is found
-
-(find-first-positive (list -1 -5 3 8)) ;; returns 3
-(find-first-positive (list -2 -1))     ;; returns nil
-```
-
-
-## Control Flow
-
-Spore provides constructs for controlling the flow of execution.
-
-### If Statements
-
-You can conditionally execute code using `if`. The syntax is `(if condition
-then-expression else-expression)`.
-
-If the `condition` evaluates to a truthy value (meaning anything other than
-`false` or `nil`), the `then-expression` is executed. Otherwise, the optional
-`else-expression` is executed. If the condition is false and no
-`else-expression` is provided, the entire expression evaluates to `nil`.
-
-```lisp
-;; With an else-expression
-(if (> a 0)
-  "a is positive"
-  "a is not positive")
-
-;; Without an else-expression, this returns nil if a is not positive
-(if (> a 0)
-  "a is positive")
-```
-
-### For Loops
-
-You can iterate over a list using a `for` loop. The syntax is `(for (variable
-list-expression) body)`. The `body` is executed for each item in the list. The
-`for` loop itself does not return a value.
-
-```lisp
-(for (x (list 1 2 3 4))
-  ;; This code runs 4 times, with x being 1, 2, 3, and 4
-  (let* ((squared (* x x)))
-    ;; ... do something with squared ...
-    ))
-```
-
-For loops also allow iterating over a half-open integer range using `range`.
-The loop will include the `start` number and go up to, but not include,
-the `end` number.
-
-```lisp
-;; Iterates with x as 0, 1, 2, 3
-(for (x (range 0 4))
-  (print x))
-```
-
 ## Basic Operations
 
 Spore includes a set of built-in functions for common operations.
@@ -240,6 +171,7 @@ Spore includes a set of built-in functions for common operations.
     ```lisp
     (list 1 2 3)        ;; returns a list containing (1 2 3)
     (pair 1 (list 2 3)) ;; returns a new list (1 2 3)
+    (pair 1 nil)        ;; returns a single-element list (1)
     (first (list 1 2 3))  ;; returns the first element, 1
     (second (list 1 2 3))  ;; returns the rest of the list, (2 3)
     ```
@@ -265,6 +197,74 @@ Spore includes a set of built-in functions for common operations.
     (print "Hello, " 1)   ;; displays "Hello, 1" to the console
     (println "Hello, " 1) ;; displays "Hello, 1\n" to the console
     ```
+
+## Control Flow
+
+Spore provides constructs for controlling the flow of execution.
+
+### If Statements
+
+You can conditionally execute code using `if`. The syntax is `(if condition
+then-expression else-expression)`.
+
+If the `condition` evaluates to a truthy value (meaning anything other than
+`false` or `nil`), the `then-expression` is executed. Otherwise, the optional
+`else-expression` is executed. If the condition is false and no
+`else-expression` is provided, the entire expression evaluates to `nil`.
+
+```lisp
+;; With an else-expression
+(if (> a 0)
+  "a is positive"
+  "a is not positive")
+
+;; Without an else-expression, this returns nil if a is not positive
+(if (> a 0)
+  "a is positive")
+```
+
+### For Loops
+
+You can iterate over a list using a `for` loop. The syntax is `(for (variable
+list-expression) body)`. The `body` is executed for each item in the list. The
+`for` loop itself does not return a value.
+
+```lisp
+(for (x (list 1 2 3 4))
+  ;; This code runs 4 times, with x being 1, 2, 3, and 4
+  (let* ((squared (* x x)))
+    ;; ... do something with squared ...
+    ))
+```
+
+For loops also allow iterating over a half-open integer range using `range`.
+The loop will include the `start` number and go up to, but not include,
+the `end` number.
+
+```lisp
+;; Iterates with x as 0, 1, 2, 3
+(for (x (range 0 4))
+  (print x))
+```
+
+### Early Returns with `return`
+
+Spore supports early returns from within functions using the `return` form. When
+`(return <expression>)` is evaluated, the enclosing function immediately stops
+execution and returns the value of `<expression>`.  This is useful for exiting
+early from loops or handling base cases in recursion.
+
+For example:
+```lisp
+(defun find-first-positive (numbers)
+  (for (n numbers)
+    (if (> n 0)
+      (return n))) ;; Immediately exits the function and returns n
+  nil) ;; Returned if no positive number is found
+
+(find-first-positive (list -1 -5 3 8)) ;; returns 3
+(find-first-positive (list -2 -1))     ;; returns nil
+```
 
 ## Examples
 
