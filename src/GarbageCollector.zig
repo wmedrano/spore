@@ -3,12 +3,12 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
-const ConsCell = @import("ConsCell.zig");
-const Handle = @import("object_pool.zig").Handle;
 const ExecutionContext = @import("ExecutionContext.zig");
+const Handle = @import("object_pool.zig").Handle;
 const Heap = @import("Heap.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
+const Pair = @import("Pair.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -56,11 +56,11 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
     const reachable_color = self.vm.heap.unreachable_color.swap();
     switch (val.repr) {
         .boolean, .nil, .int, .float, .symbol, .native_function => {},
-        .cons => |handle| {
-            if (self.vm.heap.cons_cells.setColor(handle, reachable_color) != reachable_color) {
-                const cons = try self.vm.heap.cons_cells.get(handle);
-                try self.markOne(cons.car);
-                try self.markOne(cons.cdr);
+        .pair => |handle| {
+            if (self.vm.heap.pairs.setColor(handle, reachable_color) != reachable_color) {
+                const pair = try self.vm.heap.pairs.get(handle);
+                try self.markOne(pair.first);
+                try self.markOne(pair.second);
             }
         },
         .string => |handle| {
@@ -104,7 +104,7 @@ fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) 
 /// This function iterates through the heap's object pools, freeing any objects
 /// that were not marked as reachable during the marking phase.
 fn sweep(self: *GarbageCollector) !void {
-    _ = try self.vm.heap.cons_cells.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
+    _ = try self.vm.heap.pairs.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
 
     var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.vm.heap.allocator);

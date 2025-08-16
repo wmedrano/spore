@@ -2,7 +2,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ConsCell = @import("ConsCell.zig");
+const Pair = @import("Pair.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
 const String = @import("String.zig");

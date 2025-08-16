@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const ConsCell = @import("ConsCell.zig");
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const NativeFunction = @import("NativeFunction.zig");
+const Pair = @import("Pair.zig");
 const PrettyPrinter = @import("PrettyPrinter.zig");
 const String = @import("String.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -20,34 +20,26 @@ pub fn list(self: Builder, vals: []const Val) errors.Error!Val {
     if (vals.len == 0) return Val.init({});
     const head = vals[0];
     const tail = try self.list(vals[1..]);
-    return self.cons(head, tail);
+    return self.pair(head, tail);
 }
 
-/// Creates a new cons cell with the given car and cdr.
+/// Creates a new pair with the given first and second values.
 ///
 /// Args:
-///     car: The car of the cons cell.
-///     cdr: The cdr of the cons cell.
+///     first: The first element of the pair.
+///     second: The second element of the pair.
 ///
 /// Returns:
-///     A Val representing the new cons cell.
-/// Creates a new cons cell with the given car and cdr.
-///
-/// Args:
-///     car: The car of the cons cell.
-///     cdr: The cdr of the cons cell.
-///
-/// Returns:
-///     A Val representing the new cons cell.
-pub fn cons(self: Builder, car: Val, cdr: Val) errors.Error!Val {
-    const cons_handle = self.vm.heap.cons_cells.create(
+///     A Val representing the new pair.
+pub fn pair(self: Builder, first: Val, second: Val) errors.Error!Val {
+    const pair_handle = self.vm.heap.pairs.create(
         self.vm.heap.allocator,
-        ConsCell.init(car, cdr),
+        Pair.init(first, second),
         self.vm.heap.unreachable_color,
     ) catch |err| switch (err) {
         error.OutOfMemory => return self.addError(DetailedError{ .out_of_memory = {} }),
     };
-    return Val.init(cons_handle);
+    return Val.init(pair_handle);
 }
 
 /// Creates a new string by copying the given value.

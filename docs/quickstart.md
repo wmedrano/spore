@@ -162,13 +162,13 @@ list-expression) body)`. The `body` is executed for each item in the list. The
     ))
 ```
 
-For loops also allow iterating over a half-open integer range using a `cons`
+For loops also allow iterating over a half-open integer range using a `pair`
 pair. The loop will include the `start` number and go up to, but not include,
 the `end` number.
 
 ```lisp
 ;; Iterates with x as 0, 1, 2, 3
-(for (x (cons 0 4))
+(for (x (pair 0 4))
   (print x))
 ```
 
@@ -236,12 +236,12 @@ Spore includes a set of built-in functions for common operations.
     (quote 42)          ;; returns the number 42
     ```
 
--   **List Manipulation**: `list`, `cons`, `car`, `cdr`. The `list` function creates a new list from its arguments. For more fundamental control, `cons` adds an element to the front of a list, while `car` accesses the first element (the "head" of the list) and `cdr` accesses the rest of the list (the "tail" of the list), respectively.
+-   **List Manipulation**: `list`, `pair`, `first`, `second`. The `list` function creates a new list from its arguments. For more fundamental control, `pair` adds an element to the front of a list, while `first` accesses the first element (the "head" of the list) and `second` accesses the rest of the list (the "tail" of the list), respectively.
     ```lisp
     (list 1 2 3)        ;; returns a list containing (1 2 3)
-    (cons 1 (list 2 3)) ;; returns a new list (1 2 3)
-    (car (list 1 2 3))  ;; returns the first element, 1
-    (cdr (list 1 2 3))  ;; returns the rest of the list, (2 3)
+    (pair 1 (list 2 3)) ;; returns a new list (1 2 3)
+    (first (list 1 2 3))  ;; returns the first element, 1
+    (second (list 1 2 3))  ;; returns the rest of the list, (2 3)
     ```
 
 -   **Type Predicates**: `number?`, `symbol?`, `null?`, `string?`. These functions check the type of a value, returning `true` or `false`.

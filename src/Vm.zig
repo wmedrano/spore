@@ -127,12 +127,12 @@ test evalStr {
     );
 }
 
-test "evalStr with int cons iterates over each item" {
+test "evalStr with int pair iterates over each item" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const source =
         \\ (def sum 0)
-        \\ (for (x (cons 1 5))
+        \\ (for (x (pair 1 5))
         \\   (def sum (+ sum x)))
         \\ sum
     ;

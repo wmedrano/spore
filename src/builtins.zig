@@ -1,13 +1,13 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ConsCell = @import("ConsCell.zig");
-const Handle = @import("object_pool.zig").Handle;
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
+const Handle = @import("object_pool.zig").Handle;
 const NativeFunction = @import("NativeFunction.zig");
+const Pair = @import("Pair.zig");
 const String = @import("String.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -26,10 +26,10 @@ pub fn registerAll(vm: *Vm) !void {
     try mod.register(vm);
     try divide.register(vm);
     try internal_define.register(vm);
-    try cons.register(vm);
-    try car.register(vm);
-    try cons_q.register(vm);
-    try cdr.register(vm);
+    try pair.register(vm);
+    try first.register(vm);
+    try pair_q.register(vm);
+    try second.register(vm);
     try list.register(vm);
     try empty_q.register(vm);
     try equal_q.register(vm);
@@ -394,78 +394,78 @@ fn internalDefineImpl(vm: *Vm) errors.Error!Val {
     return Val.init({});
 }
 
-const cons = NativeFunction{
-    .name = "cons",
-    .docstring = "Returns a cons cell (pair) with 2 values.",
-    .ptr = consImpl,
+const pair = NativeFunction{
+    .name = "pair",
+    .docstring = "Returns a pair with 2 values.",
+    .ptr = pairImpl,
 };
 
-fn consImpl(vm: *Vm) errors.Error!Val {
+fn pairImpl(vm: *Vm) errors.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 2) return vm.builder().addError(DetailedError{ .wrong_arity = .{
-        .function = "cons",
+        .function = "pair",
         .want = 2,
         .got = @intCast(args.len),
     } });
-    return vm.builder().cons(args[0], args[1]);
+    return vm.builder().pair(args[0], args[1]);
 }
 
-const car = NativeFunction{
-    .name = "car",
-    .docstring = "Returns the car (first element) of a Cons cell.",
-    .ptr = carImpl,
+const first = NativeFunction{
+    .name = "first",
+    .docstring = "Returns the first element of a pair.",
+    .ptr = firstImpl,
 };
 
-fn carImpl(vm: *Vm) errors.Error!Val {
+fn firstImpl(vm: *Vm) errors.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 1) return vm.builder().addError(DetailedError{ .wrong_arity = .{
-        .function = "car",
+        .function = "first",
         .want = 1,
         .got = @intCast(args.len),
     } });
-    const cons_handle = args[0].to(Handle(ConsCell)) catch return vm.builder().addError(
-        DetailedError{ .wrong_type = .{ .want = "cons cell", .got = args[0] } },
+    const pair_handle = args[0].to(Handle(Pair)) catch return vm.builder().addError(
+        DetailedError{ .wrong_type = .{ .want = "pair", .got = args[0] } },
     );
-    const cons_cell = try vm.heap.cons_cells.get(cons_handle);
-    return cons_cell.car;
+    const p = try vm.heap.pairs.get(pair_handle);
+    return p.first;
 }
 
-const cdr = NativeFunction{
-    .name = "cdr",
-    .docstring = "Returns the cdr (second element) of a Cons cell.",
-    .ptr = cdrImpl,
+const second = NativeFunction{
+    .name = "second",
+    .docstring = "Returns the second element of a pair.",
+    .ptr = secondImpl,
 };
 
-fn cdrImpl(vm: *Vm) errors.Error!Val {
+fn secondImpl(vm: *Vm) errors.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 1) return vm.builder().addError(DetailedError{ .wrong_arity = .{
-        .function = "cdr",
+        .function = "second",
         .want = 1,
         .got = @intCast(args.len),
     } });
-    const cons_handle = args[0].to(Handle(ConsCell)) catch return vm.builder().addError(
-        DetailedError{ .wrong_type = .{ .want = "cons cell", .got = args[0] } },
+    const pair_handle = args[0].to(Handle(Pair)) catch return vm.builder().addError(
+        DetailedError{ .wrong_type = .{ .want = "pair", .got = args[0] } },
     );
-    const cons_cell = try vm.heap.cons_cells.get(cons_handle);
-    return cons_cell.cdr;
+    const p = try vm.heap.pairs.get(pair_handle);
+    return p.second;
 }
 
-const cons_q = NativeFunction{
-    .name = "cons?",
-    .docstring = "Returns true if the argument is a cons cell, false otherwise.",
-    .ptr = consQImpl,
+const pair_q = NativeFunction{
+    .name = "pair?",
+    .docstring = "Returns true if the argument is a pair, false otherwise.",
+    .ptr = pairQImpl,
 };
 
-fn consQImpl(vm: *Vm) errors.Error!Val {
+fn pairQImpl(vm: *Vm) errors.Error!Val {
     const args = vm.execution_context.localStack();
     if (args.len != 1) return vm.builder().addError(DetailedError{ .wrong_arity = .{
-        .function = "cons?",
+        .function = "pair?",
         .want = 1,
         .got = @intCast(args.len),
     } });
     const val = args[0];
     switch (val.repr) {
-        .cons => return Val.init(true),
+        .pair => return Val.init(true),
         else => return Val.init(false),
     }
 }
@@ -483,7 +483,7 @@ fn listImpl(vm: *Vm) errors.Error!Val {
 
 const empty_q = NativeFunction{
     .name = "empty?",
-    .docstring = "Returns true if the argument is nil (representing an empty list), false if it's a cons cell, and throws an error for othre types.",
+    .docstring = "Returns true if the argument is nil (representing an empty list), false if it's a pair, and throws an error for othre types.",
     .ptr = emptyQImpl,
 };
 
@@ -496,7 +496,7 @@ fn emptyQImpl(vm: *Vm) errors.Error!Val {
     } });
     switch (args[0].repr) {
         .nil => return Val.init(true),
-        .cons => return Val.init(false),
+        .pair => return Val.init(false),
         else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "list", .got = args[0] } }),
     }
 }
@@ -550,88 +550,88 @@ test "define sets global variable" {
     );
 }
 
-test "car returns first element of a cons cell" {
+test "first returns first element of a pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const result = try vm.evalStr("(car (cons 1 2))");
+    const result = try vm.evalStr("(first (pair 1 2))");
     try testing.expectEqualDeep(
         Val.init(1),
         result,
     );
 }
 
-test "car returns WrongType for non-cons cell value" {
+test "first returns WrongType for non-pair value" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     try testing.expectError(
         errors.Error.WrongType,
-        vm.evalStr("(car 1)"),
+        vm.evalStr("(first 1)"),
     );
 }
 
-test "cdr returns second element of a cons cell" {
+test "second returns second element of a pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const result = try vm.evalStr("(cdr (cons 1 2))");
+    const result = try vm.evalStr("(second (pair 1 2))");
     try testing.expectEqualDeep(
         Val.init(2),
         result,
     );
 }
 
-test "cdr returns WrongType for non-cons cell value" {
+test "second returns WrongType for non-pair value" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
     try testing.expectError(
         errors.Error.WrongType,
-        vm.evalStr("(cdr 1)"),
+        vm.evalStr("(second 1)"),
     );
 }
 
-test "cons? returns true for cons cell" {
+test "pair? returns true for pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(true),
-        try vm.evalStr("(cons? (cons 1 2))"),
+        try vm.evalStr("(pair? (pair 1 2))"),
     );
 }
 
-test "cons? returns false for non-cons cell" {
+test "pair? returns false for non-pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(cons? 1)"),
+        try vm.evalStr("(pair? 1)"),
     );
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(cons? (quote a))"),
+        try vm.evalStr("(pair? (quote a))"),
     );
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(cons? nil)"),
+        try vm.evalStr("(pair? nil)"),
     );
     try testing.expectEqualDeep(
         Val.init(false),
-        try vm.evalStr("(cons? \"hello\")"),
+        try vm.evalStr("(pair? \"hello\")"),
     );
 }
 
-test "cons? returns WrongArity error for wrong number of arguments" {
+test "pair? returns WrongArity error for wrong number of arguments" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     try testing.expectError(
         errors.Error.WrongArity,
-        vm.evalStr("(cons?)"),
+        vm.evalStr("(pair?)"),
     );
     try testing.expectError(
         errors.Error.WrongArity,
-        vm.evalStr("(cons? (cons 1 2) 3)"),
+        vm.evalStr("(pair? (pair 1 2) 3)"),
     );
 }
 

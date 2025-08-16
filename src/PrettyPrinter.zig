@@ -2,18 +2,18 @@
 const std = @import("std");
 const testing = std.testing;
 
-const ConsCell = @import("ConsCell.zig");
-const Handle = @import("object_pool.zig").Handle;
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
+const Handle = @import("object_pool.zig").Handle;
+const Pair = @import("Pair.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
 const PrettyPrinter = @This();
 
-/// A reference to the VM, needed for resolving symbols and cons cells.
+/// A reference to the VM, needed for resolving symbols and pairs.
 vm: *const Vm,
 /// The value to be printed.
 val: Val,
@@ -103,9 +103,9 @@ pub fn format(
             const symbol = x.get(self.vm.heap.string_interner) catch return writer.print("@bad-symbol", .{});
             try writer.print("{}", .{symbol});
         },
-        .cons => |handle| {
-            const cons = self.vm.heap.cons_cells.get(handle) catch return writer.print("@bad-cons", .{});
-            try formatCons(cons, self.vm, writer);
+        .pair => |handle| {
+            const pair = self.vm.heap.pairs.get(handle) catch return writer.print("@bad-pair", .{});
+            try formatPair(pair, self.vm, writer);
         },
         .string => |handle| {
             const string = self.vm.heap.strings.get(handle) catch return writer.print("@bad-string", .{});
@@ -123,20 +123,20 @@ pub fn format(
     }
 }
 
-fn formatCons(cons: ConsCell, vm: *const Vm, writer: anytype) !void {
-    try writer.print("({}", .{PrettyPrinter{ .vm = vm, .val = cons.car }});
-    try formatCdr(cons.cdr, vm, writer);
+fn formatPair(pair: Pair, vm: *const Vm, writer: anytype) !void {
+    try writer.print("({}", .{PrettyPrinter{ .vm = vm, .val = pair.first }});
+    try formatRest(pair.second, vm, writer);
 }
 
-fn formatCdr(cdr: Val, vm: *const Vm, writer: anytype) !void {
-    switch (cdr.repr) {
+fn formatRest(rest: Val, vm: *const Vm, writer: anytype) !void {
+    switch (rest.repr) {
         .nil => try writer.print(")", .{}),
-        .cons => |handle| {
-            const next = try vm.heap.cons_cells.get(handle);
-            try writer.print(" {}", .{PrettyPrinter{ .vm = vm, .val = next.car }});
-            try formatCdr(next.cdr, vm, writer);
+        .pair => |handle| {
+            const next_pair = try vm.heap.pairs.get(handle);
+            try writer.print(" {}", .{PrettyPrinter{ .vm = vm, .val = next_pair.first }});
+            try formatRest(next_pair.second, vm, writer);
         },
-        else => try writer.print(" . {})", .{PrettyPrinter{ .vm = vm, .val = cdr }}),
+        else => try writer.print(" . {})", .{PrettyPrinter{ .vm = vm, .val = rest }}),
     }
 }
 
@@ -160,25 +160,25 @@ test format {
     );
 }
 
-test "pretty print cons pair" {
+test "pretty print pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const cons = try vm.builder().cons(Val.init(1), Val.init(2));
+    const pair = try vm.builder().pair(Val.init(1), Val.init(2));
     try testing.expectFmt(
         "(1 . 2)",
         "{}",
-        .{PrettyPrinter{ .vm = &vm, .val = cons }},
+        .{PrettyPrinter{ .vm = &vm, .val = pair }},
     );
 }
 
-test "pretty print cons list" {
+test "pretty print pair list" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const cons = try vm.builder().cons(Val.init(1), Val.init({}));
+    const pair = try vm.builder().pair(Val.init(1), Val.init({}));
     try testing.expectFmt(
         "(1)",
         "{}",
-        .{PrettyPrinter{ .vm = &vm, .val = cons }},
+        .{PrettyPrinter{ .vm = &vm, .val = pair }},
     );
 }
 
@@ -211,10 +211,10 @@ test "PrettyPrinter.Err: formats object_not_found" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .object_not_found = .{
-        .object = Val{ .repr = .{ .cons = Handle(ConsCell){ .id = std.math.maxInt(u32) } } },
+        .object = Val{ .repr = .{ .pair = Handle(Pair){ .id = std.math.maxInt(u32) } } },
     } };
     try testing.expectFmt(
-        "Object not found: @cons-4294967295",
+        "Object not found: @pair-4294967295",
         "{}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );

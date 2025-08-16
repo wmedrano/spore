@@ -1,12 +1,12 @@
 const std = @import("std");
 const testing = @import("std").testing;
 
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
 const NativeFunction = @import("NativeFunction.zig");
 const String = @import("String.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -187,10 +187,10 @@ pub const Instruction = union(Code) {
                 break :blk true;
             },
             // Next item of list.
-            .cons => |handle| {
-                const cons = try vm.heap.cons_cells.get(handle);
-                local_stack[next_index] = cons.car;
-                local_stack[iterable_index] = cons.cdr;
+            .pair => |handle| {
+                const pair = try vm.heap.pairs.get(handle);
+                local_stack[next_index] = pair.first;
+                local_stack[iterable_index] = pair.second;
                 break :blk true;
             },
             // End of list.

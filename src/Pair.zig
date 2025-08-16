@@ -1,31 +1,31 @@
-//! A Cons cell, fundamental to Lisp-like data structures.
+//! A pair, fundamental to Lisp-like data structures.
 const std = @import("std");
 const testing = std.testing;
 
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
-/// A Cons cell, fundamental to Lisp-like data structures.
-const ConsCell = @This();
+/// A pair, fundamental to Lisp-like data structures.
+const Pair = @This();
 
 /// The first element of the pair.
-car: Val,
+first: Val,
 /// The second element of the pair.
-cdr: Val,
+second: Val,
 
-/// Initializes a new `ConsCell` with the given car and cdr values.
-pub fn init(car: Val, cdr: Val) ConsCell {
+/// Initializes a new `Pair` with the given first and second values.
+pub fn init(first: Val, second: Val) Pair {
     return .{
-        .car = car,
-        .cdr = cdr,
+        .first = first,
+        .second = second,
     };
 }
 
-/// An iterator for traversing a `ConsCell` as a list.
+/// An iterator for traversing a `Pair` as a list.
 pub const ListIter = struct {
-    /// The current `ConsCell` being iterated, or null if the end of the list is
+    /// The current `Pair` being iterated, or null if the end of the list is
     /// reached.
-    cons: ?ConsCell,
+    pair: ?Pair,
 
     /// Errors that can occur during list iteration.
     pub const Error = error{
@@ -36,38 +36,38 @@ pub const ListIter = struct {
     /// Returns `true` if the list iterator is empty (i.e., at the end of the
     /// list), `false` otherwise.
     pub fn empty(self: ListIter) bool {
-        if (self.cons) |_| return false;
+        if (self.pair) |_| return false;
         return true;
     }
 
     /// Advances the iterator and returns the next element in the list or `null`
     /// if the end of the list is reached.
     ///
-    /// Returns `ListIter.Error.WrongType` if the `cdr` is not a `cons` or `nil`.
+    /// Returns `ListIter.Error.WrongType` if the `second` is not a `pair` or `nil`.
     /// This is a property of valid lists.
     pub fn next(self: *ListIter, vm: *const Vm) Error!?Val {
-        const cons = self.cons orelse return null;
-        const ret = cons.car;
-        switch (cons.cdr.repr) {
-            .cons => |handle| self.cons = try vm.heap.cons_cells.get(handle),
-            .nil => self.cons = null,
+        const pair = self.pair orelse return null;
+        const ret = pair.first;
+        switch (pair.second.repr) {
+            .pair => |handle| self.pair = try vm.heap.pairs.get(handle),
+            .nil => self.pair = null,
             else => return Error.WrongType,
         }
         return ret;
     }
 };
 
-/// Creates and returns a new `ListIter` for iterating over the `ConsCell` as a
+/// Creates and returns a new `ListIter` for iterating over the `Pair` as a
 /// list.
-pub fn iterList(self: ConsCell) ListIter {
+pub fn iterList(self: Pair) ListIter {
     return ListIter{
-        .cons = self,
+        .pair = self,
     };
 }
 
 /// Creates and returns a new `ListIter` for an empty list.
 pub fn iterEmpty() ListIter {
     return ListIter{
-        .cons = null,
+        .pair = null,
     };
 }
