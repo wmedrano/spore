@@ -3,9 +3,9 @@ const std = @import("std");
 const testing = std.testing;
 
 const Pair = @import("Pair.zig");
+const String = @import("String.zig");
 const Symbol = @import("Symbol.zig");
 const Tokenizer = @import("Tokenizer.zig");
-const String = @import("String.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -74,7 +74,7 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
     defer vals.deinit();
     while (self.tokenizer.next()) |token| {
         switch (token.token_type) {
-            .close_paren => return vm.builder().list(vals.items),
+            .close_paren => return vm.initVal(vals.items),
             .open_paren => {
                 const sub_expr = try self.nextExpr(allocator, vm);
                 try vals.append(sub_expr);
@@ -100,7 +100,7 @@ fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     if (std.mem.eql(u8, identifier, "false")) return Val.init(false);
     if (std.fmt.parseInt(i64, identifier, 10) catch null) |x| return Val.init(x);
     if (std.fmt.parseFloat(f64, identifier) catch null) |x| return Val.init(x);
-    return vm.builder().symbol(Symbol.init(identifier));
+    return vm.initVal(Symbol.init(identifier));
 }
 
 /// Converts a string representation into a Lisp string.
@@ -125,7 +125,7 @@ fn stringToVal(identifier: []const u8, vm: *Vm) !Val {
         }
     }
     if (escaped) return error.ParseError;
-    const val = try vm.builder().string(string.items);
+    const val = try vm.initVal(string.items);
     return val;
 }
 

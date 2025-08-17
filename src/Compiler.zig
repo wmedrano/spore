@@ -76,19 +76,19 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
         .vm = vm,
         .arena = arena,
         .symbols = .{
-            .@"if" = try vm.builder().internedSymbol(Symbol.init("if")),
-            .function = try vm.builder().internedSymbol(Symbol.init("function")),
-            .@"return" = try vm.builder().internedSymbol(Symbol.init("return")),
-            .internal_define = try vm.builder().internedSymbol(Symbol.init("internal-define")),
-            .def = try vm.builder().internedSymbol(Symbol.init("def")),
-            .defun = try vm.builder().internedSymbol(Symbol.init("defun")),
-            .@"let*" = try vm.builder().internedSymbol(Symbol.init("let*")),
-            .@"for" = try vm.builder().internedSymbol(Symbol.init("for")),
-            .first = try vm.builder().internedSymbol(Symbol.init("first")),
-            .second = try vm.builder().internedSymbol(Symbol.init("second")),
-            .@"or" = try vm.builder().internedSymbol(Symbol.init("or")),
-            .@"and" = try vm.builder().internedSymbol(Symbol.init("and")),
-            .quote = try vm.builder().internedSymbol(Symbol.init("quote")),
+            .@"if" = try vm.builder().internSymbol(Symbol.init("if")),
+            .function = try vm.builder().internSymbol(Symbol.init("function")),
+            .@"return" = try vm.builder().internSymbol(Symbol.init("return")),
+            .internal_define = try vm.builder().internSymbol(Symbol.init("internal-define")),
+            .def = try vm.builder().internSymbol(Symbol.init("def")),
+            .defun = try vm.builder().internSymbol(Symbol.init("defun")),
+            .@"let*" = try vm.builder().internSymbol(Symbol.init("let*")),
+            .@"for" = try vm.builder().internSymbol(Symbol.init("for")),
+            .first = try vm.builder().internSymbol(Symbol.init("first")),
+            .second = try vm.builder().internSymbol(Symbol.init("second")),
+            .@"or" = try vm.builder().internSymbol(Symbol.init("or")),
+            .@"and" = try vm.builder().internSymbol(Symbol.init("and")),
+            .quote = try vm.builder().internSymbol(Symbol.init("quote")),
         },
         .instructions = .{},
         .lexical_scope = lexical_scope,
@@ -518,7 +518,7 @@ fn addAnd(self: *Compiler, exprs: *Pair.ListIter) Error!void {
 test compile {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
+    const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
@@ -548,10 +548,10 @@ test "compile improper list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    const pair = try vm.builder().pair(
-        Val.init(try vm.builder().internedSymbol(Symbol.init("a"))),
+    const pair = try vm.initVal(Pair.init(
+        Val.init(try vm.builder().internSymbol(Symbol.init("a"))),
         Val.init(42),
-    );
+    ));
 
     try testing.expectError(
         Compiler.Error.WrongType,
@@ -582,7 +582,7 @@ test "compile simple list" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
-    const plus_sym = try vm.builder().internedSymbol(Symbol.init("plus"));
+    const plus_sym = try vm.builder().internSymbol(Symbol.init("plus"));
 
     try compiler.addExpr(try Reader.readOne("(plus 1 2)", testing.allocator, &vm));
     var bytecode = try compiler.compile(null);
@@ -602,7 +602,7 @@ test "compile simple list" {
 test "compile if statement" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
+    const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
@@ -636,7 +636,7 @@ test "compile if statement" {
 test "compile if statement without false branch uses nil false branch" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
+    const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     var compiler = try init(&arena, &vm);
@@ -852,8 +852,8 @@ test "compile def turns to define" {
     var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
-    const define_sym = try vm.builder().internedSymbol(Symbol.init("internal-define"));
-    const my_var_sym = try vm.builder().internedSymbol(Symbol.init("my-var"));
+    const define_sym = try vm.builder().internSymbol(Symbol.init("internal-define"));
+    const my_var_sym = try vm.builder().internSymbol(Symbol.init("my-var"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
@@ -905,8 +905,8 @@ test "compile defun turns to define with correct function bytecode" {
     var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
 
-    const define_sym = try vm.builder().internedSymbol(Symbol.init("internal-define"));
-    const my_func_sym = try vm.builder().internedSymbol(Symbol.init("my-func"));
+    const define_sym = try vm.builder().internSymbol(Symbol.init("internal-define"));
+    const my_func_sym = try vm.builder().internSymbol(Symbol.init("my-func"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{
@@ -929,7 +929,7 @@ test "compile defun turns to define with correct function bytecode" {
             },
             .args = 1,
             .initial_local_stack_size = 1,
-            .name = try vm.builder().internedSymbol(Symbol.init("my-func")),
+            .name = try vm.builder().internSymbol(Symbol.init("my-func")),
         },
         function_bytecode,
     );
@@ -997,7 +997,7 @@ test "let* evaluates bindings" {
     try compiler.addExpr(try Reader.readOne("(let* ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
     var bytecode = try compiler.compile(null);
     defer bytecode.deinit(testing.allocator);
-    const plus_sym = try vm.builder().internedSymbol(Symbol.init("+"));
+    const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     try testing.expectEqualDeep(
         BytecodeFunction{
             .instructions = &[_]Instruction{

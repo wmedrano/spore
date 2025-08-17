@@ -246,7 +246,7 @@ test "push val pushes to stack" {
 test "get symbol pushes value referred to by symbol onto stack" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
+    const symbol = try vm.builder().internSymbol(Symbol.init("my-var"));
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try (Instruction{ .deref = symbol }).execute(&vm);
@@ -261,7 +261,7 @@ test "get symbol pushes value referred to by symbol onto stack" {
 test "eval calls function" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const plus = try vm.builder().internedSymbol(Symbol.init("+"));
+    const plus = try vm.builder().internSymbol(Symbol.init("+"));
     try (Instruction{ .deref = plus }).execute(&vm);
     try (Instruction{ .push = Val.init(10) }).execute(&vm);
     try (Instruction{ .push = Val.init(20) }).execute(&vm);

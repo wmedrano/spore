@@ -163,7 +163,7 @@ test format {
 test "pretty print pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const pair = try vm.builder().pair(Val.init(1), Val.init(2));
+    const pair = try vm.initVal(Pair.init(Val.init(1), Val.init(2)));
     try testing.expectFmt(
         "(1 . 2)",
         "{}",
@@ -174,7 +174,7 @@ test "pretty print pair" {
 test "pretty print pair list" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const pair = try vm.builder().pair(Val.init(1), Val.init({}));
+    const pair = try vm.initVal(Pair.init(Val.init(1), Val.init({})));
     try testing.expectFmt(
         "(1)",
         "{}",
@@ -196,7 +196,7 @@ test "PrettyPrinter.Err: formats wrong_arity" {
 test "PrettyPrinter.Err: formats symbol_not_found" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol_val = try vm.builder().symbol(Symbol.init("my-symbol"));
+    const symbol_val = try vm.initVal(Symbol.init("my-symbol"));
     const err = errors.DetailedError{
         .symbol_not_found = .{ .symbol = symbol_val.repr.symbol },
     };

@@ -131,7 +131,7 @@ fn toStringImpl(vm: *Vm) errors.Error!Val {
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     try vm.inspector().pretty(args[0]).format("any", .{}, buffer.writer());
-    const return_val = try vm.builder().string(buffer.items);
+    const return_val = try vm.initVal(buffer.items);
     return return_val;
 }
 
@@ -408,7 +408,7 @@ fn pairImpl(vm: *Vm) errors.Error!Val {
         .want = 2,
         .got = @intCast(args.len),
     } });
-    return vm.builder().pair(args[0], args[1]);
+    return vm.initVal(Pair.init(args[0], args[1]));
 }
 
 const first = NativeFunction{
@@ -479,7 +479,7 @@ const list = NativeFunction{
 
 fn listImpl(vm: *Vm) errors.Error!Val {
     const args = vm.execution_context.localStack();
-    return vm.builder().list(args);
+    return vm.initVal(args);
 }
 
 const empty_q = NativeFunction{
@@ -515,15 +515,15 @@ fn rangeImpl(vm: *Vm) errors.Error!Val {
         .want = 2,
         .got = @intCast(args.len),
     } });
-    
+
     const start = args[0].to(i64) catch return vm.builder().addError(
         DetailedError{ .wrong_type = .{ .want = "int", .got = args[0] } },
     );
     const end = args[1].to(i64) catch return vm.builder().addError(
         DetailedError{ .wrong_type = .{ .want = "int", .got = args[1] } },
     );
-    
-    return vm.builder().pair(Val.init(start), Val.init(end));
+
+    return vm.initVal(Pair.init(Val.init(start), Val.init(end)));
 }
 
 test "+ sums integers" {
@@ -1087,7 +1087,7 @@ test "/ returns WrongArity error for wrong number of arguments" {
 test "range creates a pair with two integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     try testing.expectEqualDeep(
         Val.init(0),
         try vm.evalStr("(first (range 0 5))"),
@@ -1101,7 +1101,7 @@ test "range creates a pair with two integers" {
 test "range works with negative integers" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     try testing.expectEqualDeep(
         Val.init(-3),
         try vm.evalStr("(first (range -3 2))"),
@@ -1115,7 +1115,7 @@ test "range works with negative integers" {
 test "range returns WrongType for float arguments" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     try testing.expectError(
         errors.Error.WrongType,
         vm.evalStr("(range 0.0 5)"),
@@ -1133,7 +1133,7 @@ test "range returns WrongType for float arguments" {
 test "range returns WrongType for non-numeric arguments" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     try testing.expectError(
         errors.Error.WrongType,
         vm.evalStr("(range (quote a) 5)"),
@@ -1151,7 +1151,7 @@ test "range returns WrongType for non-numeric arguments" {
 test "range returns WrongArity error for wrong number of arguments" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     try testing.expectError(
         errors.Error.WrongArity,
         vm.evalStr("(range)"),
@@ -1169,7 +1169,7 @@ test "range returns WrongArity error for wrong number of arguments" {
 test "range can be used in for loops like pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    
+
     // Test that range works in a for loop by accumulating values
     const result = try vm.evalStr(
         \\(def sum 0)

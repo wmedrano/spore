@@ -1,11 +1,11 @@
 const std = @import("std");
 const testing = std.testing;
 
-const StringInterner = @import("StringInterner.zig");
-const Symbol = @import("Symbol.zig");
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const Instruction = @import("instruction.zig").Instruction;
+const StringInterner = @import("StringInterner.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -142,7 +142,7 @@ test "pop empty stack returns stack underflow" {
 test "getGlobal on non-existant symbol returns null" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
+    const symbol = try vm.builder().internSymbol(Symbol.init("my-var"));
 
     try testing.expectEqualDeep(
         null,
@@ -153,7 +153,7 @@ test "getGlobal on non-existant symbol returns null" {
 test "getGlobal on symbol registered with setGlobal returns that symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
-    const symbol = try vm.builder().internedSymbol(Symbol.init("my-var"));
+    const symbol = try vm.builder().internSymbol(Symbol.init("my-var"));
     try vm.execution_context.setGlobal(vm.heap.allocator, symbol, Val.init(123));
 
     try testing.expectEqualDeep(

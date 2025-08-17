@@ -197,9 +197,9 @@ test "Val.to Symbol.Interned" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const symbol = try vm.builder().symbol(Symbol.init("hello"));
+    const symbol = try vm.initVal(Symbol.init("hello"));
     try testing.expectEqual(
-        try vm.builder().internedSymbol(Symbol.init("hello")),
+        try vm.builder().internSymbol(Symbol.init("hello")),
         symbol.to(Symbol.Interned),
     );
     try testing.expectError(
@@ -251,7 +251,7 @@ test "symbol is truthy" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
-    const symbol = try vm.builder().symbol(Symbol.init("hello"));
+    const symbol = try vm.initVal(Symbol.init("hello"));
     try testing.expect(symbol.isTruthy());
 }
 

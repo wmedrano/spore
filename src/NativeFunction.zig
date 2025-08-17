@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const Symbol = @import("Symbol.zig");
 const Error = @import("errors.zig").Error;
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 const Vm = @import("Vm.zig");
 
@@ -37,7 +37,7 @@ pub fn format(
 pub fn register(self: *const NativeFunction, vm: *Vm) !void {
     try vm.execution_context.setGlobal(
         vm.heap.allocator,
-        try vm.builder().internedSymbol(Symbol.init(self.name)),
+        try vm.builder().internSymbol(Symbol.init(self.name)),
         Val.init(self),
     );
 }
