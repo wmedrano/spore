@@ -4,6 +4,7 @@ const testing = std.testing;
 const errors = @import("errors.zig");
 const DetailedError = errors.DetailedError;
 const Handle = @import("object_pool.zig").Handle;
+const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
 const Pair = @import("Pair.zig");
 const String = @import("String.zig");
@@ -34,6 +35,7 @@ pub fn registerAll(vm: *Vm) !void {
     try empty_q.register(vm);
     try equal_q.register(vm);
     try range.register(vm);
+    try apply.register(vm);
 }
 
 const number_q = NativeFunction{
@@ -524,6 +526,66 @@ fn rangeImpl(vm: *Vm) errors.Error!Val {
     );
 
     return vm.initVal(Pair.init(Val.init(start), Val.init(end)));
+}
+
+const apply = NativeFunction{
+    .name = "apply",
+    .docstring = "Applies a function to a list of arguments. Example: `(apply + (list 1 2 3))` returns `6`.",
+    .ptr = applyImpl,
+};
+
+fn applyImpl(vm: *Vm) errors.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 2) return vm.builder().addError(DetailedError{ .wrong_arity = .{
+        .function = "apply",
+        .want = 2,
+        .got = @intCast(args.len),
+    } });
+
+    const function_val = args[0];
+    const args_list = args[1];
+
+    // Validate that function is callable
+    switch (function_val.repr) {
+        .native_function, .bytecode_function => {},
+        else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "function", .got = function_val } }),
+    }
+
+    // Convert args_list to a slice of values
+    var arg_values = std.ArrayList(Val).init(vm.heap.allocator);
+    defer arg_values.deinit();
+
+    // Handle list iteration
+    var current = args_list;
+    while (true) {
+        switch (current.repr) {
+            .nil => break,
+            .pair => |handle| {
+                const list_pair = try vm.heap.pairs.get(handle);
+                try arg_values.append(list_pair.first);
+                current = list_pair.second;
+            },
+            else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "list", .got = args_list } }),
+        }
+    }
+
+    // Push function and arguments onto the stack and call eval
+    try vm.execution_context.pushVal(function_val);
+    for (arg_values.items) |arg_val| {
+        try vm.execution_context.pushVal(arg_val);
+    }
+
+    // Use the VM's eval mechanism to call the function
+    const instruction = Instruction{ .eval = @intCast(arg_values.items.len + 1) };
+    try instruction.execute(vm);
+
+    // The result should now be on top of the stack
+    if (vm.execution_context.stack.len == 0) 
+        return vm.builder().addError(DetailedError{ .stack_underflow = {} });
+    
+    const result = vm.execution_context.stack.pop() orelse 
+        return vm.builder().addError(DetailedError{ .stack_underflow = {} });
+    return result;
 }
 
 test "+ sums integers" {
@@ -1180,5 +1242,87 @@ test "range can be used in for loops like pair" {
     try testing.expectEqualDeep(
         Val.init(6), // 1 + 2 + 3 = 6
         result,
+    );
+}
+
+test "apply calls function with list of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectEqualDeep(
+        Val.init(6),
+        try vm.evalStr("(apply + (list 1 2 3))"),
+    );
+}
+
+test "apply works with multiplication" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectEqualDeep(
+        Val.init(24),
+        try vm.evalStr("(apply * (list 2 3 4))"),
+    );
+}
+
+test "apply works with empty list" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectEqualDeep(
+        Val.init(0),
+        try vm.evalStr("(apply + (list))"),
+    );
+}
+
+test "apply works with single argument" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectEqualDeep(
+        Val.init(-5),
+        try vm.evalStr("(apply - (list 5))"),
+    );
+}
+
+test "apply returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(apply +)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(apply + (list 1 2) 3)"),
+    );
+}
+
+test "apply returns WrongType error for non-function first argument" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(apply 5 (list 1 2))"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(apply (quote hello) (list 1 2))"),
+    );
+}
+
+test "apply returns WrongType error for non-list second argument" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(apply + 5)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongType,
+        vm.evalStr("(apply + (quote hello))"),
     );
 }
