@@ -3,6 +3,20 @@
 Spore is a Lisp-like language implemented in Zig, featuring a virtual machine
 and a bytecode compiler.
 
+## v0.0.3
+
+v0.0.3 focuses on error handling, functional programming features, and improved developer experience.
+
+### Status
+
+| Feature                                             | Status |
+|-----------------------------------------------------|--------|
+| Error handling with try/catch                       | ⏳     |
+| Better error messages                               | ⏳     |
+| Closures support                                    | ⏳     |
+| Higher-order functions (map, filter, reduce, apply) | ⏳     |
+| REPL (Read-Eval-Print Loop)                         | ⏳     |
+
 ## v0.0.2
 
 v0.0.2 focuses on documentations and infrastructure.
