@@ -4,17 +4,18 @@ const testing = std.testing;
 const Builder = @import("Builder.zig");
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const Compiler = @import("Compiler.zig");
-const ObjectPool = @import("object_pool.zig").ObjectPool;
-const Handle = @import("object_pool.zig").Handle;
-const StringInterner = @import("StringInterner.zig");
-const Symbol = @import("Symbol.zig");
+const errors = @import("errors.zig");
 const ExecutionContext = @import("ExecutionContext.zig");
 const GarbageCollector = @import("GarbageCollector.zig");
+const Handle = @import("object_pool.zig").Handle;
 const Heap = @import("Heap.zig");
 const Inspector = @import("Inspector.zig");
 const Instruction = @import("instruction.zig").Instruction;
 const NativeFunction = @import("NativeFunction.zig");
+const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Reader = @import("Reader.zig");
+const StringInterner = @import("StringInterner.zig");
+const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 
 const Vm = @This();
@@ -56,7 +57,7 @@ fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
     while (try reader.next(self.heap.allocator, self)) |expr| {
         try compiler.addExpr(expr);
     }
-    const bytecode_name = try self.builder().internedSymbol(Symbol.init("user-source"));
+    const bytecode_name = try self.builder().internSymbol(Symbol.init("user-source"));
     const bytecode_handle = try self.heap.bytecode_functions.create(
         self.heap.allocator,
         try compiler.compile(bytecode_name),
@@ -82,6 +83,11 @@ fn evalBytecode(self: *Vm, bytecode_handle: Handle(BytecodeFunction)) !Val {
 /// Get a value that can be used to inspect values.
 pub fn inspector(self: *const Vm) Inspector {
     return Inspector{ .vm = self };
+}
+
+/// Convenience method that delegates to `Builder.init`.
+pub fn initVal(self: *Vm, val: anytype) errors.Error!Val {
+    return self.builder().init(val);
 }
 
 /// Returns a builder associated with this VM.
