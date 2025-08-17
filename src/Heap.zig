@@ -4,6 +4,7 @@ const std = @import("std");
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
 const Color = @import("object_pool.zig").Color;
+const DetailedError = @import("errors.zig").DetailedError;
 const NativeFunction = @import("NativeFunction.zig");
 const ObjectPool = @import("object_pool.zig").ObjectPool;
 const Pair = @import("Pair.zig");
@@ -29,6 +30,8 @@ pairs: ObjectPool(Pair) = .{},
 strings: ObjectPool(String) = .{},
 /// Stores all bytecode function objects.
 bytecode_functions: ObjectPool(BytecodeFunction) = .{},
+/// Stores all detailed error objects.
+detailed_errors: ObjectPool(DetailedError) = .{},
 
 /// Initializes the heap, preparing it for allocations.
 pub fn init(allocator: std.mem.Allocator) Heap {
@@ -50,4 +53,6 @@ pub fn deinit(self: *Heap) void {
     var bytecode_iter = self.bytecode_functions.iter();
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.allocator);
     self.bytecode_functions.deinit(self.allocator);
+
+    self.detailed_errors.deinit(self.allocator);
 }

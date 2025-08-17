@@ -3,6 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
+const DetailedError = @import("errors.zig").DetailedError;
 const Handle = @import("object_pool.zig").Handle;
 const NativeFunction = @import("NativeFunction.zig");
 const Pair = @import("Pair.zig");
@@ -27,6 +28,7 @@ pub const Tag = enum {
     string,
     native_function,
     bytecode_function,
+    detailed_error,
 };
 
 /// The internal representation of a value.
@@ -50,6 +52,8 @@ pub const Repr = union(Tag) {
     /// A bytecode function. Stored as a handle to keep the size of `Repr`
     /// small.
     bytecode_function: Handle(BytecodeFunction),
+    /// A detailed error. Stored as a handle to keep the size of `Repr` small.
+    detailed_error: Handle(DetailedError),
 
     /// Formats the `Repr` for printing, implementing the `std.fmt.Format`
     /// interface.
@@ -71,6 +75,7 @@ pub const Repr = union(Tag) {
             .string => |handle| try writer.print("@string-{}", .{handle.id}),
             .native_function => |func| try writer.print("@function-{s}", .{func.name}),
             .bytecode_function => |handle| try writer.print("@bytecode-function-{}", .{handle.id}),
+            .detailed_error => |handle| try writer.print("@detailed-error-{}", .{handle.id}),
         }
     }
 };
@@ -97,6 +102,9 @@ pub fn init(val: anytype) Val {
         Handle(BytecodeFunction) => return Val{ .repr = .{ .bytecode_function = val } },
         BytecodeFunction => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
             ", did you mean " ++ @typeName(Handle(BytecodeFunction)) ++ "?"),
+        Handle(DetailedError) => return Val{ .repr = .{ .detailed_error = val } },
+        DetailedError => @compileError("Unsupported type for Val.new: " ++ @typeName(T) ++
+            ", did you mean " ++ @typeName(Handle(DetailedError)) ++ "?"),
         else => @compileError("Unsupported type for Val.new: " ++ @typeName(T)),
     }
 }
@@ -148,6 +156,10 @@ pub fn to(self: Val, T: type) ToValError!T {
         },
         Handle(BytecodeFunction) => switch (self.repr) {
             .bytecode_function => |x| return x,
+            else => return ToValError.WrongType,
+        },
+        Handle(DetailedError) => switch (self.repr) {
+            .detailed_error => |x| return x,
             else => return ToValError.WrongType,
         },
         else => @compileError("Unsupported type for Val.to: " ++ @typeName(T)),
@@ -266,4 +278,33 @@ test "pair is truthy" {
     );
     const pair_val = Val.init(handle);
     try testing.expect(pair_val.isTruthy());
+}
+
+test "Val.to Handle(DetailedError)" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const detailed_error = DetailedError{ .divide_by_zero = {} };
+    const handle = try vm.heap.detailed_errors.create(
+        vm.heap.allocator,
+        detailed_error,
+        vm.heap.unreachable_color,
+    );
+    const error_val = Val.init(handle);
+    try testing.expectEqual(handle, try error_val.to(Handle(DetailedError)));
+    try testing.expectError(ToValError.WrongType, error_val.to(i64));
+}
+
+test "detailed error is truthy" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const detailed_error = DetailedError{ .stack_overflow = {} };
+    const handle = try vm.heap.detailed_errors.create(
+        vm.heap.allocator,
+        detailed_error,
+        vm.heap.unreachable_color,
+    );
+    const error_val = Val.init(handle);
+    try testing.expect(error_val.isTruthy());
 }

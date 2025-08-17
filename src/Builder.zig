@@ -57,6 +57,7 @@ pub fn init(self: Builder, val: anytype) errors.Error!Val {
         Handle(String) => return Val.init(val),
         *const NativeFunction => return Val.init(val),
         Handle(BytecodeFunction) => return Val.init(val),
+        Handle(DetailedError) => return Val.init(val),
         // Additional types that need Builder processing
         []u8, []const u8 => {
             const handle = try self.vm.heap.strings.create(
@@ -91,6 +92,16 @@ pub fn init(self: Builder, val: anytype) errors.Error!Val {
             const handle = self.vm.heap.pairs.create(
                 self.vm.heap.allocator,
                 Pair.init(val.first, val.second),
+                self.vm.heap.unreachable_color,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return self.addError(DetailedError{ .out_of_memory = {} }),
+            };
+            return self.init(handle);
+        },
+        DetailedError => {
+            const handle = self.vm.heap.detailed_errors.create(
+                self.vm.heap.allocator,
+                val,
                 self.vm.heap.unreachable_color,
             ) catch |err| switch (err) {
                 error.OutOfMemory => return self.addError(DetailedError{ .out_of_memory = {} }),
@@ -151,7 +162,7 @@ pub fn addError(self: Builder, err: errors.DetailedError) errors.Error {
     return err.err();
 }
 
-test "Builder.init: converts nil" {
+test "Builder.init converts nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -163,7 +174,7 @@ test "Builder.init: converts nil" {
     );
 }
 
-test "Builder.init: converts boolean" {
+test "Builder.init converts boolean" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -179,7 +190,7 @@ test "Builder.init: converts boolean" {
     );
 }
 
-test "Builder.init: converts integer" {
+test "Builder.init converts integer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -190,7 +201,7 @@ test "Builder.init: converts integer" {
     );
 }
 
-test "Builder.init: converts float" {
+test "Builder.init converts float" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -201,7 +212,7 @@ test "Builder.init: converts float" {
     );
 }
 
-test "Builder.init: converts interned symbol handle" {
+test "Builder.init converts interned symbol handle" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -212,7 +223,7 @@ test "Builder.init: converts interned symbol handle" {
     );
 }
 
-test "Builder.init: converts pair handle" {
+test "Builder.init converts pair handle" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -227,7 +238,7 @@ test "Builder.init: converts pair handle" {
     try testing.expectFmt("(1 . 2)", "{}", .{vm.inspector().pretty(result)});
 }
 
-test "Builder.init: converts string handle" {
+test "Builder.init converts string handle" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -246,7 +257,7 @@ test "Builder.init: converts string handle" {
     );
 }
 
-test "Builder.init: converts native function pointer" {
+test "Builder.init converts native function pointer" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -269,7 +280,7 @@ test "Builder.init: converts native function pointer" {
     try testing.expect(result.repr.native_function == native_func);
 }
 
-test "Builder.init: converts bytecode function handle" {
+test "Builder.init converts bytecode function handle" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -286,7 +297,7 @@ test "Builder.init: converts bytecode function handle" {
     try testing.expect(result.repr.bytecode_function.id == func_handle.id);
 }
 
-test "Builder.init: converts byte slice to heap string" {
+test "Builder.init converts byte slice to heap string" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -297,7 +308,7 @@ test "Builder.init: converts byte slice to heap string" {
     );
 }
 
-test "Builder.init: converts const byte slice to heap string" {
+test "Builder.init converts const byte slice to heap string" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -309,7 +320,7 @@ test "Builder.init: converts const byte slice to heap string" {
     );
 }
 
-test "Builder.init: converts Val slice to linked list" {
+test "Builder.init converts Val slice to linked list" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -321,7 +332,7 @@ test "Builder.init: converts Val slice to linked list" {
     );
 }
 
-test "Builder.init: converts const Val slice to linked list" {
+test "Builder.init converts const Val slice to linked list" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -333,7 +344,7 @@ test "Builder.init: converts const Val slice to linked list" {
     );
 }
 
-test "Builder.init: converts Symbol to interned symbol" {
+test "Builder.init converts Symbol to interned symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -344,7 +355,7 @@ test "Builder.init: converts Symbol to interned symbol" {
     );
 }
 
-test "Builder.init: converts Pair to heap-allocated pair" {
+test "Builder.init converts Pair to heap-allocated pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -355,7 +366,7 @@ test "Builder.init: converts Pair to heap-allocated pair" {
     );
 }
 
-test "Builder.init: handles out of memory when converting Val slice" {
+test "Builder.init handles out of memory when converting Val slice" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -370,7 +381,7 @@ test "Builder.init: handles out of memory when converting Val slice" {
     );
 }
 
-test "Builder.init: handles out of memory when converting Pair" {
+test "Builder.init handles out of memory when converting Pair" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -384,7 +395,7 @@ test "Builder.init: handles out of memory when converting Pair" {
     );
 }
 
-test "Builder.stringOwned: creates string taking ownership of slice" {
+test "Builder.stringOwned creates string taking ownership of slice" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -393,7 +404,7 @@ test "Builder.stringOwned: creates string taking ownership of slice" {
     try testing.expectFmt("\"owned string\"", "{}", .{vm.inspector().pretty(try vm.builder().stringOwned(owned_slice))});
 }
 
-test "Builder.stringOwned: handles out of memory" {
+test "Builder.stringOwned handles out of memory" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -405,7 +416,7 @@ test "Builder.stringOwned: handles out of memory" {
     );
 }
 
-test "Builder.internSymbol: interns a new symbol" {
+test "Builder.internSymbol interns a new symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -416,7 +427,7 @@ test "Builder.internSymbol: interns a new symbol" {
     );
 }
 
-test "Builder.internSymbol: returns existing interned symbol" {
+test "Builder.internSymbol returns existing interned symbol" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -430,7 +441,7 @@ test "Builder.internSymbol: returns existing interned symbol" {
     );
 }
 
-test "Builder.addError: records detailed error in VM context" {
+test "Builder.addError records detailed error in VM context" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -444,7 +455,7 @@ test "Builder.addError: records detailed error in VM context" {
     );
 }
 
-test "Builder.addError: returns corresponding error enum" {
+test "Builder.addError returns corresponding error enum" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
 
@@ -463,5 +474,46 @@ test "Builder.addError: returns corresponding error enum" {
     try testing.expectEqual(
         errors.Error.Internal,
         vm.builder().addError(DetailedError{ .internal = {} }),
+    );
+}
+
+test "Builder.init converts DetailedError handle" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const detailed_error = DetailedError{ .wrong_type = .{ .want = "number", .got = Val.init(42) } };
+    const handle = try vm.heap.detailed_errors.create(
+        vm.heap.allocator,
+        detailed_error,
+        vm.heap.unreachable_color,
+    );
+    const result = try vm.builder().init(handle);
+
+    try testing.expect(result.repr == .detailed_error);
+    try testing.expectEqual(handle, result.repr.detailed_error);
+}
+
+test "Builder.init converts DetailedError to heap-allocated error" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const detailed_error = DetailedError{ .symbol_not_found = .{ .symbol = try vm.builder().internSymbol(Symbol.init("undefined")) } };
+    const result = try vm.builder().init(detailed_error);
+
+    try testing.expect(result.repr == .detailed_error);
+    const retrieved_error = try vm.heap.detailed_errors.get(result.repr.detailed_error);
+    try testing.expect(std.meta.eql(retrieved_error, detailed_error));
+}
+
+test "Builder.init handles out of memory when converting DetailedError" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .fail_index = 0 });
+    vm.heap.allocator = failing_allocator.allocator();
+
+    try testing.expectError(
+        errors.Error.OutOfMemory,
+        vm.builder().init(DetailedError{ .internal = {} }),
     );
 }

@@ -3,6 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const BytecodeFunction = @import("BytecodeFunction.zig");
+const DetailedError = @import("errors.zig").DetailedError;
 const ExecutionContext = @import("ExecutionContext.zig");
 const Handle = @import("object_pool.zig").Handle;
 const Heap = @import("Heap.zig");
@@ -72,6 +73,14 @@ fn markOne(self: *GarbageCollector, val: Val) Error!void {
                 try self.markInstructions(function.instructions);
             }
         },
+        .detailed_error => |handle| {
+            if (self.vm.heap.detailed_errors.setColor(handle, reachable_color) != reachable_color) {
+                const detailed_error = try self.vm.heap.detailed_errors.get(handle);
+                if (detailed_error.referencedVal()) |referenced_val| {
+                    try self.markOne(referenced_val);
+                }
+            }
+        },
     }
 }
 
@@ -105,6 +114,7 @@ fn markInstructions(self: *GarbageCollector, instructions: []const Instruction) 
 /// that were not marked as reachable during the marking phase.
 fn sweep(self: *GarbageCollector) !void {
     _ = try self.vm.heap.pairs.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
+    _ = try self.vm.heap.detailed_errors.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
 
     var bytecode_iter = try self.vm.heap.bytecode_functions.sweep(self.vm.heap.allocator, self.vm.heap.unreachable_color);
     while (bytecode_iter.next()) |bytecode| bytecode.deinit(self.vm.heap.allocator);
@@ -128,4 +138,36 @@ test "run GC reuseses function slot" {
         free_bytecode_functions + 2,
         vm.heap.bytecode_functions.free_list.items.len,
     );
+}
+
+test "GC marks and sweeps detailed errors" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+
+    const some_val = Val.init(42);
+    const detailed_error = DetailedError{ .wrong_type = .{ .want = "string", .got = some_val } };
+
+    // Create a detailed error on the heap
+    const error_handle = try vm.heap.detailed_errors.create(
+        vm.heap.allocator,
+        detailed_error,
+        vm.heap.unreachable_color,
+    );
+    const error_val = Val.init(error_handle);
+
+    // Push it onto the stack to make it reachable
+    vm.execution_context.stack.append(error_val) catch unreachable;
+
+    const initial_free_errors = vm.heap.detailed_errors.free_list.items.len;
+
+    // Run garbage collection - should not collect the error since it's reachable
+    try vm.garbageCollect();
+    try testing.expectEqual(initial_free_errors, vm.heap.detailed_errors.free_list.items.len);
+
+    // Remove from stack to make unreachable
+    _ = vm.execution_context.stack.pop();
+
+    // Run GC again - should collect the error now
+    try vm.garbageCollect();
+    try testing.expectEqual(initial_free_errors + 1, vm.heap.detailed_errors.free_list.items.len);
 }

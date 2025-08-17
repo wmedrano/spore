@@ -120,6 +120,10 @@ pub fn format(
                 try writer.print("@function", .{});
             }
         },
+        .detailed_error => |handle| {
+            const detailed_error = self.vm.heap.detailed_errors.get(handle) catch return writer.print("@bad-error", .{});
+            try writer.print("@error-{s}", .{@tagName(detailed_error)});
+        },
     }
 }
 
@@ -182,7 +186,7 @@ test "pretty print pair list" {
     );
 }
 
-test "PrettyPrinter.Err: formats wrong_arity" {
+test "PrettyPrinter.Err formats wrong_arity" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .wrong_arity = .{ .function = "test-func", .want = 2, .got = 1 } };
@@ -193,7 +197,7 @@ test "PrettyPrinter.Err: formats wrong_arity" {
     );
 }
 
-test "PrettyPrinter.Err: formats symbol_not_found" {
+test "PrettyPrinter.Err formats symbol_not_found" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const symbol_val = try vm.initVal(Symbol.init("my-symbol"));
@@ -207,7 +211,7 @@ test "PrettyPrinter.Err: formats symbol_not_found" {
     );
 }
 
-test "PrettyPrinter.Err: formats object_not_found" {
+test "PrettyPrinter.Err formats object_not_found" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .object_not_found = .{
@@ -220,7 +224,7 @@ test "PrettyPrinter.Err: formats object_not_found" {
     );
 }
 
-test "PrettyPrinter.Err: formats io_error" {
+test "PrettyPrinter.Err formats io_error" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .io_error = {} };
@@ -231,7 +235,7 @@ test "PrettyPrinter.Err: formats io_error" {
     );
 }
 
-test "PrettyPrinter.Err: formats wrong_type" {
+test "PrettyPrinter.Err formats wrong_type" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const val = Val.init(123); // Example value that caused wrong type
@@ -243,7 +247,7 @@ test "PrettyPrinter.Err: formats wrong_type" {
     );
 }
 
-test "PrettyPrinter.Err: formats divide_by_zero" {
+test "PrettyPrinter.Err formats divide_by_zero" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .divide_by_zero = {} };
@@ -254,7 +258,7 @@ test "PrettyPrinter.Err: formats divide_by_zero" {
     );
 }
 
-test "PrettyPrinter.Err: formats stack_overflow" {
+test "PrettyPrinter.Err formats stack_overflow" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .stack_overflow = {} };
@@ -265,7 +269,7 @@ test "PrettyPrinter.Err: formats stack_overflow" {
     );
 }
 
-test "PrettyPrinter.Err: formats stack_underflow" {
+test "PrettyPrinter.Err formats stack_underflow" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const err = errors.DetailedError{ .stack_underflow = {} };
