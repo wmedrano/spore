@@ -14,11 +14,7 @@ pub fn main() !void {
     var vm = try spore.Vm.init(gpa.allocator());
     defer vm.deinit();
     _ = vm.evalStr(program_str) catch |err| {
-        std.debug.print("Error encountered!\n", .{});
-        std.debug.print("{any}\n{any}\n\n\n", .{
-            vm.inspector().stackTrace(),
-            vm.inspector().lastError(),
-        });
+        std.debug.print("{}", .{vm.inspector().errorReport()});
         return err;
     };
 }
