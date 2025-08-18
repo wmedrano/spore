@@ -36,6 +36,7 @@ pub fn registerAll(vm: *Vm) !void {
     try equal_q.register(vm);
     try range.register(vm);
     try apply.register(vm);
+    try help.register(vm);
 }
 
 const number_q = NativeFunction{
@@ -570,6 +571,47 @@ fn applyImpl(vm: *Vm) errors.Error!Val {
     }
 
     return try vm.executeCall(@intCast(arg_count + 1));
+}
+
+const help = NativeFunction{
+    .name = "help",
+    .docstring = "Shows help information about the Spore REPL and basic syntax.",
+    .ptr = helpImpl,
+};
+
+fn helpImpl(vm: *Vm) errors.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 0) return vm.builder().addError(DetailedError{ .wrong_arity = .{
+        .function = "help",
+        .want = 0,
+        .got = @intCast(args.len),
+    } });
+
+    const help_text =
+        \\Spore REPL Commands:
+        \\  (help)       - Show this help screen
+        \\  exit, quit   - Exit the REPL
+        \\  Ctrl+D       - Exit the REPL (EOF)
+        \\
+        \\Basic Spore syntax:
+        \\  (+ 1 2)      - Addition
+        \\  (print "hi") - Print a string
+        \\  (def x 42)   - Define a variable
+        \\
+        \\Line editing:
+        \\  Left/Right arrows - Move cursor
+        \\  Ctrl+A - Beginning of line
+        \\  Ctrl+E - End of line
+        \\
+        \\Enter any Spore expression to evaluate it.
+        \\
+    ;
+    
+    std.fmt.format(std.io.getStdOut().writer(), "{s}", .{help_text}) catch |err| {
+        std.log.warn("Failed to write help text: {}", .{err});
+        return vm.builder().addError(DetailedError{ .io_error = {} });
+    };
+    return Val.init({});
 }
 
 test "+ sums integers" {

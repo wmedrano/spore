@@ -21,6 +21,7 @@ pub fn init(source: []const u8) !Reader {
     return .{ .tokenizer = Tokenizer.init(source) };
 }
 
+/// Validates that parentheses are balanced in the source.
 fn validateSource(source: []const u8) !void {
     var open_parens: i32 = 0;
     var tokenizer = Tokenizer.init(source);
@@ -93,7 +94,8 @@ fn nextExpr(self: *Reader, allocator: std.mem.Allocator, vm: *Vm) !Val {
     return error.ParseError;
 }
 
-/// Converts a string identifier into a Lisp Object.
+/// Converts a string identifier into a `Val`.
+/// Handles nil, booleans, integers, floats, and symbols.
 fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     if (std.mem.eql(u8, identifier, "nil")) return Val.init({});
     if (std.mem.eql(u8, identifier, "true")) return Val.init(true);
@@ -103,7 +105,8 @@ fn identifierToVal(identifier: []const u8, vm: *Vm) !Val {
     return vm.initVal(Symbol.init(identifier));
 }
 
-/// Converts a string representation into a Lisp string.
+/// Converts a quoted string literal into a `Val` string.
+/// Handles escape sequences and validates quotes.
 fn stringToVal(identifier: []const u8, vm: *Vm) !Val {
     if (identifier.len < 2) return error.ParseError;
     if (identifier[0] != '"') return error.ParseError;
