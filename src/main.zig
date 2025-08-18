@@ -1,7 +1,8 @@
 const std = @import("std");
 
 const spore = @import("spore_lib");
-const Readline = @import("Readline.zig");
+const Readline = @import("terminal/Readline.zig");
+const Color = @import("terminal/Color.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -13,22 +14,26 @@ pub fn main() !void {
     defer readline.deinit();
 
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Spore REPL - Enter expressions to evaluate ((help) for commands)\n", .{});
-    while (try readline.readLine("spore> ")) |input| {
+    try Readline.printInfo(stdout, "Spore REPL - Enter expressions to evaluate ((help) for commands)\n");
+    while (try readline.readLineColored("spore> ", Color.Theme.default.prompt)) |input| {
         defer gpa.allocator().free(input);
         const trimmed_input = std.mem.trim(u8, input, " \t\r\n");
         if (trimmed_input.len == 0) continue;
         if (std.mem.eql(u8, trimmed_input, "exit") or std.mem.eql(u8, trimmed_input, "quit")) {
-            try stdout.print("Goodbye!\n", .{});
+            try Readline.printInfo(stdout, "Goodbye!\n");
             break;
         }
         const result = vm.evalStr(trimmed_input) catch {
-            try stdout.print("Error: {}\n", .{vm.inspector().errorReport()});
+            try Readline.printError(stdout, "Error: ");
+            try stdout.print("{}\n", .{vm.inspector().errorReport()});
             continue;
         };
         switch (result.repr) {
-            .nil => {},
-            else => try stdout.print("{}\n", .{result}),
+            .nil => try Readline.printSpecial(stdout, "nil\n"),
+            else => {
+                try Readline.printSuccess(stdout, "=> ");
+                try stdout.print("{}\n", .{result});
+            },
         }
     }
 }
