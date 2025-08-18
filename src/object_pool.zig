@@ -131,7 +131,7 @@ pub fn ObjectPool(comptime T: type) type {
         /// Get an object by its `Handle`.
         ///
         /// Returns an error `error.ObjectNotFound` if the handle's ID is out of bounds.
-        pub fn get(self: Self, handle: Handle(T)) !T {
+        pub fn get(self: Self, handle: Handle(T)) error{ObjectNotFound}!T {
             const idx = handle.id;
             if (idx >= self.objects.len) return error.ObjectNotFound;
             const slice = self.objects.slice();

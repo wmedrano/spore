@@ -69,15 +69,8 @@ fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
 /// Evaluates a `BytecodeFunction` by executing its instructions within the VM's execution context.
 fn evalBytecode(self: *Vm, bytecode_handle: Handle(BytecodeFunction)) !Val {
     self.execution_context.last_error = null;
-    const initial_call_stack_size = self.execution_context.previous_call_frames.len;
     try self.execution_context.pushVal(Val.init(bytecode_handle));
-    try (Instruction{ .eval = 1 }).execute(self);
-    while (initial_call_stack_size < self.execution_context.previous_call_frames.len) {
-        const instruction = self.execution_context.nextInstruction();
-        try instruction.execute(self);
-    }
-
-    return try self.execution_context.popVal();
+    return try self.executeCall(1);
 }
 
 /// Get a value that can be used to inspect values.
@@ -99,6 +92,18 @@ pub fn builder(self: *Vm) Builder {
 pub fn garbageCollect(self: *Vm) !void {
     var gc = GarbageCollector.init(self);
     try gc.run();
+}
+
+/// Executes a function call with the given number of arguments already on the stack.
+/// The function should be at stack position [stack_size - arg_count - 1].
+pub fn executeCall(self: *Vm, arg_count: u32) !Val {
+    const initial_call_stack_size = self.execution_context.previous_call_frames.len;
+    try (Instruction{ .eval = @intCast(arg_count) }).execute(self);
+    while (initial_call_stack_size < self.execution_context.previous_call_frames.len) {
+        const instruction = self.execution_context.nextInstruction();
+        try instruction.execute(self);
+    }
+    return try self.execution_context.popVal();
 }
 
 /// Add the function to a `Vm`'s global namespace.
