@@ -1,6 +1,8 @@
 //! A simple readline implementation for text input editing.
 const std = @import("std");
 
+const Color = @import("Color.zig");
+
 /// Terminal control constants
 const TerminalCodes = struct {
     const CTRL_C = 3;
@@ -137,8 +139,14 @@ pub fn disableRawMode() !void {
 
 /// Refreshes the display line with the current buffer contents.
 fn refreshLine(stdout: anytype, prompt: []const u8, editor: *Readline) !void {
+    refreshLineColored(stdout, prompt, Color.Theme.default.prompt, editor) catch |err| return err;
+}
+
+/// Refreshes the display line with colored prompt support.
+fn refreshLineColored(stdout: anytype, prompt: []const u8, prompt_color: []const u8, editor: *Readline) !void {
     _ = try stdout.write(TerminalCodes.CLEAR_LINE);
-    try stdout.print("{s}{s}", .{ prompt, editor.getLine() });
+    try Color.printColored(stdout, prompt, prompt_color);
+    try stdout.print("{s}", .{editor.getLine()});
     if (editor.cursor < editor.buffer.items.len) {
         const moves = editor.buffer.items.len - editor.cursor;
         try stdout.print(TerminalCodes.CURSOR_LEFT_FMT, .{moves});
@@ -148,6 +156,12 @@ fn refreshLine(stdout: anytype, prompt: []const u8, editor: *Readline) !void {
 /// Reads a line of input with editing capabilities.
 /// Returns the entered line or null if EOF/Ctrl+C/Ctrl+D.
 pub fn readLine(self: *Readline, prompt: []const u8) !?[]u8 {
+    return self.readLineColored(prompt, Color.Theme.default.prompt);
+}
+
+/// Reads a line of input with colored prompt support.
+/// Returns the entered line or null if EOF/Ctrl+C/Ctrl+D.
+pub fn readLineColored(self: *Readline, prompt: []const u8, prompt_color: []const u8) !?[]u8 {
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
     const allocator = self.buffer.allocator;
@@ -158,7 +172,7 @@ pub fn readLine(self: *Readline, prompt: []const u8) !?[]u8 {
     };
 
     self.clear();
-    _ = try stdout.write(prompt);
+    try Color.printColored(stdout, prompt, prompt_color);
 
     while (true) {
         const ch = stdin.readByte() catch |err| switch (err) {
@@ -184,17 +198,17 @@ pub fn readLine(self: *Readline, prompt: []const u8) !?[]u8 {
             },
             TerminalCodes.CTRL_A => {
                 if (self.moveCursorToStart()) {
-                    try refreshLine(stdout, prompt, self);
+                    try refreshLineColored(stdout, prompt, prompt_color, self);
                 }
             },
             TerminalCodes.CTRL_E => {
                 if (self.moveCursorToEnd()) {
-                    try refreshLine(stdout, prompt, self);
+                    try refreshLineColored(stdout, prompt, prompt_color, self);
                 }
             },
             TerminalCodes.BACKSPACE, TerminalCodes.DELETE => {
                 if (try self.deleteChar()) {
-                    try refreshLine(stdout, prompt, self);
+                    try refreshLineColored(stdout, prompt, prompt_color, self);
                 }
             },
             TerminalCodes.ESC => {
@@ -210,12 +224,12 @@ pub fn readLine(self: *Readline, prompt: []const u8) !?[]u8 {
                     switch (seq2) {
                         'D' => {
                             if (self.moveCursorLeft()) {
-                                try refreshLine(stdout, prompt, self);
+                                try refreshLineColored(stdout, prompt, prompt_color, self);
                             }
                         },
                         'C' => {
                             if (self.moveCursorRight()) {
-                                try refreshLine(stdout, prompt, self);
+                                try refreshLineColored(stdout, prompt, prompt_color, self);
                             }
                         },
                         else => {},
@@ -227,9 +241,25 @@ pub fn readLine(self: *Readline, prompt: []const u8) !?[]u8 {
                     self.insertChar(ch) catch |err| switch (err) {
                         error.OutOfMemory => return err,
                     };
-                    try refreshLine(stdout, prompt, self);
+                    try refreshLineColored(stdout, prompt, prompt_color, self);
                 }
             },
         }
     }
+}
+
+pub fn printSuccess(writer: anytype, text: []const u8) !void {
+    try Color.printColored(writer, text, Color.Theme.default.success);
+}
+
+pub fn printError(writer: anytype, text: []const u8) !void {
+    try Color.printColored(writer, text, Color.Theme.default.err);
+}
+
+pub fn printInfo(writer: anytype, text: []const u8) !void {
+    try Color.printColored(writer, text, Color.Theme.default.info);
+}
+
+pub fn printSpecial(writer: anytype, text: []const u8) !void {
+    try Color.printColored(writer, text, Color.Theme.default.special);
 }
