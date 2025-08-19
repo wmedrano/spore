@@ -36,6 +36,7 @@ pub fn registerAll(vm: *Vm) !void {
     try equal_q.register(vm);
     try range.register(vm);
     try apply.register(vm);
+    try not.register(vm);
     try help.register(vm);
 }
 
@@ -571,6 +572,23 @@ fn applyImpl(vm: *Vm) errors.Error!Val {
     }
 
     return try vm.executeCall(@intCast(arg_count + 1));
+}
+
+const not = NativeFunction{
+    .name = "not",
+    .docstring = "Returns true if the argument is falsy (false or nil), false otherwise.",
+    .ptr = notImpl,
+};
+
+fn notImpl(vm: *Vm) errors.Error!Val {
+    const args = vm.execution_context.localStack();
+    if (args.len != 1) return vm.builder().addError(DetailedError{ .wrong_arity = .{
+        .function = "not",
+        .want = 1,
+        .got = @intCast(args.len),
+    } });
+    const val = args[0];
+    return Val.init(!val.isTruthy());
 }
 
 const help = NativeFunction{
@@ -1368,5 +1386,66 @@ test "apply returns WrongType for non-list second argument with symbol" {
     try testing.expectError(
         errors.Error.WrongType,
         vm.evalStr("(apply + (quote hello))"),
+    );
+}
+
+test "not returns true for false" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.init(true),
+        try vm.evalStr("(not false)"),
+    );
+}
+
+test "not returns true for nil" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.init(true),
+        try vm.evalStr("(not nil)"),
+    );
+}
+
+test "not returns false for true" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.init(false),
+        try vm.evalStr("(not true)"),
+    );
+}
+
+test "not returns false for truthy values" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectEqualDeep(
+        Val.init(false),
+        try vm.evalStr("(not 1)"),
+    );
+    try testing.expectEqualDeep(
+        Val.init(false),
+        try vm.evalStr("(not \"hello\")"),
+    );
+    try testing.expectEqualDeep(
+        Val.init(false),
+        try vm.evalStr("(not (quote symbol))"),
+    );
+    try testing.expectEqualDeep(
+        Val.init(false),
+        try vm.evalStr("(not (list 1 2))"),
+    );
+}
+
+test "not returns WrongArity error for wrong number of arguments" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(not)"),
+    );
+    try testing.expectError(
+        errors.Error.WrongArity,
+        vm.evalStr("(not true false)"),
     );
 }
