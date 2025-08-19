@@ -2,8 +2,8 @@ const std = @import("std");
 
 const errors = @import("../errors.zig");
 const DetailedError = errors.DetailedError;
-const Handle = @import("../object_pool.zig").Handle;
 const NativeFunction = @import("../NativeFunction.zig");
+const Handle = @import("../object_pool.zig").Handle;
 const Pair = @import("../Pair.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");

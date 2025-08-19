@@ -13,7 +13,7 @@ const Vm = @import("Vm.zig");
 pub const Error = error{
     StackOverflow,
     StackUnderflow,
-    SymbolNotFound,
+    ObjectNotFound,
     WrongType,
     WrongArity,
 } || errors.Error || std.mem.Allocator.Error;

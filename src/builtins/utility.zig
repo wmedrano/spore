@@ -94,7 +94,7 @@ fn helpImpl(vm: *Vm) errors.Error!Val {
         \\Enter any Spore expression to evaluate it.
         \\
     ;
-    
+
     std.fmt.format(std.io.getStdOut().writer(), "{s}", .{help_text}) catch |err| {
         std.log.warn("Failed to write help text: {}", .{err});
         return vm.builder().addError(DetailedError{ .io_error = {} });

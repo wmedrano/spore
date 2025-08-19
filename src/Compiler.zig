@@ -375,14 +375,14 @@ fn addFunction(self: *Compiler, name: ?Symbol.Interned, exprs: *Pair.ListIter) E
 ///     during compilation.
 fn addLetStar(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    var bindings_iter = try self.vm.inspector().listIter(bindings);
+    var bindings_iter = try self.vm.inspector().to(Pair.ListIter, bindings);
     var lexical_binds = std.ArrayList(LexicalScope.Binding).init(self.arena.allocator());
     defer {
         for (lexical_binds.items) |b| self.lexical_scope.remove(b);
         lexical_binds.deinit();
     }
     while (try bindings_iter.next(self.vm)) |binding| {
-        var binding_parts = try self.vm.inspector().listIter(binding);
+        var binding_parts = try self.vm.inspector().to(Pair.ListIter, binding);
         const binding_name = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         const binding_expr = try binding_parts.next(self.vm) orelse return Error.InvalidExpression;
         if (!binding_parts.empty()) return Error.InvalidExpression;
@@ -413,7 +413,7 @@ fn addLetStar(self: *Compiler, exprs: *Pair.ListIter) Error!void {
 fn addFor(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     // Get bindings
     const bindings = (try exprs.next(self.vm)) orelse return Error.InvalidExpression;
-    var bindings_iter = try self.vm.inspector().listIter(bindings);
+    var bindings_iter = try self.vm.inspector().to(Pair.ListIter, bindings);
     const binding_name_val = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;
     const binding_name = binding_name_val.to(Symbol.Interned) catch return Error.InvalidExpression;
     const iterable_expr = (try bindings_iter.next(self.vm)) orelse return Error.InvalidExpression;

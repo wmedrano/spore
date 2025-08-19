@@ -61,7 +61,6 @@ pub fn supportsColor() bool {
         std.mem.startsWith(u8, term, "tmux");
 }
 
-
 /// Formats colored output directly to a writer
 pub fn printColored(writer: anytype, text: []const u8, color: []const u8) !void {
     if (supportsColor()) {
@@ -70,4 +69,3 @@ pub fn printColored(writer: anytype, text: []const u8, color: []const u8) !void 
         try writer.print("{s}", .{text});
     }
 }
-
