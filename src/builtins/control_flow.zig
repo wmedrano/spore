@@ -3,6 +3,7 @@ const std = @import("std");
 const errors = @import("../errors.zig");
 const DetailedError = errors.DetailedError;
 const NativeFunction = @import("../NativeFunction.zig");
+const Pair = @import("../Pair.zig");
 const Val = @import("../Val.zig");
 const Vm = @import("../Vm.zig");
 
@@ -39,7 +40,7 @@ fn applyImpl(vm: *Vm) errors.Error!Val {
     }
 
     try vm.execution_context.pushVal(function_val);
-    var list_iter = vm.inspector().listIter(args_list) catch |err| switch (err) {
+    var list_iter = vm.inspector().to(Pair.ListIter, args_list) catch |err| switch (err) {
         error.WrongType => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "list", .got = args_list } }),
         error.ObjectNotFound => return vm.builder().addError(DetailedError{ .object_not_found = .{ .object = args_list } }),
     };

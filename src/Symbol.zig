@@ -22,7 +22,7 @@ pub const Interned = struct {
 
     /// Get the interned value as a `Symbol`.
     pub fn get(self: Interned, string_interner: StringInterner) !Symbol {
-        const symbol_str = string_interner.toString(self.symbol) orelse return error.SymbolNotFound;
+        const symbol_str = string_interner.toString(self.symbol) orelse return error.ObjectNotFound;
         return .{ .symbol = symbol_str };
     }
 

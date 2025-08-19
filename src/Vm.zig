@@ -226,7 +226,7 @@ test "or does not short-circuits evaluation on false" {
     defer vm.deinit();
     const source = "(or false (uncalled))";
     try testing.expectError(
-        error.SymbolNotFound,
+        error.ObjectNotFound,
         vm.evalStr(source),
     );
 }
@@ -277,7 +277,7 @@ test "and does not short-circuit evaluation on true" {
     defer vm.deinit();
     const source = "(and true (uncalled))";
     try testing.expectError(
-        error.SymbolNotFound,
+        error.ObjectNotFound,
         vm.evalStr(source),
     );
 }

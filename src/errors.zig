@@ -4,9 +4,6 @@ const Symbol = @import("Symbol.zig");
 const Val = @import("Val.zig");
 
 pub const Error = error{
-    /// An attempt was made to resolve a symbol that does not exist in the
-    /// current scope.
-    SymbolNotFound,
     /// A function was called with an incorrect number of arguments.
     WrongArity,
     /// An allocation failed due to insufficient memory.
@@ -67,7 +64,7 @@ pub const DetailedError = union(enum) {
         switch (self) {
             .out_of_memory => return Error.OutOfMemory,
             .wrong_arity => return Error.WrongArity,
-            .symbol_not_found => return Error.SymbolNotFound,
+            .symbol_not_found => return Error.ObjectNotFound,
             .object_not_found => return Error.ObjectNotFound,
             .io_error => return Error.IoError,
             .wrong_type => return Error.WrongType,
