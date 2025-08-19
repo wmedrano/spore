@@ -1,8 +1,9 @@
 const std = @import("std");
 
 const spore = @import("spore_lib");
-const Readline = @import("terminal/Readline.zig");
+
 const Color = @import("terminal/Color.zig");
+const Readline = @import("terminal/Readline.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -32,7 +33,7 @@ pub fn main() !void {
             .nil => try Readline.printSpecial(stdout, "nil\n"),
             else => {
                 try Readline.printSuccess(stdout, "=> ");
-                try stdout.print("{}\n", .{result});
+                try stdout.print("{}\n", .{vm.inspector().pretty(result)});
             },
         }
     }

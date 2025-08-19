@@ -24,6 +24,10 @@ fn toStringImpl(vm: *Vm) errors.Error!Val {
         .want = 1,
         .got = @intCast(args.len),
     } });
+    switch (args[0].repr) {
+        .string => return args[0],
+        else => {},
+    }
     var buffer = std.ArrayList(u8).init(vm.heap.allocator);
     defer buffer.deinit();
     try vm.inspector().pretty(args[0]).format("any", .{}, buffer.writer());
