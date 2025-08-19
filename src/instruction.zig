@@ -144,11 +144,29 @@ pub const Instruction = union(Code) {
                 });
                 const got_args = vm.execution_context.localStack().len;
                 const want_args = function.args;
-                if (got_args != want_args) return Error.WrongArity;
+                if (got_args != want_args) {
+                    const symbol = if (function.name) |s|
+                        vm.inspector().to(Symbol, Val.init(s)) catch Symbol.init("_")
+                    else
+                        Symbol.init("_");
+                    return vm.builder().addError(
+                        DetailedError{
+                            .wrong_arity = .{
+                                .function = symbol.symbol,
+                                .want = want_args,
+                                .got = @intCast(got_args),
+                            },
+                        },
+                    );
+                }
                 const extra_slots_size = function.initial_local_stack_size - function.args;
                 if (extra_slots_size > 0) {
                     const extra_slots =
-                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch return vm.builder().addError(DetailedError{ .stack_overflow = {} });
+                        vm.execution_context.stack.addManyAsSlice(@intCast(extra_slots_size)) catch return vm.builder().addError(
+                            DetailedError{
+                                .stack_overflow = {},
+                            },
+                        );
                     for (extra_slots) |*v| v.* = Val.init({});
                 }
             },
@@ -156,10 +174,18 @@ pub const Instruction = union(Code) {
                 try vm.execution_context.pushCallFrame(
                     ExecutionContext.CallFrame{ .stack_start = stack_start },
                 );
-                vm.execution_context.stack.append(try function.call(vm)) catch return vm.builder().addError(DetailedError{ .stack_overflow = {} });
+                vm.execution_context.stack.append(try function.call(vm)) catch return vm.builder().addError(
+                    DetailedError{
+                        .stack_overflow = {},
+                    },
+                );
                 try (Instruction{ .ret = {} }).execute(vm);
             },
-            else => return vm.builder().addError(DetailedError{ .wrong_type = .{ .want = "function", .got = function_val } }),
+            else => return vm.builder().addError(
+                DetailedError{
+                    .wrong_type = .{ .want = "function", .got = function_val },
+                },
+            ),
         }
     }
 

@@ -50,7 +50,7 @@ pub const ErrorReport = struct {
             PrettyPrinter.Err{ .vm = self.vm, .err = err }
         else
             null;
-        try writer.print("{any}\n{any}\n\n\n", .{
+        try writer.print("{any}\nError:\n  {any}\n", .{
             PrettyPrinter.StackTrace{ .vm = self.vm },
             last_error,
         });

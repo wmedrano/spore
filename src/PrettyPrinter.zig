@@ -45,7 +45,10 @@ pub const Err = struct {
         _ = options;
         switch (self.err) {
             .out_of_memory => try writer.print("Out of memory", .{}),
-            .wrong_arity => |e| try writer.print("Wrong arity for function '{s}': want {any} got {any}", .{ e.function, e.want, e.got }),
+            .wrong_arity => |e| try writer.print(
+                "Wrong arity for function '{s}': want {any} arguments, but got {any} arguments",
+                .{ e.function, e.want, e.got },
+            ),
             .symbol_not_found => |e| {
                 const symbol = e.symbol.get(self.vm.heap.string_interner) catch return writer.print("Symbol not found: {any}", .{e.symbol});
                 try writer.print("Symbol not found: {}", .{symbol});
@@ -191,7 +194,7 @@ test "PrettyPrinter.Err formats wrong_arity" {
     defer vm.deinit();
     const err = errors.DetailedError{ .wrong_arity = .{ .function = "test-func", .want = 2, .got = 1 } };
     try testing.expectFmt(
-        "Wrong arity for function 'test-func': want 2 got 1",
+        "Wrong arity for function 'test-func': want 2 arguments, but got 1 arguments",
         "{}",
         .{PrettyPrinter.Err{ .vm = &vm, .err = err }},
     );

@@ -93,6 +93,20 @@ pub fn pushCallFrame(self: *ExecutionContext, call_frame: CallFrame) !void {
     self.call_frame = call_frame;
 }
 
+/// Resets the execution context to its initial state by clearing all call frames and the stack.
+/// This prepares the context for a new execution session, typically used between REPL evaluations
+/// to ensure a clean execution environment.
+///
+/// This function:
+/// - Clears all previous call frames
+/// - Resets the current call frame to default state
+/// - Empties the execution stack
+pub fn resetCalls(self: *ExecutionContext) void {
+    self.previous_call_frames.clear();
+    self.call_frame = CallFrame{};
+    self.stack.clear();
+}
+
 test "initial stack is empty" {
     var ctx = ExecutionContext{};
     try testing.expectFmt("{  }", "{any}", .{ctx.stack.constSlice()});

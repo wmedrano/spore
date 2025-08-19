@@ -18,19 +18,20 @@ pub fn main() !void {
     try Readline.printInfo(stdout, "Spore REPL - Enter expressions to evaluate ((help) for commands)\n");
     while (try readline.readLineColored("spore> ", Color.Theme.default.prompt)) |input| {
         defer gpa.allocator().free(input);
-        const trimmed_input = std.mem.trim(u8, input, " \t\r\n");
-        if (trimmed_input.len == 0) continue;
-        if (std.mem.eql(u8, trimmed_input, "exit") or std.mem.eql(u8, trimmed_input, "quit")) {
+        const expr_str = std.mem.trim(u8, input, " \t\r\n");
+        if (expr_str.len == 0) continue;
+        if (std.mem.eql(u8, expr_str, "exit") or std.mem.eql(u8, expr_str, "quit")) {
             try Readline.printInfo(stdout, "Goodbye!\n");
             break;
         }
-        const result = vm.evalStr(trimmed_input) catch {
+        vm.execution_context.resetCalls();
+        const result = vm.evalStr(expr_str) catch {
             try Readline.printError(stdout, "Error: ");
             try stdout.print("{}\n", .{vm.inspector().errorReport()});
             continue;
         };
         switch (result.repr) {
-            .nil => try Readline.printSpecial(stdout, "nil\n"),
+            .nil => {},
             else => {
                 try Readline.printSuccess(stdout, "=> ");
                 try stdout.print("{}\n", .{vm.inspector().pretty(result)});
