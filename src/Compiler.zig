@@ -22,11 +22,19 @@ vm: *Vm,
 /// The allocator to use for temporary items.
 arena: *std.heap.ArenaAllocator,
 /// Symbols.
-symbols: struct {
+symbols: CompilerSymbols,
+/// The compiled expression.
+instructions: std.ArrayListUnmanaged(Instruction) = .{},
+/// The variables that are in scope.
+lexical_scope: LexicalScope = .{},
+/// The number of arguments.
+arg_count: i32,
+
+const CompilerSymbols = struct {
     @"if": Symbol.Interned,
     function: Symbol.Interned,
     @"return": Symbol.Interned,
-    internal_define: Symbol.Interned,
+    @"internal-define": Symbol.Interned,
     def: Symbol.Interned,
     defun: Symbol.Interned,
     @"let*": Symbol.Interned,
@@ -36,13 +44,7 @@ symbols: struct {
     @"or": Symbol.Interned,
     @"and": Symbol.Interned,
     quote: Symbol.Interned,
-},
-/// The compiled expression.
-instructions: std.ArrayListUnmanaged(Instruction) = .{},
-/// The variables that are in scope.
-lexical_scope: LexicalScope = .{},
-/// The number of arguments.
-arg_count: i32,
+};
 
 /// Initialize a new compiler.
 ///
@@ -75,21 +77,7 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
     return Compiler{
         .vm = vm,
         .arena = arena,
-        .symbols = .{
-            .@"if" = try vm.builder().internSymbol(Symbol.init("if")),
-            .function = try vm.builder().internSymbol(Symbol.init("function")),
-            .@"return" = try vm.builder().internSymbol(Symbol.init("return")),
-            .internal_define = try vm.builder().internSymbol(Symbol.init("internal-define")),
-            .def = try vm.builder().internSymbol(Symbol.init("def")),
-            .defun = try vm.builder().internSymbol(Symbol.init("defun")),
-            .@"let*" = try vm.builder().internSymbol(Symbol.init("let*")),
-            .@"for" = try vm.builder().internSymbol(Symbol.init("for")),
-            .first = try vm.builder().internSymbol(Symbol.init("first")),
-            .second = try vm.builder().internSymbol(Symbol.init("second")),
-            .@"or" = try vm.builder().internSymbol(Symbol.init("or")),
-            .@"and" = try vm.builder().internSymbol(Symbol.init("and")),
-            .quote = try vm.builder().internSymbol(Symbol.init("quote")),
-        },
+        .symbols = try vm.builder().symbolTable(CompilerSymbols),
         .instructions = .{},
         .lexical_scope = lexical_scope,
         .arg_count = lexical_scope.minimumLocalStackSize(),
@@ -305,7 +293,7 @@ fn addDef(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     if (!exprs.empty()) return Error.InvalidExpression;
 
     try self.addInstructions(&.{
-        Instruction{ .deref = self.symbols.internal_define },
+        Instruction{ .deref = self.symbols.@"internal-define" },
         Instruction{ .push = symbol },
     });
     try self.addExpr(expr);
@@ -331,7 +319,7 @@ fn addDefun(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     const interned_symbol = symbol.to(Symbol.Interned) catch return Error.InvalidExpression;
 
     try self.addInstructions(&.{
-        Instruction{ .deref = self.symbols.internal_define },
+        Instruction{ .deref = self.symbols.@"internal-define" },
         Instruction{ .push = symbol },
     });
     try self.addFunction(interned_symbol, exprs);

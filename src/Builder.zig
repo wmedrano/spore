@@ -162,6 +162,40 @@ pub fn addError(self: Builder, err: errors.DetailedError) errors.Error {
     return err.err();
 }
 
+/// Creates a struct where each field name is interned as a Spore symbol.
+///
+/// This function constructs an instance of struct type `T`, initializing each
+/// of its fields with an `Symbol.Interned` value. The field's name is used as
+/// the string for the interned symbol. This provides a declarative alternative
+/// to manually populating a struct with interned symbols.
+///
+/// Args:
+///     T: The struct type. All fields in `T` must be of type `Symbol.Interned`.
+///
+/// Returns:
+///     An instance of `T` with all fields populated by interned symbols.
+///
+/// Errors:
+///     - Compile-time: If `T` is not a struct, or if any field is not
+///     `Symbol.Interned`.
+///     - Runtime: `errors.Error.OutOfMemory` if symbol interning fails.
+pub fn symbolTable(self: Builder, T: type) !T {
+    const info: std.builtin.Type = @typeInfo(T);
+    if (info != .@"struct") {
+        @compileError("symbolTable can only be used with struct types but got type " ++ @typeName(T));
+    }
+    var result: T = undefined;
+    inline for (info.@"struct".fields) |field| {
+        if (@TypeOf(@field(result, field.name)) != Symbol.Interned) {
+            @compileError("All fields in symbolTable struct must be of type Symbol.Interned but " ++
+                @typeName(T) ++ " has field " ++ field.name ++ " of type " ++ field.type ++ ".");
+        }
+        @field(result, field.name) = try self.internSymbol(Symbol.init(field.name));
+    }
+
+    return result;
+}
+
 test "Builder.init converts nil" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
@@ -515,5 +549,28 @@ test "Builder.init handles out of memory when converting DetailedError" {
     try testing.expectError(
         errors.Error.OutOfMemory,
         vm.builder().init(DetailedError{ .internal = {} }),
+    );
+}
+
+test symbolTable {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const TestStruct = struct {
+        foo: Symbol.Interned,
+        @"bar-baz": Symbol.Interned,
+    };
+    try testing.expectEqualDeep(TestStruct{
+        .foo = try vm.builder().internSymbol(Symbol.init("foo")),
+        .@"bar-baz" = try vm.builder().internSymbol(Symbol.init("bar-baz")),
+    }, try vm.builder().symbolTable(TestStruct));
+}
+
+test "Builder.symbolTable on empty table creates empty table" {
+    var vm = try Vm.init(testing.allocator);
+    defer vm.deinit();
+    const TestStruct = struct {};
+    try testing.expectEqualDeep(
+        TestStruct{},
+        try vm.builder().symbolTable(TestStruct),
     );
 }
