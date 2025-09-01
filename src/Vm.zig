@@ -44,26 +44,21 @@ pub fn deinit(self: *Vm) void {
 
 /// Evaluates a string of source code.
 pub fn evalStr(self: *Vm, source: []const u8) !Val {
-    const bytecode_handle = try self.compileSource(source);
-    return try self.evalBytecode(bytecode_handle);
-}
-
-/// Compiles a string of source code into a `BytecodeFunction` and returns a handle to it.
-fn compileSource(self: *Vm, source: []const u8) !Handle(BytecodeFunction) {
+    var return_value = Val.init({});
     var reader = try Reader.init(source);
-    var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
-    defer arena.deinit();
-    var compiler = try Compiler.init(&arena, self);
-    while (try reader.next(self.heap.allocator, self)) |expr| {
-        try compiler.addExpr(expr);
-    }
     const bytecode_name = try self.builder().internSymbol(Symbol.init("user-source"));
-    const bytecode_handle = try self.heap.bytecode_functions.create(
-        self.heap.allocator,
-        try compiler.compile(bytecode_name),
-        self.heap.unreachable_color,
-    );
-    return bytecode_handle;
+    while (try reader.next(self.heap.allocator, self)) |expr| {
+        var arena = std.heap.ArenaAllocator.init(self.heap.allocator);
+        defer arena.deinit();
+        const bytecode = try Compiler.compileSingleExpression(&arena, self, bytecode_name, expr);
+        const bytecode_handle = try self.heap.bytecode_functions.create(
+            self.heap.allocator,
+            bytecode,
+            self.heap.unreachable_color,
+        );
+        return_value = try self.evalBytecode(bytecode_handle);
+    }
+    return return_value;
 }
 
 /// Evaluates a `BytecodeFunction` by executing its instructions within the VM's execution context.

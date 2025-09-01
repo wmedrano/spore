@@ -46,11 +46,17 @@ const CompilerSymbols = struct {
     quote: Symbol.Interned,
 };
 
+pub fn compileSingleExpression(arena: *std.heap.ArenaAllocator, vm: *Vm, name: ?Symbol.Interned, expr: Val) !BytecodeFunction {
+    var compiler = try init(arena, vm);
+    try compiler.addExpr(expr);
+    return compiler.compile(name);
+}
+
 /// Initialize a new compiler.
 ///
 /// The allocator to use for temporary items, such as instructions appended to
 /// the current compilation context.
-pub fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
+fn init(arena: *std.heap.ArenaAllocator, vm: *Vm) Error!Compiler {
     return try initFunction(arena, vm, Val.init({}));
 }
 
@@ -84,11 +90,11 @@ fn initFunction(arena: *std.heap.ArenaAllocator, vm: *Vm, args: Val) Error!Compi
     };
 }
 
-/// Finalizes the compilation process, returning the compiled `BytecodeFunction`.
+/// Compiles the compilation process, returning the compiled `BytecodeFunction`.
 ///
 /// The instructions accumulated during `addExpr` calls are duplicated using the
 /// VM's heap allocator.
-pub fn compile(self: *Compiler, name: ?Symbol.Interned) !BytecodeFunction {
+fn compile(self: *Compiler, name: ?Symbol.Interned) !BytecodeFunction {
     const instructions = try self.vm.heap.allocator.dupe(Instruction, self.instructions.items);
     return .{
         .instructions = instructions,
@@ -100,12 +106,12 @@ pub fn compile(self: *Compiler, name: ?Symbol.Interned) !BytecodeFunction {
 
 /// Returns true if the compiler has no instructions compiled yet, false
 /// otherwise.
-pub fn isEmpty(self: Compiler) bool {
+fn isEmpty(self: Compiler) bool {
     return self.instructions.items.len == 0;
 }
 
 /// Compiles a `Val` and adds it to the current compilation context.
-pub fn addExpr(self: *Compiler, expr: Val) !void {
+fn addExpr(self: *Compiler, expr: Val) !void {
     switch (expr.repr) {
         .boolean, .nil, .int, .float, .string, .native_function, .bytecode_function, .detailed_error => {
             const instruction = Instruction{ .push = expr };
@@ -503,15 +509,18 @@ fn addAnd(self: *Compiler, exprs: *Pair.ListIter) Error!void {
     }
 }
 
-test compile {
+test compileSingleExpression {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(+ 1 (+ 2 3))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(+ 1 (+ 2 3))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -535,7 +544,7 @@ test "compile improper list" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     const pair = try vm.initVal(Pair.init(
         Val.init(try vm.builder().internSymbol(Symbol.init("a"))),
         Val.init(42),
@@ -543,7 +552,7 @@ test "compile improper list" {
 
     try testing.expectError(
         Compiler.Error.WrongType,
-        compiler.addExpr(pair),
+        compileSingleExpression(&arena, &vm, null, pair),
     );
 }
 
@@ -552,10 +561,13 @@ test "compile atom" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(Val.init(42));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        Val.init(42),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -569,11 +581,14 @@ test "compile simple list" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
     const plus_sym = try vm.builder().internSymbol(Symbol.init("plus"));
 
-    try compiler.addExpr(try Reader.readOne("(plus 1 2)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(plus 1 2)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -586,16 +601,19 @@ test "compile simple list" {
         bytecode,
     );
 }
-
 test "compile if statement" {
     var vm = try Vm.init(testing.allocator);
     defer vm.deinit();
     const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4) (+ 5 6))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(if (+ 1 2) (+ 3 4) (+ 5 6))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -627,9 +645,13 @@ test "compile if statement without false branch uses nil false branch" {
     const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(if (+ 1 2) (+ 3 4))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(if (+ 1 2) (+ 3 4))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -657,9 +679,13 @@ test "compile function makes function" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(function () (+ 1 2))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(function () (+ 1 2))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqual(1, bytecode.instructions.len);
@@ -671,10 +697,15 @@ test "compile function without args is compile error" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     try testing.expectError(
         error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(function no-args (+ 1 2))", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(function no-args (+ 1 2))", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -683,9 +714,13 @@ test "compile function body is compiled" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(function () 1 2 3)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(function () 1 2 3)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -708,9 +743,13 @@ test "compile function without body has nil body" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(function ())", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(function ())", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -731,9 +770,13 @@ test "compile function with args has correct number of args" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(function (a b c))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(function (a b c))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -750,9 +793,13 @@ test "compile function with reference to arg resolves to correct reference" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(function (func a b) (func a b))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(function (func a b) (func a b))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const function_bytecode = try vm.heap.bytecode_functions.get(
@@ -778,9 +825,13 @@ test "compile return with value" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(return 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(return 10)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -800,9 +851,13 @@ test "compile return without value" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(return)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(return)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -822,10 +877,15 @@ test "compile return with too many args" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     try testing.expectError(
         error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(return 10 20)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(return 10 20)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -834,10 +894,13 @@ test "compile def turns to define" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(def my-var 123)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(def my-var 123)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const define_sym = try vm.builder().internSymbol(Symbol.init("internal-define"));
@@ -861,11 +924,15 @@ test "compile def without symbol fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(def \"my-var\" 123)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(def \"my-var\" 123)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -874,11 +941,15 @@ test "compile def with multiple exprs fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(def my-var 10 20)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(def my-var 10 20)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -887,10 +958,13 @@ test "compile defun turns to define with correct function bytecode" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(defun my-func (a) a)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(defun my-func (a) a)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const define_sym = try vm.builder().internSymbol(Symbol.init("internal-define"));
@@ -928,11 +1002,15 @@ test "compile defun with non-symbol name fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(defun 123 () 1)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(defun 123 () 1)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -941,11 +1019,15 @@ test "compile defun without symbol fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(defun \"my-func\" () 1)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(defun \"my-func\" () 1)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -954,11 +1036,15 @@ test "compile defun with atom as args fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(defun my-func 1 2 3)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(defun my-func 1 2 3)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -967,11 +1053,15 @@ test "compile defun with missing args fails" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
     try testing.expectError(
         Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(defun my-func)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(defun my-func)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -980,10 +1070,13 @@ test "let* evaluates bindings" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(let* ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(let* ((x (+ 1 2)) (y (+ x 3))) (+ x y))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
     const plus_sym = try vm.builder().internSymbol(Symbol.init("+"));
     try testing.expectEqualDeep(
@@ -1016,10 +1109,13 @@ test "multiple expressions in let* squashed to single" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
 
-    try compiler.addExpr(try Reader.readOne("(let* () 1 2 3 4)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(let* () 1 2 3 4)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
     try testing.expectEqualDeep(
         BytecodeFunction{
@@ -1042,9 +1138,13 @@ test "or statement with multiple exprs" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(or false nil 1 2)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(or false nil 1 2)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1069,9 +1169,13 @@ test "empty or statement returns nil" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(or)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(or)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1090,9 +1194,13 @@ test "empty or statement with single value returns value" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(or 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(or 10)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1111,9 +1219,13 @@ test "and statement with multiple truthy exprs" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(and 1 2 3)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(and 1 2 3)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1136,9 +1248,13 @@ test "and statement with single expr returns expr" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(and 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(and 10)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1157,10 +1273,15 @@ test "empty and statement is compile error" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     try testing.expectError(
         Compiler.Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(and)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(and)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -1169,9 +1290,13 @@ test "compile quote with atom returns atom" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(quote 10)", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(quote 10)", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     try testing.expectEqualDeep(
@@ -1190,9 +1315,13 @@ test "compile quote with list returns list" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
-    try compiler.addExpr(try Reader.readOne("(quote (1 2))", testing.allocator, &vm));
-    var bytecode = try compiler.compile(null);
+
+    var bytecode = try compileSingleExpression(
+        &arena,
+        &vm,
+        null,
+        try Reader.readOne("(quote (1 2))", testing.allocator, &vm),
+    );
     defer bytecode.deinit(testing.allocator);
 
     const list_val = bytecode.instructions[0].push;
@@ -1217,10 +1346,15 @@ test "compile quote with no arguments is compile error" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     try testing.expectError(
         Compiler.Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(quote)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(quote)", testing.allocator, &vm),
+        ),
     );
 }
 
@@ -1229,9 +1363,14 @@ test "compile quote with too many arguments is compile error" {
     defer vm.deinit();
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
-    var compiler = try init(&arena, &vm);
+
     try testing.expectError(
         Compiler.Error.InvalidExpression,
-        compiler.addExpr(try Reader.readOne("(quote 1 2)", testing.allocator, &vm)),
+        compileSingleExpression(
+            &arena,
+            &vm,
+            null,
+            try Reader.readOne("(quote 1 2)", testing.allocator, &vm),
+        ),
     );
 }
